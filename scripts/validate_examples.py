@@ -30,9 +30,15 @@ def main() -> None:
         )
 
     failures: list[str] = []
+    schema_paths = sorted(schemas_dir.glob("*.schema.json"))
     example_paths = sorted(examples_dir.glob("*.json"))
     if not example_paths:
         raise SystemExit(f"no JSON examples found in {examples_dir}")
+
+    schema_names = {path.name.removesuffix(".schema.json") for path in schema_paths}
+    example_names = {path.stem for path in example_paths}
+    for missing_example in sorted(schema_names - example_names):
+        failures.append(f"missing example for {missing_example}.schema.json")
 
     for example_path in example_paths:
         schema_path = schemas_dir / f"{example_path.stem}.schema.json"

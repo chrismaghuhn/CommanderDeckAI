@@ -12,6 +12,7 @@
 | Ruleset snapshot | versionierte Commander-Regeln, Banlist und Ausnahmen |
 | Source snapshot | unveränderlicher Abruf einer Datenquelle |
 | Dataset manifest | vollständige Beschreibung eines trainierbaren Datasets |
+| Run manifest | versionierter Provenienz- und Reproduzierbarkeitsnachweis eines Runs |
 | Deck fingerprint | stabiler Hash über Command Zone und Kartenmultiset |
 | Completion sample | Teildeck plus versteckte Zielkarten |
 | cEDH | competitive Commander; Ziel näher an Pod-Winrate |

@@ -61,6 +61,7 @@ def main() -> None:
     optimization_result = load("optimization-result.v1.json")
     forge_request = load("forge-evaluation-request.v1.json")
     forge_result = load("forge-evaluation-result.v1.json")
+    run_manifest = load("run-manifest.v1.json")
 
     require_equal(
         "ruleset_version",
@@ -120,6 +121,17 @@ def main() -> None:
         forge_result["request_id"],
     )
     require_equal("deck_id", deck["deck_id"], completion["deck_id"])
+
+    input_refs = {(item["kind"], item["id"]) for item in run_manifest["inputs"]}
+    if ("dataset_manifest", dataset["dataset_id"]) not in input_refs:
+        raise SystemExit("run manifest does not reference the dataset fixture")
+    if ("ruleset_snapshot", ruleset["ruleset_version"]) not in input_refs:
+        raise SystemExit("run manifest does not reference the ruleset fixture")
+
+    artifact_paths = {item["path"] for item in run_manifest["artifacts"]}
+    for model_artifact in model["artifacts"]:
+        if model_artifact["path"] not in artifact_paths:
+            raise SystemExit("run manifest does not reference every model artifact")
 
     validate_deck_total("deck fixture", deck, ruleset)
     validate_deck_total("optimization result", optimization_result, ruleset)
