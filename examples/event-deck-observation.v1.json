@@ -2,7 +2,7 @@
   "schema_version": "event-deck-observation.v1",
   "observation_id": "observation-001",
   "event_id": "event-001",
-  "canonical_deck_id": "7777777777777777777777777777777777777777777777777777777777777777",
+  "canonical_deck_id": "a15de215dbd5b7f2295fb2d1836519dd0c4b27ec7e40cf140cbd205641f44625",
   "observed_at": "2026-08-10T18:04:00Z",
   "participant_reference": {
     "schema_version": "participant-reference.v1",

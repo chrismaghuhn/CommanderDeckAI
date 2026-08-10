@@ -1,7 +1,7 @@
 {
   "schema_version": "canonical-deck.v1",
-  "canonical_deck_id": "7777777777777777777777777777777777777777777777777777777777777777",
-  "structural_fingerprint": "7777777777777777777777777777777777777777777777777777777777777777",
+  "canonical_deck_id": "a15de215dbd5b7f2295fb2d1836519dd0c4b27ec7e40cf140cbd205641f44625",
+  "structural_fingerprint": "a15de215dbd5b7f2295fb2d1836519dd0c4b27ec7e40cf140cbd205641f44625",
   "fingerprint_algorithm_version": "commander-structural-v1",
   "format": "commander",
   "command_zone": [

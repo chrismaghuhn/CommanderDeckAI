@@ -21,8 +21,10 @@ from .provenance import (
     ProvenanceReference,
     QuarantineReference,
     RawObjectReference,
+    RequestParametersSummary,
     SourceSnapshotManifest,
     SourceSnapshotRequest,
+    derive_request_parameters_summary,
 )
 
 __all__ = [
@@ -51,7 +53,9 @@ __all__ = [
     "ProvenanceReference",
     "QuarantineReference",
     "RawObjectReference",
+    "RequestParametersSummary",
     "SourceSnapshotManifest",
     "SourceSnapshotRequest",
     "compute_structural_fingerprint",
+    "derive_request_parameters_summary",
 ]

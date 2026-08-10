@@ -2,6 +2,9 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+import pytest
+from pydantic import ValidationError
+
 from commander_ai.domain.cards import (
     CardFace,
     CardIdentity,
@@ -126,6 +129,22 @@ def test_canonical_deck_accepts_one_commander_partner_pair_and_background_relati
     assert len(partner_pair.command_zone) == 2
     assert len(background_relationship.command_zone) == 2
     assert background_relationship.command_zone_relationships[0].kind == "background"
+
+
+def test_canonical_deck_requires_non_empty_command_and_card_zones() -> None:
+    with pytest.raises(ValidationError):
+        CanonicalDeck(
+            command_zone=(),
+            card_zones=card_zones(),
+            provenance=(provenance("fixture", "empty-command"),),
+        )
+
+    with pytest.raises(ValidationError):
+        CanonicalDeck(
+            command_zone=(CommandZoneEntry(oracle_id=ORACLE_A, quantity=1),),
+            card_zones=(),
+            provenance=(provenance("fixture", "empty-zones"),),
+        )
 
 
 def test_deck_identity_ignores_source_and_observation_context() -> None:
@@ -290,13 +309,20 @@ def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains(
         started_at=datetime(2026, 8, 10, tzinfo=UTC),
         completed_at=datetime(2026, 8, 10, 0, 1, tzinfo=UTC),
         usage_status="APPROVED_REDISTRIBUTION",
-        request_parameters_redacted={"page": 1},
         requests=(request,),
         objects=(raw_object,),
         attribution_required=False,
         redistribution_status="approved",
         snapshot_content_sha256="3" * 64,
         manifest_sha256="4" * 64,
+        request_parameters_redacted={
+            "request_ids": ["request-1"],
+            "methods": ["GET"],
+            "endpoints": ["https://example.invalid/cards"],
+            "formats": ["json"],
+            "api_versions": [],
+            "parameter_keys": ["page"],
+        },
     )
     normalized_manifest = NormalizedSnapshotManifest(
         normalized_snapshot_id="normalized-1",
@@ -308,7 +334,9 @@ def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains(
         normalized_schema_version="records-v1",
         mapper_version="mapper-v1",
         transform_version="transform-v1",
+        normalized_artifact_path="normalized/records.parquet",
         normalized_artifact_sha256="5" * 64,
+        audit_artifact_path="audit/findings.parquet",
         audit_artifact_sha256="6" * 64,
         counts={"normalized_records": 1},
         created_at=datetime(2026, 8, 10, 0, 2, tzinfo=UTC),

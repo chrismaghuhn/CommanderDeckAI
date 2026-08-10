@@ -23,6 +23,13 @@
     "snapshot_content_sha256",
     "manifest_sha256"
   ],
+  "x-reference-constraints": [
+    {
+      "from": "objects[].request_id",
+      "to": "requests[].request_id",
+      "unique_request_ids": true
+    }
+  ],
   "properties": {
     "schema_version": {
       "const": "source-snapshot-manifest.v2"
@@ -75,10 +82,70 @@
       "minLength": 1
     },
     "request_parameters_redacted": {
-      "type": "object"
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_ids",
+        "methods",
+        "endpoints",
+        "formats",
+        "api_versions",
+        "parameter_keys"
+      ],
+      "properties": {
+        "request_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "uniqueItems": true
+        },
+        "formats": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "api_versions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "parameter_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
     },
     "requests": {
       "type": "array",
+      "uniqueItems": true,
       "items": {
         "type": "object",
         "additionalProperties": false,

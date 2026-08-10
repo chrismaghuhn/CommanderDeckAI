@@ -121,9 +121,9 @@ class CanonicalDeck(DomainModel):
     structural_fingerprint: str
     fingerprint_algorithm_version: str = Field(default="commander-structural-v1", min_length=1)
     format: Literal["commander"] = "commander"
-    command_zone: tuple[CommandZoneEntry, ...]
+    command_zone: tuple[CommandZoneEntry, ...] = Field(min_length=1)
     command_zone_relationships: tuple[CommandZoneRelationship, ...] = Field(default_factory=tuple)
-    card_zones: tuple[CardZone, ...]
+    card_zones: tuple[CardZone, ...] = Field(min_length=1)
     provenance: tuple[ProvenanceReference, ...]
 
     @model_validator(mode="before")

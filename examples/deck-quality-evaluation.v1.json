@@ -1,6 +1,6 @@
 {
   "schema_version": "deck-quality-evaluation.v1",
-  "canonical_deck_id": "7777777777777777777777777777777777777777777777777777777777777777",
+  "canonical_deck_id": "a15de215dbd5b7f2295fb2d1836519dd0c4b27ec7e40cf140cbd205641f44625",
   "evaluated_at": "2026-08-10T18:03:30Z",
   "evaluator_version": "deck-quality-v1",
   "quality_status": "accepted",

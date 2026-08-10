@@ -4,7 +4,12 @@ import copy
 import json
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator, FormatChecker
+from pydantic import ValidationError
+
+from commander_ai.domain.decks import CanonicalDeck
+from commander_ai.domain.provenance import SourceSnapshotManifest
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -95,15 +100,69 @@ def test_normalized_snapshot_manifest_binds_identity_provenance_and_two_digest_d
     assert example["normalized_content_sha256"] != example["manifest_sha256"]
 
 
+def test_normalized_snapshot_manifest_requires_both_artifact_paths() -> None:
+    schema, example = load_contract("normalized-snapshot-manifest.v1")
+
+    for field in ("normalized_artifact_path", "audit_artifact_path"):
+        candidate = copy.deepcopy(example)
+        candidate.pop(field)
+        errors = validation_errors(schema, candidate)
+        assert any(error.validator == "required" for error in errors)  # type: ignore[attr-defined]
+
+
+def test_canonical_deck_example_ids_match_the_domain_fingerprint() -> None:
+    schema, example = load_contract("canonical-deck.v1")
+
+    deck = CanonicalDeck.model_validate(example)
+
+    assert deck.canonical_deck_id == deck.structural_fingerprint
+    assert deck.canonical_deck_id == example["canonical_deck_id"]
+    round_trip_errors = validation_errors(schema, deck.model_dump(mode="json"))
+    assert not round_trip_errors
+
+    for stem in (
+        "deck-legality-evaluation.v1",
+        "deck-quality-evaluation.v1",
+        "event-deck-observation.v1",
+    ):
+        _, reference = load_contract(stem)
+        assert reference["canonical_deck_id"] == deck.canonical_deck_id
+
+
 def test_source_snapshot_v2_keeps_compatibility_summary_derived_alongside_authoritative_records(
 ) -> None:
     _, example = load_contract("source-snapshot-manifest.v2")
 
     assert example["requests"]
     assert example["objects"]
-    assert "request_parameters_redacted" in example
+    assert example["request_parameters_redacted"] == {
+        "request_ids": ["request-001"],
+        "methods": ["GET"],
+        "endpoints": ["https://example.invalid/fixture/cards"],
+        "formats": ["json"],
+        "api_versions": [],
+        "parameter_keys": ["page"],
+    }
     assert example["objects"][0]["raw_object_id"]  # type: ignore[index]
     assert example["objects"][0]["request_id"]  # type: ignore[index]
+
+
+def test_source_snapshot_v2_rejects_unknown_object_request_and_non_derived_summary() -> None:
+    schema, example = load_contract("source-snapshot-manifest.v2")
+
+    invalid_reference = copy.deepcopy(example)
+    invalid_reference["objects"][0]["request_id"] = "missing-request"  # type: ignore[index]
+    with pytest.raises(ValidationError):
+        SourceSnapshotManifest.model_validate(invalid_reference)
+
+    invalid_summary = copy.deepcopy(example)
+    invalid_summary["request_parameters_redacted"]["formats"] = ["xml"]  # type: ignore[index]
+    with pytest.raises(ValidationError):
+        SourceSnapshotManifest.model_validate(invalid_summary)
+
+    invalid_summary_shape = copy.deepcopy(example)
+    invalid_summary_shape["request_parameters_redacted"] = {"fixture": True}
+    assert validation_errors(schema, invalid_summary_shape)
 
 
 def test_existing_v1_examples_remain_valid() -> None:

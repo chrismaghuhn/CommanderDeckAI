@@ -2,11 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class DomainModel(BaseModel):
@@ -52,6 +52,42 @@ class SourceSnapshotRequest(DomainModel):
     sanitized_parameters: Mapping[str, object] = Field(default_factory=dict)
 
 
+class RequestParametersSummary(DomainModel):
+    """Deterministic v1-compatible summary derived from request records."""
+
+    request_ids: tuple[str, ...]
+    methods: tuple[str, ...]
+    endpoints: tuple[str, ...]
+    formats: tuple[str, ...]
+    api_versions: tuple[str, ...]
+    parameter_keys: tuple[str, ...]
+
+
+def derive_request_parameters_summary(
+    requests: Sequence[SourceSnapshotRequest],
+) -> RequestParametersSummary:
+    """Build the only permitted compatibility summary from authoritative requests."""
+
+    return RequestParametersSummary(
+        request_ids=tuple(sorted({request.request_id for request in requests})),
+        methods=tuple(sorted({request.sanitized_method for request in requests})),
+        endpoints=tuple(sorted({request.sanitized_endpoint for request in requests})),
+        formats=tuple(sorted({request.format for request in requests})),
+        api_versions=tuple(
+            sorted({request.api_version for request in requests if request.api_version is not None})
+        ),
+        parameter_keys=tuple(
+            sorted(
+                {
+                    key
+                    for request in requests
+                    for key in request.sanitized_parameters
+                }
+            )
+        ),
+    )
+
+
 class RawObjectReference(DomainModel):
     """Immutable raw object metadata; ``sha256`` covers exact raw bytes."""
 
@@ -87,7 +123,7 @@ class SourceSnapshotManifest(DomainModel):
     completed_at: datetime | None
     terms_reference: str | None = None
     usage_status: str = Field(min_length=1)
-    request_parameters_redacted: Mapping[str, object] = Field(default_factory=dict)
+    request_parameters_redacted: RequestParametersSummary
     requests: tuple[SourceSnapshotRequest, ...]
     objects: tuple[RawObjectReference, ...]
     pagination_state: Mapping[str, object] | None = None
@@ -95,6 +131,27 @@ class SourceSnapshotManifest(DomainModel):
     redistribution_status: Literal["not_approved", "derived_only", "approved"]
     snapshot_content_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
     manifest_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @model_validator(mode="after")
+    def validate_request_lineage(self) -> SourceSnapshotManifest:
+        request_ids = [request.request_id for request in self.requests]
+        if len(request_ids) != len(set(request_ids)):
+            raise ValueError("requests must have unique request_id values")
+
+        known_request_ids = set(request_ids)
+        missing_request_ids = {
+            raw_object.request_id
+            for raw_object in self.objects
+            if raw_object.request_id not in known_request_ids
+        }
+        if missing_request_ids:
+            missing = ", ".join(sorted(missing_request_ids))
+            raise ValueError(f"objects reference unknown request_id values: {missing}")
+
+        expected_summary = derive_request_parameters_summary(self.requests)
+        if self.request_parameters_redacted != expected_summary:
+            raise ValueError("request_parameters_redacted must equal the derived request summary")
+        return self
 
 
 class NormalizedSnapshotManifest(DomainModel):
@@ -110,9 +167,9 @@ class NormalizedSnapshotManifest(DomainModel):
     normalized_schema_version: str = Field(min_length=1)
     mapper_version: str = Field(min_length=1)
     transform_version: str = Field(min_length=1)
-    normalized_artifact_path: str | None = Field(default=None, min_length=1)
+    normalized_artifact_path: str = Field(min_length=1)
     normalized_artifact_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    audit_artifact_path: str | None = Field(default=None, min_length=1)
+    audit_artifact_path: str = Field(min_length=1)
     audit_artifact_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
     counts: Mapping[str, int]
     finding_codes: tuple[str, ...] = Field(default_factory=tuple)

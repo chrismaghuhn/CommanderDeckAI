@@ -10,7 +10,22 @@
   "terms_reference": null,
   "usage_status": "APPROVED_REDISTRIBUTION",
   "request_parameters_redacted": {
-    "fixture": true
+    "request_ids": [
+      "request-001"
+    ],
+    "methods": [
+      "GET"
+    ],
+    "endpoints": [
+      "https://example.invalid/fixture/cards"
+    ],
+    "formats": [
+      "json"
+    ],
+    "api_versions": [],
+    "parameter_keys": [
+      "page"
+    ]
   },
   "requests": [
     {
