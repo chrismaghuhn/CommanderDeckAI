@@ -44,18 +44,30 @@
       "format": "date"
     },
     "language": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "minLength": 1
     },
     "rarity": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "minLength": 1
     },
     "is_foil": {
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "is_promo": {
-      "type": "boolean"
+      "type": [
+        "boolean",
+        "null"
+      ]
     },
     "face_ids": {
       "type": "array",
@@ -102,21 +114,35 @@
           "pattern": "^[a-f0-9]{64}$"
         },
         "retrieved_at": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         },
         "adapter_version": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1
         },
         "mapper_version": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1
         },
         "approval_status": {
+          "type": [
+            "string",
+            "null"
+          ],
           "enum": [
             "APPROVED_LOCAL",
-            "APPROVED_REDISTRIBUTION"
+            "APPROVED_REDISTRIBUTION",
+            null
           ]
         }
       }

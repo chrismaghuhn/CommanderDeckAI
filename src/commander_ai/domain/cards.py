@@ -41,7 +41,7 @@ class CardFace(DomainModel):
     power: str | None = None
     toughness: str | None = None
     loyalty: str | None = None
-    provenance: tuple[ProvenanceReference, ...] = Field(default_factory=tuple)
+    provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)
 
     @model_validator(mode="before")
     @classmethod
@@ -68,8 +68,8 @@ class Printing(DomainModel):
     rarity: str | None = Field(default=None, min_length=1)
     is_foil: bool | None = None
     is_promo: bool | None = None
-    face_ids: tuple[str, ...]
-    provenance: tuple[ProvenanceReference, ...] = Field(default_factory=tuple)
+    face_ids: tuple[str, ...] = Field(min_length=1)
+    provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)
 
 
 class CardResolutionCandidate(DomainModel):

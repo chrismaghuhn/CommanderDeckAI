@@ -9,8 +9,11 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import ValidationError
 
-from commander_ai.domain.cards import CardResolution
+from commander_ai.domain.cards import CardFace, CardResolution, Printing
+from commander_ai.domain.combos import Combo, ComboCard
 from commander_ai.domain.decks import CanonicalDeck
+from commander_ai.domain.evaluations import DeckLegalityEvaluation, DeckQualityEvaluation
+from commander_ai.domain.observations import EventDeckObservation, ParticipantReference
 from commander_ai.domain.provenance import (
     DatasetManifest,
     NormalizedSnapshotManifest,
@@ -147,6 +150,13 @@ def test_canonical_deck_duplicate_identity_rows_are_domain_rejected() -> None:
         CanonicalDeck.model_validate(candidate)
 
 
+def test_canonical_deck_schema_documents_unique_zone_name_rule() -> None:
+    schema, _ = load_contract("canonical-deck.v1")
+    card_zones = schema["properties"]["card_zones"]  # type: ignore[index]
+
+    assert card_zones["x-unique-by"] == "zone"  # type: ignore[index]
+
+
 def test_source_snapshot_summary_is_derived() -> None:
     _, example = load_contract("source-snapshot-manifest.v2")
 
@@ -190,6 +200,14 @@ def test_source_snapshot_v2_rejects_unknown_object_request_and_non_derived_summa
         ("source-snapshot-manifest.v2", SourceSnapshotManifest),
         ("normalized-snapshot-manifest.v1", NormalizedSnapshotManifest),
         ("canonical-deck.v1", CanonicalDeck),
+        ("deck-legality-evaluation.v1", DeckLegalityEvaluation),
+        ("deck-quality-evaluation.v1", DeckQualityEvaluation),
+        ("card-face.v1", CardFace),
+        ("printing.v1", Printing),
+        ("event-deck-observation.v1", EventDeckObservation),
+        ("participant-reference.v1", ParticipantReference),
+        ("combo.v1", Combo),
+        ("combo-card.v1", ComboCard),
     ),
 )
 def test_affected_domain_models_round_trip_through_their_contract(
@@ -201,6 +219,25 @@ def test_affected_domain_models_round_trip_through_their_contract(
         candidate["finding_code"] = "resolution.exact_name"
     elif stem == "dataset-manifest.v2":
         candidate["outputs"][0]["bytes"] = 256  # type: ignore[index]
+    elif stem == "card-face.v1":
+        candidate["mana_value"] = None
+    elif stem == "printing.v1":
+        candidate["language"] = None
+        candidate["rarity"] = None
+        candidate["is_foil"] = None
+        candidate["is_promo"] = None
+    elif stem == "canonical-deck.v1":
+        candidate["command_zone"][0]["source_declared_role"] = None  # type: ignore[index]
+
+    if candidate.get("provenance"):
+        candidate["provenance"][0].update(  # type: ignore[index]
+            {
+                "retrieved_at": None,
+                "adapter_version": None,
+                "mapper_version": None,
+                "approval_status": None,
+            }
+        )
 
     model = model_type.model_validate(candidate)  # type: ignore[attr-defined]
     round_trip = model.model_dump(mode="json")  # type: ignore[attr-defined]
@@ -214,6 +251,76 @@ def test_affected_domain_models_round_trip_through_their_contract(
         assert round_trip["finding_code"] == "resolution.exact_name"
     elif stem == "dataset-manifest.v2":
         assert round_trip["outputs"][0]["bytes"] == 256  # type: ignore[index]
+
+
+@pytest.mark.parametrize(
+    ("stem", "field", "model_type"),
+    (
+        ("card-face.v1", "provenance", CardFace),
+        ("printing.v1", "face_ids", Printing),
+        ("printing.v1", "provenance", Printing),
+        ("canonical-deck.v1", "provenance", CanonicalDeck),
+        ("event-deck-observation.v1", "provenance", EventDeckObservation),
+        ("combo.v1", "provenance", Combo),
+        ("combo-card.v1", "provenance", ComboCard),
+        ("normalized-snapshot-manifest.v1", "provenance", NormalizedSnapshotManifest),
+        ("dataset-manifest.v2", "input_manifests", DatasetManifest),
+        ("dataset-manifest.v2", "schema_versions", DatasetManifest),
+        ("dataset-manifest.v2", "transform_versions", DatasetManifest),
+        ("dataset-manifest.v2", "policy_versions", DatasetManifest),
+        ("dataset-manifest.v2", "outputs", DatasetManifest),
+    ),
+)
+def test_schema_required_collections_match_domain_non_empty_rules(
+    stem: str, field: str, model_type: type[object]
+) -> None:
+    schema, example = load_contract(stem)
+    candidate = copy.deepcopy(example)
+    candidate[field] = []
+
+    errors = validation_errors(schema, candidate)
+    assert any(error.validator == "minItems" for error in errors)  # type: ignore[attr-defined]
+    with pytest.raises(ValidationError):
+        model_type.model_validate(candidate)  # type: ignore[attr-defined]
+
+
+@pytest.mark.parametrize(
+    ("stem", "mutate", "model_type"),
+    (
+        (
+            "card-face.v1",
+            lambda candidate: candidate.__setitem__("mana_value", -1),
+            CardFace,
+        ),
+        (
+            "printing.v1",
+            lambda candidate: candidate.__setitem__("language", ""),
+            Printing,
+        ),
+        (
+            "canonical-deck.v1",
+            lambda candidate: candidate["command_zone"][0].__setitem__(
+                "source_declared_role", "invalid"
+            ),
+            CanonicalDeck,
+        ),
+        (
+            "card-face.v1",
+            lambda candidate: candidate["provenance"][0].__setitem__("approval_status", "UNKNOWN"),
+            CardFace,
+        ),
+    ),
+)
+def test_task1_optional_fields_reject_invalid_values(
+    stem: str, mutate: object, model_type: type[object]
+) -> None:
+    schema, example = load_contract(stem)
+    candidate = copy.deepcopy(example)
+    mutate(candidate)  # type: ignore[operator]
+
+    assert validation_errors(schema, candidate)
+    with pytest.raises(ValidationError):
+        model_type.model_validate(candidate)  # type: ignore[attr-defined]
 
 
 @pytest.mark.parametrize(

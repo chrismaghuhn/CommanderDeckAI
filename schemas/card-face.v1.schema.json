@@ -43,7 +43,10 @@
       "minLength": 1
     },
     "mana_value": {
-      "type": "number",
+      "type": [
+        "number",
+        "null"
+      ],
       "minimum": 0
     },
     "mana_cost": {
@@ -172,21 +175,35 @@
           "pattern": "^[a-f0-9]{64}$"
         },
         "retrieved_at": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "format": "date-time"
         },
         "adapter_version": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1
         },
         "mapper_version": {
-          "type": "string",
+          "type": [
+            "string",
+            "null"
+          ],
           "minLength": 1
         },
         "approval_status": {
+          "type": [
+            "string",
+            "null"
+          ],
           "enum": [
             "APPROVED_LOCAL",
-            "APPROVED_REDISTRIBUTION"
+            "APPROVED_REDISTRIBUTION",
+            null
           ]
         }
       }

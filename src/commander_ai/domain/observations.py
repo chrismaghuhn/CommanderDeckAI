@@ -54,7 +54,7 @@ class EventDeckObservation(DomainModel):
     aggregate_losses: int = Field(ge=0)
     aggregate_draws: int = Field(ge=0)
     source_result_semantics: str = Field(min_length=1)
-    provenance: tuple[ProvenanceReference, ...]
+    provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)
 
     @model_validator(mode="after")
     def validate_participant_scope(self) -> EventDeckObservation:
@@ -72,9 +72,8 @@ class EventDeckObservation(DomainModel):
 
 
 class PodEntry(DomainModel):
-    """One round/seat record, never an implicit 1v1 outcome."""
+    """Internal normalized round/seat record, never an implicit 1v1 outcome."""
 
-    schema_version: Literal["pod.v1"] = "pod.v1"
     pod_id: str = Field(min_length=1)
     event_id: str = Field(min_length=1)
     round_number: int = Field(ge=1)

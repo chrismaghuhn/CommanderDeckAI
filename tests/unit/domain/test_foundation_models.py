@@ -93,17 +93,101 @@ def test_card_identity_printing_and_face_are_distinct_domain_values() -> None:
         collector_number="1",
         released_at="2026-08-10",
         face_ids=("face-a",),
+        provenance=(provenance("fixture", "printing-a"),),
     )
     face = CardFace(
         face_id="face-a",
         oracle_id=ORACLE_A,
         face_index=0,
         name="Fixture Card",
+        provenance=(provenance("fixture", "face-a"),),
     )
 
     assert card.oracle_id == printing.oracle_id == face.oracle_id
     assert card.oracle_id != printing.printing_id
     assert face.face_id != printing.printing_id
+
+
+def test_task1_optional_fields_dump_as_explicit_nulls() -> None:
+    face = CardFace(
+        face_id="face-null",
+        oracle_id=ORACLE_A,
+        face_index=0,
+        name="Fixture Card",
+        mana_value=None,
+        provenance=(provenance("fixture", "face-null"),),
+    )
+    printing = Printing(
+        printing_id=PRINTING_A,
+        oracle_id=ORACLE_A,
+        card_snapshot_id="cards-fixture",
+        set_code="FIX",
+        collector_number="1",
+        released_at="2026-08-10",
+        language=None,
+        rarity=None,
+        is_foil=None,
+        is_promo=None,
+        face_ids=("face-null",),
+        provenance=(provenance("fixture", "printing-null"),),
+    )
+    command_entry = CommandZoneEntry(oracle_id=ORACLE_A, quantity=1)
+    reference = provenance("fixture", "metadata-null").model_copy(
+        update={
+            "retrieved_at": None,
+            "adapter_version": None,
+            "mapper_version": None,
+            "approval_status": None,
+        }
+    )
+
+    assert face.model_dump(mode="json")["mana_value"] is None
+    assert printing.model_dump(mode="json")["language"] is None
+    assert printing.model_dump(mode="json")["rarity"] is None
+    assert printing.model_dump(mode="json")["is_foil"] is None
+    assert printing.model_dump(mode="json")["is_promo"] is None
+    assert command_entry.model_dump(mode="json")["source_declared_role"] is None
+    assert reference.model_dump(mode="json")["retrieved_at"] is None
+    assert reference.model_dump(mode="json")["adapter_version"] is None
+    assert reference.model_dump(mode="json")["mapper_version"] is None
+    assert reference.model_dump(mode="json")["approval_status"] is None
+
+
+def test_persisted_card_collections_reject_empty_values() -> None:
+    source = provenance("fixture", "empty-collections")
+
+    with pytest.raises(ValidationError):
+        CardFace(
+            face_id="face-empty",
+            oracle_id=ORACLE_A,
+            face_index=0,
+            name="Fixture Card",
+            provenance=(),
+        )
+
+    with pytest.raises(ValidationError):
+        Printing(
+            printing_id=PRINTING_A,
+            oracle_id=ORACLE_A,
+            card_snapshot_id="cards-fixture",
+            set_code="FIX",
+            collector_number="1",
+            released_at="2026-08-10",
+            face_ids=(),
+            provenance=(source,),
+        )
+
+    with pytest.raises(ValidationError):
+        Printing(
+            printing_id=PRINTING_A,
+            oracle_id=ORACLE_A,
+            card_snapshot_id="cards-fixture",
+            set_code="FIX",
+            collector_number="1",
+            released_at="2026-08-10",
+            face_ids=("face-empty",),
+            provenance=(),
+        )
 
 
 def test_canonical_deck_accepts_one_commander_partner_pair_and_background_relationship() -> None:
@@ -252,7 +336,10 @@ def test_event_observations_repeat_decks_while_pod_entries_keep_round_and_seat()
 
     assert observation.canonical_deck_id == pod_entry.canonical_deck_id
     assert (pod_entry.round_number, pod_entry.seat) == (3, 2)
-    assert pod_entry.schema_version == "pod.v1"
+    pod_payload = pod_entry.model_dump(mode="json")
+    assert "schema_version" not in pod_payload
+    with pytest.raises(ValidationError):
+        PodEntry.model_validate({**pod_payload, "schema_version": "pod.v1"})
 
 
 def test_resolution_and_combo_models_keep_identity_and_feature_facts_separate() -> None:
@@ -459,6 +546,26 @@ def test_nested_persisted_values_are_deeply_immutable_and_serializable() -> None
     json.dumps(request.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
 
 
+def test_model_copy_update_revalidates_and_deep_freezes_nested_values() -> None:
+    request = SourceSnapshotRequest(
+        request_id="request-1",
+        sanitized_method="GET",
+        sanitized_endpoint="https://example.invalid/cards",
+        format="json",
+        sanitized_parameters={"nested": {"values": [1, 2]}},
+    )
+    update = {"nested": {"values": [3, 4]}}
+    copied = request.model_copy(update={"sanitized_parameters": update})
+    update["nested"]["values"].append(5)
+
+    assert request.sanitized_parameters["nested"]["values"] == (1, 2)
+    assert copied.sanitized_parameters["nested"]["values"] == (3, 4)
+    for model in (request, copied):
+        with pytest.raises(TypeError):
+            model.sanitized_parameters["nested"]["values"][0] = 9  # type: ignore[index]
+        json.dumps(model.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
+
+
 def test_structural_fingerprint_rejects_duplicate_identity_rows_before_persistence() -> None:
     with pytest.raises(ValueError, match="card identity may occur only once"):
         compute_structural_fingerprint(
@@ -472,6 +579,46 @@ def test_structural_fingerprint_rejects_duplicate_identity_rows_before_persisten
                     ],
                 },
             ),
+        )
+
+
+def test_structural_fingerprint_rejects_duplicate_zone_names_in_any_order() -> None:
+    zones = (
+        {
+            "zone": "mainboard",
+            "cards": [{"oracle_id": ORACLE_C, "quantity": 1}],
+        },
+        {
+            "zone": "mainboard",
+            "cards": [{"oracle_id": ORACLE_B, "quantity": 1}],
+        },
+    )
+
+    for ordered_zones in (zones, tuple(reversed(zones))):
+        with pytest.raises(ValueError, match="zone names must be unique"):
+            compute_structural_fingerprint(
+                ({"oracle_id": ORACLE_A, "quantity": 1},),
+                ordered_zones,
+            )
+
+
+def test_canonical_deck_rejects_duplicate_zone_names() -> None:
+    zones = (
+        CardZone(
+            zone="mainboard",
+            cards=(CardQuantity(oracle_id=ORACLE_B, quantity=1),),
+        ),
+        CardZone(
+            zone="mainboard",
+            cards=(CardQuantity(oracle_id=ORACLE_C, quantity=1),),
+        ),
+    )
+
+    with pytest.raises(ValidationError, match="zone names must be unique"):
+        CanonicalDeck(
+            command_zone=(CommandZoneEntry(oracle_id=ORACLE_A, quantity=1),),
+            card_zones=zones,
+            provenance=(provenance("fixture", "duplicate-zones"),),
         )
 
 

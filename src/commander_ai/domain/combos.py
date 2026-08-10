@@ -17,7 +17,7 @@ class ComboCard(DomainModel):
     oracle_id: str = Field(min_length=1)
     role: Literal["required", "optional", "commander", "enabler", "result"]
     quantity: int = Field(ge=1)
-    provenance: tuple[ProvenanceReference, ...]
+    provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)
 
 
 class Combo(DomainModel):
@@ -31,4 +31,4 @@ class Combo(DomainModel):
     requirements: tuple[str, ...]
     results: tuple[str, ...] = Field(min_length=1)
     steps: tuple[str, ...] = Field(default_factory=tuple)
-    provenance: tuple[ProvenanceReference, ...]
+    provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)

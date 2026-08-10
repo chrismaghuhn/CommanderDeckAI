@@ -7,7 +7,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Any, Literal, NoReturn
+from typing import Any, Literal, NoReturn, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -87,6 +87,25 @@ class DomainModel(BaseModel):
     """Strict immutable base for domain values."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    def model_copy(
+        self,
+        *,
+        update: Mapping[str, Any] | None = None,
+        deep: bool = False,
+    ) -> Self:
+        """Return a revalidated copy whose nested values are frozen again.
+
+        Pydantic's default ``model_copy`` intentionally trusts ``update`` and
+        writes it directly into the new instance. Domain models must preserve
+        their deep immutability invariant even when callers use that API.
+        """
+
+        del deep
+        values = self.model_dump(mode="python")
+        if update is not None:
+            values.update(update)
+        return type(self).model_validate(values)
 
     def model_post_init(self, __context: object) -> None:
         for field_name in type(self).model_fields:
@@ -262,7 +281,7 @@ class NormalizedSnapshotManifest(DomainModel):
     counts: Mapping[str, int]
     finding_codes: tuple[str, ...] = Field(default_factory=tuple)
     quarantine_references: tuple[QuarantineReference, ...] = Field(default_factory=tuple)
-    provenance: tuple[ProvenanceReference, ...]
+    provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)
     created_at: datetime
     started_at: datetime
     completed_at: datetime | None
@@ -331,10 +350,10 @@ class DatasetManifest(DomainModel):
     builder_version: str = Field(min_length=1)
     code_commit: str = Field(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
     dependency_lock_hash: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    input_manifests: tuple[DatasetInputReference, ...]
-    schema_versions: tuple[str, ...]
-    transform_versions: tuple[str, ...]
-    policy_versions: tuple[str, ...]
+    input_manifests: tuple[DatasetInputReference, ...] = Field(min_length=1)
+    schema_versions: tuple[str, ...] = Field(min_length=1)
+    transform_versions: tuple[str, ...] = Field(min_length=1)
+    policy_versions: tuple[str, ...] = Field(min_length=1)
     ruleset_versions: tuple[str, ...] = Field(default_factory=tuple)
     card_snapshot_ids: tuple[str, ...] = Field(default_factory=tuple)
     source_snapshots: tuple[str, ...] = Field(default_factory=tuple)
@@ -342,7 +361,7 @@ class DatasetManifest(DomainModel):
     split_policy: Mapping[str, object] = Field(default_factory=dict)
     exclusions: tuple[DatasetExclusion, ...] = Field(default_factory=tuple)
     counts: Mapping[str, int]
-    outputs: tuple[DatasetOutputReference, ...]
+    outputs: tuple[DatasetOutputReference, ...] = Field(min_length=1)
     quality_report: DatasetOutputReference | None = None
     leakage_report: DatasetOutputReference | None = None
     random_seeds: tuple[int, ...] = Field(default_factory=tuple)
