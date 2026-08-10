@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/deck-legality-evaluation.v1.schema.json",
+  "title": "Deck Legality Evaluation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "canonical_deck_id",
+    "ruleset_version",
+    "evaluated_at",
+    "validator_version",
+    "legal_status",
+    "finding_codes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "deck-legality-evaluation.v1"
+    },
+    "canonical_deck_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ruleset_snapshot_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "validator_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "legal_status": {
+      "enum": [
+        "legal",
+        "illegal",
+        "unknown",
+        "quarantined"
+      ]
+    },
+    "finding_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^legality\\.[a-z0-9_]+$"
+      },
+      "uniqueItems": true
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/provenance_reference"
+      }
+    }
+  },
+  "$defs": {
+    "provenance_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "source_object_id",
+        "raw_sha256"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "adapter_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mapper_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approval_status": {
+          "enum": [
+            "APPROVED_LOCAL",
+            "APPROVED_REDISTRIBUTION"
+          ]
+        }
+      }
+    }
+  }
+}

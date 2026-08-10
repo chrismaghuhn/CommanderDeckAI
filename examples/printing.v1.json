@@ -1,0 +1,28 @@
+{
+  "schema_version": "printing.v1",
+  "printing_id": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+  "oracle_id": "22222222-2222-4222-8222-222222222222",
+  "card_snapshot_id": "cards-2026-08-10",
+  "set_code": "FIX",
+  "collector_number": "1",
+  "released_at": "2026-08-10",
+  "language": "en",
+  "rarity": "common",
+  "is_foil": false,
+  "is_promo": false,
+  "face_ids": [
+    "face-2222"
+  ],
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10-v2",
+      "source_object_id": "card-2222",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "adapter_version": "fixture-v2",
+      "mapper_version": "fixture-mapper-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ]
+}

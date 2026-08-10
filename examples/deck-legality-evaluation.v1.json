@@ -1,0 +1,13 @@
+{
+  "schema_version": "deck-legality-evaluation.v1",
+  "canonical_deck_id": "7777777777777777777777777777777777777777777777777777777777777777",
+  "ruleset_version": "commander-2026-02-09",
+  "ruleset_snapshot_sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+  "evaluated_at": "2026-08-10T18:03:00Z",
+  "validator_version": "commander-legality-v1",
+  "legal_status": "legal",
+  "finding_codes": [
+    "legality.ok"
+  ],
+  "provenance": []
+}

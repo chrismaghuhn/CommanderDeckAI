@@ -1,0 +1,353 @@
+from __future__ import annotations
+
+from datetime import UTC, datetime
+
+from commander_ai.domain.cards import (
+    CardFace,
+    CardIdentity,
+    CardResolution,
+    CardResolutionCandidate,
+    Printing,
+)
+from commander_ai.domain.combos import Combo, ComboCard
+from commander_ai.domain.decks import (
+    CanonicalDeck,
+    CardQuantity,
+    CardZone,
+    CommandZoneEntry,
+    CommandZoneRelationship,
+)
+from commander_ai.domain.evaluations import DeckLegalityEvaluation, DeckQualityEvaluation
+from commander_ai.domain.observations import EventDeckObservation, ParticipantReference, PodEntry
+from commander_ai.domain.provenance import (
+    DatasetInputReference,
+    DatasetManifest,
+    DatasetOutputReference,
+    NormalizedSnapshotManifest,
+    ProvenanceReference,
+    RawObjectReference,
+    SourceSnapshotManifest,
+    SourceSnapshotRequest,
+)
+
+ORACLE_A = "11111111-1111-4111-8111-111111111111"
+ORACLE_B = "22222222-2222-4222-8222-222222222222"
+ORACLE_C = "33333333-3333-4333-8333-333333333333"
+PRINTING_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+
+
+def provenance(source_id: str, source_object_id: str) -> ProvenanceReference:
+    return ProvenanceReference(
+        source_id=source_id,
+        source_snapshot_id=f"{source_id}-snapshot",
+        source_object_id=source_object_id,
+        raw_sha256="0" * 64,
+        retrieved_at=datetime(2026, 8, 10, tzinfo=UTC),
+        adapter_version="fixture-v1",
+        mapper_version="fixture-v1",
+        approval_status="APPROVED_REDISTRIBUTION",
+    )
+
+
+def card_zones() -> tuple[CardZone, ...]:
+    return (
+        CardZone(
+            zone="mainboard",
+            cards=(CardQuantity(oracle_id=ORACLE_C, quantity=1, printing_id=PRINTING_A),),
+        ),
+    )
+
+
+def make_deck(
+    command_zone: tuple[CommandZoneEntry, ...],
+    *,
+    source_id: str = "fixture",
+    source_object_id: str = "deck-1",
+) -> CanonicalDeck:
+    return CanonicalDeck(
+        command_zone=command_zone,
+        card_zones=card_zones(),
+        provenance=(provenance(source_id, source_object_id),),
+    )
+
+
+def test_card_identity_printing_and_face_are_distinct_domain_values() -> None:
+    card = CardIdentity(oracle_id=ORACLE_A, name="Fixture Card")
+    printing = Printing(
+        printing_id=PRINTING_A,
+        oracle_id=ORACLE_A,
+        card_snapshot_id="cards-fixture",
+        set_code="FIX",
+        collector_number="1",
+        released_at="2026-08-10",
+        face_ids=("face-a",),
+    )
+    face = CardFace(
+        face_id="face-a",
+        oracle_id=ORACLE_A,
+        face_index=0,
+        name="Fixture Card",
+    )
+
+    assert card.oracle_id == printing.oracle_id == face.oracle_id
+    assert card.oracle_id != printing.printing_id
+    assert face.face_id != printing.printing_id
+
+
+def test_canonical_deck_accepts_one_commander_partner_pair_and_background_relationship() -> None:
+    one_commander = make_deck(
+        (CommandZoneEntry(oracle_id=ORACLE_A, quantity=1, source_declared_role="commander"),)
+    )
+    partner_pair = make_deck(
+        (
+            CommandZoneEntry(oracle_id=ORACLE_A, quantity=1, source_declared_role="partner"),
+            CommandZoneEntry(oracle_id=ORACLE_B, quantity=1, source_declared_role="partner"),
+        ),
+        source_object_id="deck-2",
+    )
+    background_relationship = make_deck(
+        (
+            CommandZoneEntry(oracle_id=ORACLE_A, quantity=1, source_declared_role="commander"),
+            CommandZoneEntry(oracle_id=ORACLE_B, quantity=1, source_declared_role="background"),
+        ),
+        source_object_id="deck-3",
+    ).model_copy(
+        update={
+            "command_zone_relationships": (
+                CommandZoneRelationship(
+                    kind="background",
+                    card_ids=(ORACLE_A, ORACLE_B),
+                ),
+            )
+        }
+    )
+
+    assert len(one_commander.command_zone) == 1
+    assert len(partner_pair.command_zone) == 2
+    assert len(background_relationship.command_zone) == 2
+    assert background_relationship.command_zone_relationships[0].kind == "background"
+
+
+def test_deck_identity_ignores_source_and_observation_context() -> None:
+    first = make_deck((CommandZoneEntry(oracle_id=ORACLE_A, quantity=1),))
+    second = make_deck(
+        (CommandZoneEntry(oracle_id=ORACLE_A, quantity=1),),
+        source_id="other-source",
+        source_object_id="different-deck",
+    )
+
+    assert first.canonical_deck_id == second.canonical_deck_id
+    assert first.structural_fingerprint == second.structural_fingerprint
+
+    first_observation = EventDeckObservation(
+        observation_id="observation-1",
+        event_id="event-1",
+        canonical_deck_id=first.canonical_deck_id,
+        observed_at=datetime(2026, 8, 10, tzinfo=UTC),
+        participant_reference=ParticipantReference(
+            reference_id="participant-1",
+            scope="event",
+            event_id="event-1",
+        ),
+        participant_reference_scope="event",
+        final_placement=1,
+        aggregate_wins=3,
+        aggregate_losses=0,
+        aggregate_draws=0,
+        source_result_semantics="fixture standings",
+        provenance=(provenance("fixture", "event-1"),),
+    )
+    second_observation = first_observation.model_copy(
+        update={
+            "observation_id": "observation-2",
+            "event_id": "event-2",
+            "observed_at": datetime(2026, 8, 11, tzinfo=UTC),
+            "participant_reference": ParticipantReference(
+                reference_id="participant-2",
+                scope="event",
+                event_id="event-2",
+            ),
+            "provenance": (provenance("other-source", "event-2"),),
+        }
+    )
+    legality = DeckLegalityEvaluation(
+        canonical_deck_id=first.canonical_deck_id,
+        ruleset_version="commander-2026-01",
+        evaluated_at=first_observation.observed_at,
+        legal_status="legal",
+        finding_codes=(),
+    )
+    other_legality = legality.model_copy(
+        update={
+            "ruleset_version": "commander-2027-01",
+            "legal_status": "illegal",
+        }
+    )
+    quality = DeckQualityEvaluation(
+        canonical_deck_id=first.canonical_deck_id,
+        evaluated_at=first_observation.observed_at,
+        quality_status="accepted",
+        finding_codes=(),
+    )
+
+    assert second_observation.canonical_deck_id == first_observation.canonical_deck_id
+    assert other_legality.canonical_deck_id == legality.canonical_deck_id
+    assert quality.canonical_deck_id == first.canonical_deck_id
+
+
+def test_event_observations_repeat_decks_while_pod_entries_keep_round_and_seat() -> None:
+    observation = EventDeckObservation(
+        observation_id="observation-1",
+        event_id="event-1",
+        canonical_deck_id="d" * 64,
+        observed_at=datetime(2026, 8, 10, tzinfo=UTC),
+        participant_reference=None,
+        participant_reference_scope="none",
+        final_placement=2,
+        aggregate_wins=2,
+        aggregate_losses=1,
+        aggregate_draws=0,
+        source_result_semantics="final standings",
+        provenance=(provenance("fixture", "event-1"),),
+    )
+    pod_entry = PodEntry(
+        pod_id="pod-1",
+        event_id="event-1",
+        round_number=3,
+        seat=2,
+        canonical_deck_id=observation.canonical_deck_id,
+        result="win",
+        points=3,
+        placement=1,
+    )
+
+    assert observation.canonical_deck_id == pod_entry.canonical_deck_id
+    assert (pod_entry.round_number, pod_entry.seat) == (3, 2)
+
+
+def test_resolution_and_combo_models_keep_identity_and_feature_facts_separate() -> None:
+    resolution = CardResolution(
+        resolution_id="resolution-1",
+        source_id="fixture",
+        source_snapshot_id="snapshot-1",
+        source_object_id="object-1",
+        original_value="Fixture Card",
+        raw_locator="cards[0].name",
+        method="exact_name",
+        status="resolved",
+        candidates=(CardResolutionCandidate(oracle_id=ORACLE_A),),
+        canonical_oracle_id=ORACLE_A,
+        resolver_version="resolver-v1",
+        normalization_policy_version="name-v1",
+        alias_catalog_version="aliases-v1",
+        alias_catalog_sha256="1" * 64,
+        card_catalog_snapshot_id="cards-1",
+    )
+    combo_card = ComboCard(
+        combo_id="combo-1",
+        oracle_id=ORACLE_A,
+        role="required",
+        quantity=1,
+        provenance=(provenance("fixture", "combo-1"),),
+    )
+    combo = Combo(
+        combo_id="combo-1",
+        required_cards=(ORACLE_A,),
+        requirements=("Card is available.",),
+        results=("Generate mana.",),
+        provenance=(provenance("fixture", "combo-1"),),
+    )
+
+    assert resolution.canonical_oracle_id == combo.required_cards[0]
+    assert combo_card.role == "required"
+    assert "legal_status" not in combo.model_dump()
+
+
+def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains() -> None:
+    request = SourceSnapshotRequest(
+        request_id="request-1",
+        sanitized_method="GET",
+        sanitized_endpoint="https://example.invalid/cards",
+        format="json",
+        sanitized_parameters={"page": 1},
+    )
+    raw_object = RawObjectReference(
+        raw_object_id="object-1",
+        request_id="request-1",
+        retrieved_at=datetime(2026, 8, 10, tzinfo=UTC),
+        path="objects/object-1.json",
+        bytes=1,
+        content_type="application/json",
+        sha256="2" * 64,
+        checksum_verification_status="not_provided",
+    )
+    source_manifest = SourceSnapshotManifest(
+        source_id="fixture",
+        source_snapshot_id="snapshot-1",
+        status="COMPLETE",
+        approval_status="APPROVED_REDISTRIBUTION",
+        adapter_version="adapter-v1",
+        started_at=datetime(2026, 8, 10, tzinfo=UTC),
+        completed_at=datetime(2026, 8, 10, 0, 1, tzinfo=UTC),
+        usage_status="APPROVED_REDISTRIBUTION",
+        request_parameters_redacted={"page": 1},
+        requests=(request,),
+        objects=(raw_object,),
+        attribution_required=False,
+        redistribution_status="approved",
+        snapshot_content_sha256="3" * 64,
+        manifest_sha256="4" * 64,
+    )
+    normalized_manifest = NormalizedSnapshotManifest(
+        normalized_snapshot_id="normalized-1",
+        producing_run_id="run-1",
+        input_source_snapshot_manifest_id=source_manifest.source_snapshot_id,
+        input_source_snapshot_manifest_sha256=source_manifest.manifest_sha256,
+        source_id="fixture",
+        status="COMPLETE",
+        normalized_schema_version="records-v1",
+        mapper_version="mapper-v1",
+        transform_version="transform-v1",
+        normalized_artifact_sha256="5" * 64,
+        audit_artifact_sha256="6" * 64,
+        counts={"normalized_records": 1},
+        created_at=datetime(2026, 8, 10, 0, 2, tzinfo=UTC),
+        started_at=datetime(2026, 8, 10, 0, 1, tzinfo=UTC),
+        completed_at=datetime(2026, 8, 10, 0, 2, tzinfo=UTC),
+        normalized_content_sha256="7" * 64,
+        manifest_sha256="8" * 64,
+        provenance=(provenance("fixture", "object-1"),),
+    )
+    dataset_manifest = DatasetManifest(
+        dataset_id="dataset-1",
+        created_at=datetime(2026, 8, 10, tzinfo=UTC),
+        builder_version="builder-v1",
+        code_commit="a" * 40,
+        dependency_lock_hash="9" * 64,
+        input_manifests=(
+            DatasetInputReference(
+                kind="normalized_snapshot_manifest",
+                id=normalized_manifest.normalized_snapshot_id,
+                sha256=normalized_manifest.manifest_sha256,
+            ),
+        ),
+        schema_versions=("canonical-deck.v1",),
+        transform_versions=("transform-v1",),
+        policy_versions=("split-v1",),
+        counts={"train": 1},
+        outputs=(
+            DatasetOutputReference(
+                name="train",
+                path="dataset/train.parquet",
+                sha256="a" * 64,
+                rows=1,
+            ),
+        ),
+        dataset_content_sha256="b" * 64,
+        manifest_sha256="c" * 64,
+    )
+
+    assert source_manifest.requests[0].request_id == "request-1"
+    assert source_manifest.objects[0].raw_object_id == "object-1"
+    assert normalized_manifest.normalized_content_sha256 != normalized_manifest.manifest_sha256
+    assert dataset_manifest.input_manifests[0].id == "normalized-1"

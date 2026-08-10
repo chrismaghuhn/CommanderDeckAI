@@ -1,0 +1,42 @@
+{
+  "schema_version": "normalized-snapshot-manifest.v1",
+  "normalized_snapshot_id": "fixture-normalized-2026-08-10",
+  "producing_run_id": "normalize-fixture-run-001",
+  "input_source_snapshot_manifest_id": "fixture-2026-08-10-v2",
+  "input_source_snapshot_manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "source_id": "fixture",
+  "status": "COMPLETE",
+  "normalized_schema_version": "normalized-records.v1",
+  "mapper_version": "fixture-mapper-v1",
+  "transform_version": "normalize-v1",
+  "normalized_artifact_path": "normalized/records.parquet",
+  "normalized_artifact_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "audit_artifact_path": "audit/findings.parquet",
+  "audit_artifact_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "counts": {
+    "input_records": 1,
+    "normalized_records": 1,
+    "audit_records": 0,
+    "finding_records": 0,
+    "quarantined_records": 0
+  },
+  "finding_codes": [],
+  "quarantine_references": [],
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10-v2",
+      "source_object_id": "object-001",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "adapter_version": "fixture-v2",
+      "mapper_version": "fixture-mapper-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ],
+  "created_at": "2026-08-10T18:02:00Z",
+  "started_at": "2026-08-10T18:01:30Z",
+  "completed_at": "2026-08-10T18:02:00Z",
+  "normalized_content_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "manifest_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+}

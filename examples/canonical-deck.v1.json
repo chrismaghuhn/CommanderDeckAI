@@ -1,0 +1,40 @@
+{
+  "schema_version": "canonical-deck.v1",
+  "canonical_deck_id": "7777777777777777777777777777777777777777777777777777777777777777",
+  "structural_fingerprint": "7777777777777777777777777777777777777777777777777777777777777777",
+  "fingerprint_algorithm_version": "commander-structural-v1",
+  "format": "commander",
+  "command_zone": [
+    {
+      "oracle_id": "11111111-1111-4111-8111-111111111111",
+      "quantity": 1,
+      "printing_id": null,
+      "source_declared_role": "commander"
+    }
+  ],
+  "command_zone_relationships": [],
+  "card_zones": [
+    {
+      "zone": "mainboard",
+      "cards": [
+        {
+          "oracle_id": "22222222-2222-4222-8222-222222222222",
+          "quantity": 1,
+          "printing_id": null
+        }
+      ]
+    }
+  ],
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10-v2",
+      "source_object_id": "deck-001",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "adapter_version": "fixture-v2",
+      "mapper_version": "fixture-mapper-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ]
+}

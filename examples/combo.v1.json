@@ -1,0 +1,30 @@
+{
+  "schema_version": "combo.v1",
+  "combo_id": "combo-001",
+  "name": "Synthetic combo",
+  "required_cards": [
+    "22222222-2222-4222-8222-222222222222"
+  ],
+  "optional_cards": [],
+  "requirements": [
+    "The required card is on the battlefield."
+  ],
+  "results": [
+    "Create an arbitrarily large amount of mana."
+  ],
+  "steps": [
+    "Activate the fixture ability."
+  ],
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10-v2",
+      "source_object_id": "combo-001",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "adapter_version": "fixture-v2",
+      "mapper_version": "fixture-mapper-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ]
+}

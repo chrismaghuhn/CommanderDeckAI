@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/canonical-deck.v1.schema.json",
+  "title": "Canonical Commander Deck v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "canonical_deck_id",
+    "structural_fingerprint",
+    "fingerprint_algorithm_version",
+    "format",
+    "command_zone",
+    "card_zones",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "canonical-deck.v1"
+    },
+    "canonical_deck_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "structural_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "fingerprint_algorithm_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "format": {
+      "const": "commander"
+    },
+    "command_zone": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/command_zone_entry"
+      }
+    },
+    "command_zone_relationships": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/command_zone_relationship"
+      }
+    },
+    "card_zones": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/card_zone"
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/provenance_reference"
+      }
+    }
+  },
+  "$defs": {
+    "card_quantity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "oracle_id",
+        "quantity"
+      ],
+      "properties": {
+        "oracle_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "printing_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        }
+      }
+    },
+    "command_zone_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "oracle_id",
+        "quantity"
+      ],
+      "properties": {
+        "oracle_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "quantity": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "printing_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "source_declared_role": {
+          "enum": [
+            "commander",
+            "partner",
+            "background",
+            "companion",
+            "unknown"
+          ]
+        }
+      }
+    },
+    "command_zone_relationship": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "kind",
+        "card_ids"
+      ],
+      "properties": {
+        "kind": {
+          "enum": [
+            "partner",
+            "background"
+          ]
+        },
+        "card_ids": {
+          "type": "array",
+          "minItems": 2,
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "card_zone": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "zone",
+        "cards"
+      ],
+      "properties": {
+        "zone": {
+          "type": "string",
+          "minLength": 1,
+          "not": {
+            "const": "command_zone"
+          }
+        },
+        "cards": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "#/$defs/card_quantity"
+          }
+        }
+      }
+    },
+    "provenance_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "source_object_id",
+        "raw_sha256"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "retrieved_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "adapter_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "mapper_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "approval_status": {
+          "enum": [
+            "APPROVED_LOCAL",
+            "APPROVED_REDISTRIBUTION"
+          ]
+        }
+      }
+    }
+  }
+}

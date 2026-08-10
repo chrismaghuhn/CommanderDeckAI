@@ -1,0 +1,47 @@
+{
+  "schema_version": "source-snapshot-manifest.v2",
+  "source_id": "fixture",
+  "source_snapshot_id": "fixture-2026-08-10-v2",
+  "status": "COMPLETE",
+  "approval_status": "APPROVED_REDISTRIBUTION",
+  "adapter_version": "fixture-v2",
+  "started_at": "2026-08-10T18:00:00Z",
+  "completed_at": "2026-08-10T18:01:00Z",
+  "terms_reference": null,
+  "usage_status": "APPROVED_REDISTRIBUTION",
+  "request_parameters_redacted": {
+    "fixture": true
+  },
+  "requests": [
+    {
+      "request_id": "request-001",
+      "sanitized_method": "GET",
+      "sanitized_endpoint": "https://example.invalid/fixture/cards",
+      "api_version": null,
+      "format": "json",
+      "sanitized_parameters": {
+        "page": 1
+      }
+    }
+  ],
+  "objects": [
+    {
+      "raw_object_id": "object-001",
+      "source_object_id": "object-001",
+      "request_id": "request-001",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "path": "objects/object-001.json",
+      "bytes": 128,
+      "content_type": "application/json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "upstream_sha256": null,
+      "checksum_verification_status": "not_provided",
+      "logical_record_count": 1
+    }
+  ],
+  "pagination_state": null,
+  "attribution_required": false,
+  "redistribution_status": "approved",
+  "snapshot_content_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222"
+}

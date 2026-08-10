@@ -1,0 +1,35 @@
+{
+  "schema_version": "card-face.v1",
+  "face_id": "face-2222",
+  "oracle_id": "22222222-2222-4222-8222-222222222222",
+  "face_index": 0,
+  "name": "Fixture Card",
+  "normalized_name": "fixture card",
+  "layout": "normal",
+  "mana_value": 1,
+  "mana_cost": "{1}",
+  "colors": [],
+  "color_identity": [],
+  "supertypes": [],
+  "types": [
+    "Artifact"
+  ],
+  "subtypes": [],
+  "keywords": [],
+  "oracle_text": "Draw a card.",
+  "power": null,
+  "toughness": null,
+  "loyalty": null,
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10-v2",
+      "source_object_id": "card-2222",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "adapter_version": "fixture-v2",
+      "mapper_version": "fixture-mapper-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ]
+}

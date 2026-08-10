@@ -1,0 +1,33 @@
+{
+  "schema_version": "event-deck-observation.v1",
+  "observation_id": "observation-001",
+  "event_id": "event-001",
+  "canonical_deck_id": "7777777777777777777777777777777777777777777777777777777777777777",
+  "observed_at": "2026-08-10T18:04:00Z",
+  "participant_reference": {
+    "schema_version": "participant-reference.v1",
+    "reference_id": "event-001-participant-001",
+    "scope": "event",
+    "source_id": null,
+    "event_id": "event-001",
+    "source_snapshot_id": null
+  },
+  "participant_reference_scope": "event",
+  "final_placement": 1,
+  "aggregate_wins": 3,
+  "aggregate_losses": 0,
+  "aggregate_draws": 0,
+  "source_result_semantics": "final standings",
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10-v2",
+      "source_object_id": "event-001",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "adapter_version": "fixture-v2",
+      "mapper_version": "fixture-mapper-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ]
+}
