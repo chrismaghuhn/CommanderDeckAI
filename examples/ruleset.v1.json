@@ -1,0 +1,30 @@
+{
+  "schema_version": "ruleset.v1",
+  "ruleset_version": "commander-2026-02-09",
+  "format": "commander",
+  "effective_from": "2026-02-09",
+  "effective_until": null,
+  "required_total_cards": 100,
+  "default_copy_limit": 1,
+  "banned_oracle_ids": [
+    "7c3b7012-b7f4-5df6-a94c-abe5af03c680"
+  ],
+  "banned_as_companion_oracle_ids": [
+    "17ac0332-d538-5c4e-be04-e6950de6b481"
+  ],
+  "copy_limit_overrides": {},
+  "unlimited_copy_oracle_ids": [
+    "23ff33c3-9dd4-5bc1-a3dc-55b334ac0dca",
+    "77777777-7777-4777-8777-777777777777"
+  ],
+  "command_zone_policy": {
+    "min_cards": 1,
+    "max_cards": 2,
+    "validator_version": "command-zone-v1"
+  },
+  "source_references": [
+    "https://magic.wizards.com/en/formats/commander",
+    "https://magic.wizards.com/en/banned-restricted-list"
+  ],
+  "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+}

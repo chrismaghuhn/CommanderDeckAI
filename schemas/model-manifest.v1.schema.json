@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/model-manifest.v1.schema.json",
+  "title": "Model Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "model_id",
+    "model_family",
+    "architecture_version",
+    "created_at",
+    "code_commit",
+    "lock_hash",
+    "dataset_id",
+    "feature_spec_version",
+    "input_schema_version",
+    "uses_pretrained_language_model",
+    "artifacts",
+    "metrics",
+    "sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "model-manifest.v1"
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_family": {
+      "enum": [
+        "random",
+        "popularity",
+        "cooccurrence",
+        "matrix_factorization",
+        "deepsets",
+        "set_transformer",
+        "outcome_reranker"
+      ]
+    },
+    "architecture_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "code_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "lock_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "dataset_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "feature_spec_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_schema_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "uses_pretrained_language_model": {
+      "const": false
+    },
+    "random_seeds": {
+      "type": "array",
+      "items": {
+        "type": "integer"
+      },
+      "uniqueItems": true
+    },
+    "artifacts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "path",
+          "sha256",
+          "kind"
+        ],
+        "properties": {
+          "path": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "kind": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "known_limitations": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

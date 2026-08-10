@@ -1,0 +1,10 @@
+source_id: commander_spellbook
+approval_status: APPROVED_LOCAL
+access_method: rest_api_or_approved_export
+sync_policy: explicit
+attribution_required: true
+raw_storage: allowed_local
+redistribution: license_and_content_review
+features:
+  combos: true
+  variants: true

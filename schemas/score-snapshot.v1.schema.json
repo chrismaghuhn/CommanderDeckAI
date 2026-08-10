@@ -1,0 +1,145 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/score-snapshot.v1.schema.json",
+  "title": "Score Snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "score_snapshot_id",
+    "request_id",
+    "request_sha256",
+    "model_id",
+    "dataset_id",
+    "feature_spec_version",
+    "ruleset_version",
+    "card_snapshot_id",
+    "candidate_pool_hash",
+    "scores",
+    "created_at",
+    "sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "score-snapshot.v1"
+    },
+    "score_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "feature_spec_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "card_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_pool_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "scores": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "oracle_id",
+          "final_score",
+          "components",
+          "uncertainty",
+          "legal"
+        ],
+        "properties": {
+          "oracle_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "final_score": {
+            "type": "number"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "raw_value",
+                "normalized_value",
+                "weight",
+                "contribution"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "raw_value": {
+                  "type": "number"
+                },
+                "normalized_value": {
+                  "type": "number"
+                },
+                "weight": {
+                  "type": "number"
+                },
+                "contribution": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "uncertainty": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "legal": {
+            "type": "boolean"
+          },
+          "warning_codes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

@@ -1,0 +1,22 @@
+sources:
+  edhrec:
+    approval_status: PAUSED
+    reason: no default bulk/scraping approval
+  archidekt:
+    approval_status: PAUSED
+    reason: user-export or written permission required
+  moxfield:
+    approval_status: PAUSED
+    reason: user-export or written permission required
+  spellbinder:
+    approval_status: PROPOSED
+    reason: terms/API review required
+  mtgdecks:
+    approval_status: PROPOSED
+    reason: terms/API review required
+  edhcheck:
+    approval_status: PROPOSED
+    reason: terms/API review required
+  tablecommander:
+    approval_status: PROPOSED
+    reason: terms/API review required

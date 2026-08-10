@@ -1,0 +1,150 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/pod.v1.schema.json",
+  "title": "Tournament Pod v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "event_id",
+    "pod_id",
+    "round_number",
+    "occurred_at",
+    "entries",
+    "status",
+    "source_snapshot_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "pod.v1"
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "pod_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "round_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "incomplete",
+        "cancelled",
+        "unknown"
+      ]
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seat",
+          "deck_id",
+          "result"
+        ],
+        "properties": {
+          "seat": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "deck_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "player_pseudonym": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "result": {
+            "enum": [
+              "win",
+              "loss",
+              "draw",
+              "bye",
+              "unknown"
+            ]
+          },
+          "placement": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 1
+          },
+          "points": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "source_snapshot_id",
+          "source_object_id",
+          "raw_sha256"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_snapshot_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_object_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "raw_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "retrieved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "adapter_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mapper_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "approval_status": {
+            "enum": [
+              "APPROVED_LOCAL",
+              "APPROVED_REDISTRIBUTION"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

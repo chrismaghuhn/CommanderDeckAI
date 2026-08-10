@@ -1,0 +1,7 @@
+bridge_version: forge-file-v1
+exchange_root: ./artifacts/forge/exchange
+atomic_write: true
+claim_strategy: rename
+result_cache: true
+validate_request_schema: forge-evaluation-request.v1
+validate_result_schema: forge-evaluation-result.v1

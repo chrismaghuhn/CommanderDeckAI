@@ -1,0 +1,62 @@
+{
+  "schema_version": "optimization-result.v1",
+  "optimization_id": "opt-001",
+  "status": "FEASIBLE",
+  "ruleset_version": "commander-2026-02-09",
+  "command_zone": [
+    {
+      "oracle_id": "11111111-1111-4111-8111-111111111111",
+      "quantity": 1
+    }
+  ],
+  "mainboard": [
+    {
+      "oracle_id": "22222222-2222-4222-8222-222222222222",
+      "quantity": 1
+    },
+    {
+      "oracle_id": "33333333-3333-4333-8333-333333333333",
+      "quantity": 1
+    },
+    {
+      "oracle_id": "44444444-4444-4444-8444-444444444444",
+      "quantity": 1
+    },
+    {
+      "oracle_id": "23ff33c3-9dd4-5bc1-a3dc-55b334ac0dca",
+      "quantity": 38
+    },
+    {
+      "oracle_id": "77777777-7777-4777-8777-777777777777",
+      "quantity": 58
+    }
+  ],
+  "hard_constraints_satisfied": true,
+  "constraint_findings": [],
+  "objective_total": 87.25,
+  "objective_components": [
+    {
+      "name": "card_rank_score",
+      "raw_value": 91.0,
+      "normalized_value": 0.91,
+      "weight": 1.0,
+      "contribution": 91.0
+    },
+    {
+      "name": "staple_penalty",
+      "raw_value": 0.25,
+      "normalized_value": 0.25,
+      "weight": -15.0,
+      "contribution": -3.75
+    }
+  ],
+  "solver_metadata": {
+    "solver_name": "OR-Tools CP-SAT",
+    "solver_version": "example",
+    "random_seed": 1729,
+    "num_workers": 1,
+    "best_bound": 88.0
+  },
+  "deck_fingerprint": "1111111111111111111111111111111111111111111111111111111111111111",
+  "created_at": "2026-08-10T18:02:00Z"
+}

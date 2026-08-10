@@ -1,0 +1,118 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/ruleset.v1.schema.json",
+  "title": "Commander Ruleset Snapshot v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "ruleset_version",
+    "format",
+    "effective_from",
+    "required_total_cards",
+    "default_copy_limit",
+    "banned_oracle_ids",
+    "banned_as_companion_oracle_ids",
+    "command_zone_policy",
+    "source_references",
+    "sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "ruleset.v1"
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "format": {
+      "const": "commander"
+    },
+    "effective_from": {
+      "type": "string",
+      "format": "date"
+    },
+    "effective_until": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date"
+    },
+    "required_total_cards": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "default_copy_limit": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "banned_oracle_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "uniqueItems": true
+    },
+    "banned_as_companion_oracle_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "uniqueItems": true
+    },
+    "copy_limit_overrides": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 1
+      }
+    },
+    "unlimited_copy_oracle_ids": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "uniqueItems": true
+    },
+    "command_zone_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "min_cards",
+        "max_cards",
+        "validator_version"
+      ],
+      "properties": {
+        "min_cards": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_cards": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "validator_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "source_references": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uri"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

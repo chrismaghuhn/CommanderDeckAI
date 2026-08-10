@@ -1,0 +1,31 @@
+{
+  "schema_version": "model-manifest.v1",
+  "model_id": "cooccurrence-v1-fixture",
+  "model_family": "cooccurrence",
+  "architecture_version": "cooccurrence-v1",
+  "created_at": "2026-08-10T18:00:00Z",
+  "code_commit": "abcdef1234567890",
+  "lock_hash": "3333333333333333333333333333333333333333333333333333333333333333",
+  "dataset_id": "commander-completion-v1-fixture",
+  "feature_spec_version": "card-features-v1",
+  "input_schema_version": "completion-example.v1",
+  "uses_pretrained_language_model": false,
+  "random_seeds": [
+    1729
+  ],
+  "artifacts": [
+    {
+      "path": "model.json",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "kind": "weights"
+    }
+  ],
+  "metrics": {
+    "ndcg_at_25": 0.42,
+    "recall_at_25": 0.36
+  },
+  "known_limitations": [
+    "Synthetic fixture only."
+  ],
+  "sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+}

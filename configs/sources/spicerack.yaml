@@ -1,0 +1,9 @@
+source_id: spicerack
+approval_status: PROPOSED
+access_method: public_decklist_database_api
+api_key_env: SPICERACK_API_KEY
+api_status: beta
+sync_policy: explicit
+attribution_required: review
+raw_storage: pending_terms_review
+redistribution: not_approved

@@ -1,0 +1,65 @@
+issue_id,milestone,epic,title,depends_on,acceptance_summary
+CDA-001,M0,E0,Create package skeleton and locked environment,,Fresh install and `cda doctor` pass
+CDA-002,M0,E0,Add v1 schema registry and example validator,CDA-001,All examples validate; unknown schema fails
+CDA-003,M0,E0,Implement run/dataset/model manifest domain types,CDA-002,Roundtrip tests and strict unknown-field rejection
+CDA-004,M0,E0,Add architecture import tests,CDA-001,Forbidden imports fail CI
+CDA-005,M0,E0,Add file-size and forbidden-generic-module check,CDA-001,Over-limit fixture fails; allowlist requires reason
+CDA-006,M0,E0,Build config loader with strict validation,CDA-001,Resolved config snapshot is deterministic
+CDA-007,M0,E0,Implement source approval registry gate,CDA-006,PROPOSED/PAUSED sync is refused
+CDA-008,M0,E0,Create tiny synthetic fixture pack,CDA-002,No external IP/data; usable by E2E
+CDA-009,M0,E0,Complete PR CI pipeline,CDA-002;CDA-004;CDA-005,All foundation checks run without secrets
+CDA-010,M1,E1,Implement Scryfall bulk acquisition client,CDA-007,Idempotent immutable raw snapshot with checksum
+CDA-011,M1,E1,Define source payload models for Scryfall,CDA-010,Golden payloads parse or fail with stable code
+CDA-012,M1,E1,Map Scryfall cards to canonical card v1,CDA-011,Canonical fixtures match expected IDs/features
+CDA-013,M1,E1,Implement MTGJSON approved bulk client,CDA-007,AllDeckFiles/AllPrintings snapshot manifest
+CDA-014,M1,E1,Map MTGJSON deck/card identifiers,CDA-013,Cross-source identity report generated
+CDA-015,M1,E1,Build versioned ruleset snapshot generator,CDA-012,Ban/copy/command-zone sources and hash stored
+CDA-016,M1,E1,Implement legal candidate pool service,CDA-015,"Color identity, banlist and release cutoff tested"
+CDA-017,M1,E1,Implement independent deck validator,CDA-015,Golden and property cases pass
+CDA-018,M1,E1,Add partner/multi-command-zone tests,CDA-017,No single-commander assumption remains
+CDA-019,M1,E1,Add copy-limit exception tests,CDA-017,Basic and rule-derived limits validated
+CDA-020,M2,E2,Implement manual decklist parser boundary,CDA-017,Ambiguous/unknown names produce explicit findings
+CDA-021,M2,E2,Import official precon deck records,CDA-014;CDA-020,Provenance and legal status captured
+CDA-022,M2,E2,Implement exact deck fingerprint and revision groups,CDA-020,Stable cross-run hashes
+CDA-023,M2,E2,Implement near-duplicate clustering v1,CDA-022,Clusters stable and benchmarked on fixtures
+CDA-024,M2,E2,Build deterministic completion masks,CDA-022,Same manifest/seed yields same masks
+CDA-025,M2,E2,Implement temporal grouped splits,CDA-023,No group overlap report
+CDA-026,M2,E2,Implement random and popularity baselines,CDA-024;CDA-025,Metrics reproducible
+CDA-027,M2,E2,Implement commander lift/PMI baseline,CDA-026,Staple bias lower than popularity baseline
+CDA-028,M2,E2,Implement card-card cooccurrence ranker,CDA-026,Scores explain visible-card contributions
+CDA-029,M2,E2,Build rank CLI and response contract,CDA-028,Example request returns valid response
+CDA-030,M3,E3,Implement Commander Spellbook source review and adapter,CDA-007,Combo tables + provenance + fixtures
+CDA-031,M3,E3,Implement TopDeck source review and adapter,CDA-007,Key/attribution/rate limits enforced
+CDA-032,M3,E3,Normalize TopDeck events/pods/results,CDA-031,Referential integrity and missingness report
+CDA-033,M3,E3,Implement Spicerack source review and adapter,CDA-007,Beta contract isolated behind adapter
+CDA-034,M3,E3,Normalize Spicerack decklists/results,CDA-033,Canonical event/pod tables
+CDA-035,M3,E3,Add PII minimization and pseudonymization,CDA-032;CDA-034,No raw player name in curated training tables
+CDA-036,M4,E4,Freeze candidate pools and masks for benchmark v1,CDA-030;CDA-035,Manifest/checksums committed or released
+CDA-037,M4,E4,Implement leakage audit suite,CDA-036,Intentional leak fixtures fail
+CDA-038,M4,E4,Add cold-commander and new-card segments,CDA-036,Segment manifests and counts
+CDA-039,M4,E4,Publish baseline benchmark report,CDA-027;CDA-028;CDA-037,All required metrics/segments included
+CDA-040,M5,E5,Define CardRanker protocol and score snapshot,CDA-039,Baselines conform without behavior change
+CDA-041,M5,E5,Implement weighted matrix factorization,CDA-040,Reproducible train/load/infer path
+CDA-042,M5,E5,Implement card feature spec v1,CDA-040,Versioned structured/OOV features
+CDA-043,M5,E5,Implement DeepSets ranker v1,CDA-041;CDA-042,Permutation-invariance test passes
+CDA-044,M5,E5,Implement model artifact registry,CDA-043,Strict manifest compatibility checks
+CDA-045,M5,E5,Run DeepSets ablation and segment report,CDA-044,Baseline gain and bias report
+CDA-046,M6,E6,Implement candidate-pool reduction with feasibility precheck,CDA-040,Hard-role coverage guaranteed or clear error
+CDA-047,M6,E6,Implement CP-SAT core deck model,CDA-046,Card count/copy/role/budget constraints
+CDA-048,M6,E6,Implement objective component modules,CDA-047,Each contribution independently tested
+CDA-049,M6,E6,Implement mana-base MVP,CDA-047,Basic distribution and land bounds
+CDA-050,M6,E6,Implement optimizer result and independent validation,CDA-048;CDA-049,Accepted outputs are 100% legal
+CDA-051,M6,E6,Implement infeasibility diagnostics,CDA-050,Golden conflicts identify useful cause
+CDA-052,M6,E6,Compare CP-SAT against greedy selection,CDA-050,Report objective/constraint differences
+CDA-053,M7,E7,Build temporal event-grouped outcome dataset,CDA-035;CDA-044,No event leakage; missingness report
+CDA-054,M7,E7,Implement commander/meta outcome baselines,CDA-053,Log loss/Brier/calibration report
+CDA-055,M7,E7,Implement frozen-embedding outcome reranker,CDA-054,Beats accepted baseline or is rejected
+CDA-056,M7,E7,Integrate outcome score behind feature flag,CDA-055;CDA-050,Casual profile unchanged; uncertainty visible
+CDA-057,M8,E8,Implement Forge request/result schema bindings,CDA-002,Roundtrip and incompatible-version tests
+CDA-058,M8,E8,Implement atomic file queue and claims,CDA-057,Crash/restart does not duplicate completed job
+CDA-059,M8,E8,Implement seat/seed scheduler and result cache,CDA-058,Cache key binds all versions and decks
+CDA-060,M8,E8,Build relative deck comparison report,CDA-059,Aborts separate from wins/losses
+CDA-061,M9,E9,Define explicit casual intent profile v1,CDA-050,No universal power number
+CDA-062,M9,E9,Implement deterministic recommendation explanations,CDA-061,Every claim maps to stored component
+CDA-063,M9,E9,Design and run pairwise casual review format,CDA-061,Anonymized A/B/tie labels with reason codes
+CDA-064,M9,E9,Add optional local API adapter,CDA-062,Same use cases/contracts as CLI

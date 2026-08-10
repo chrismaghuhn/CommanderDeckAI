@@ -1,0 +1,117 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/forge-evaluation-result.v1.schema.json",
+  "title": "Forge Evaluation Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "status",
+    "forge_commit",
+    "bridge_version",
+    "agent_versions",
+    "games",
+    "request_sha256",
+    "result_sha256",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "forge-evaluation-result.v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "COMPLETE",
+        "PARTIAL",
+        "FAILED",
+        "INCOMPATIBLE"
+      ]
+    },
+    "forge_commit": {
+      "type": "string",
+      "minLength": 1
+    },
+    "bridge_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "agent_versions": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "games": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "game_id",
+          "seed",
+          "seat_order",
+          "status",
+          "turns"
+        ],
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "seed": {
+            "type": "integer"
+          },
+          "seat_order": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "status": {
+            "enum": [
+              "WIN",
+              "DRAW",
+              "ABORT",
+              "ERROR"
+            ]
+          },
+          "winner_seat_key": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "turns": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "error_code": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "request_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "result_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

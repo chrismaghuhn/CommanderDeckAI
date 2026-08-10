@@ -1,0 +1,12 @@
+source_id: scryfall
+approval_status: APPROVED_LOCAL
+access_method: bulk_data
+bulk_type: oracle_cards
+sync_policy: explicit
+attribution_required: true
+raw_storage: allowed_local
+redistribution: review_required
+http:
+  timeout_seconds: 60
+  max_download_bytes: 2000000000
+  user_agent_env: CDA_USER_AGENT

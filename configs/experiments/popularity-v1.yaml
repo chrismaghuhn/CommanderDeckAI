@@ -1,0 +1,9 @@
+experiment_id: popularity-v1
+model_family: popularity
+random_seed: 1729
+dataset_id: commander-completion-v1
+features:
+  commander_conditioning: true
+  smoothing_alpha: 1.0
+reports:
+  metrics: [recall_at_25, ndcg_at_25, coverage, long_tail_recall]

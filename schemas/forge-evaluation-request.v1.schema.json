@@ -1,0 +1,195 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/forge-evaluation-request.v1.schema.json",
+  "title": "Forge Evaluation Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "created_at",
+    "ruleset_version",
+    "card_snapshot_id",
+    "decks",
+    "agent_ids",
+    "games",
+    "forge_compatibility"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "forge-evaluation-request.v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "card_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "decks": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "seat_key",
+          "deck_id",
+          "deck_fingerprint",
+          "command_zone",
+          "mainboard"
+        ],
+        "properties": {
+          "seat_key": {
+            "type": "string",
+            "minLength": 1
+          },
+          "deck_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "deck_fingerprint": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "command_zone": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "oracle_id",
+                "quantity"
+              ],
+              "properties": {
+                "oracle_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "printing_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "mainboard": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "oracle_id",
+                "quantity"
+              ],
+              "properties": {
+                "oracle_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "quantity": {
+                  "type": "integer",
+                  "minimum": 1
+                },
+                "printing_id": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "minItems": 2
+    },
+    "agent_ids": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "games": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "game_id",
+          "seed",
+          "seat_order",
+          "max_turns"
+        ],
+        "properties": {
+          "game_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "seed": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "seat_order": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "minItems": 2,
+            "uniqueItems": true
+          },
+          "max_turns": {
+            "type": "integer",
+            "minimum": 1
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "forge_compatibility": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "minimum_bridge_version"
+      ],
+      "properties": {
+        "minimum_bridge_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "required_forge_commit": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}

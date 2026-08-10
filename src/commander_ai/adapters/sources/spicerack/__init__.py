@@ -1,0 +1,1 @@
+"""spicerack source adapter."""

@@ -1,0 +1,207 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/optimization-request.v1.schema.json",
+  "title": "Optimization Request v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "optimization_id",
+    "score_snapshot_id",
+    "ruleset_version",
+    "command_zone",
+    "partial_deck",
+    "optimizer_profile_id",
+    "constraints",
+    "solver"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "optimization-request.v1"
+    },
+    "optimization_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "command_zone": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "partial_deck": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "oracle_id",
+          "quantity"
+        ],
+        "properties": {
+          "oracle_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "printing_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "optimizer_profile_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "constraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "must_include": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "uniqueItems": true
+        },
+        "must_exclude": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "uniqueItems": true
+        },
+        "collection_only": {
+          "type": "boolean",
+          "default": false
+        },
+        "collection_oracle_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "uniqueItems": true
+        },
+        "budget": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "amount",
+            "currency",
+            "price_snapshot_id"
+          ],
+          "properties": {
+            "amount": {
+              "type": "number",
+              "minimum": 0
+            },
+            "currency": {
+              "type": "string",
+              "pattern": "^[A-Z]{3}$"
+            },
+            "price_snapshot_id": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
+        },
+        "land_count": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "min",
+            "max"
+          ],
+          "properties": {
+            "min": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "max": {
+              "type": "integer",
+              "minimum": 0
+            }
+          }
+        },
+        "role_bounds": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "min": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "max": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "release_cutoff": {
+          "type": "string",
+          "format": "date"
+        },
+        "allowed_set_codes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "solver": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "random_seed",
+        "num_workers",
+        "max_conflicts"
+      ],
+      "properties": {
+        "random_seed": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "num_workers": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "max_conflicts": {
+          "type": "integer",
+          "minimum": 1
+        }
+      }
+    },
+    "score_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

@@ -1,0 +1,40 @@
+{
+  "schema_version": "forge-evaluation-result.v1",
+  "request_id": "forge-001",
+  "status": "COMPLETE",
+  "forge_commit": "abcdef1234567890",
+  "bridge_version": "forge-file-v1",
+  "agent_versions": {
+    "A": "forge-agent-baseline-v1",
+    "B": "forge-agent-baseline-v1"
+  },
+  "games": [
+    {
+      "game_id": "game-001",
+      "seed": 1729,
+      "seat_order": [
+        "A",
+        "B"
+      ],
+      "status": "WIN",
+      "winner_seat_key": "A",
+      "turns": 11,
+      "error_code": null
+    },
+    {
+      "game_id": "game-002",
+      "seed": 1730,
+      "seat_order": [
+        "B",
+        "A"
+      ],
+      "status": "DRAW",
+      "winner_seat_key": null,
+      "turns": 200,
+      "error_code": null
+    }
+  ],
+  "request_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+  "result_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "created_at": "2026-08-10T18:05:00Z"
+}

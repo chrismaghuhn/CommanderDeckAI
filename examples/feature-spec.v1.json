@@ -1,0 +1,35 @@
+{
+  "schema_version": "feature-spec.v1",
+  "feature_spec_version": "card-features-v1",
+  "card_snapshot_id": "cards-2026-08-10",
+  "groups": [
+    {
+      "name": "oracle_id",
+      "kind": "categorical_embedding",
+      "dimension": 128,
+      "version": "v1"
+    },
+    {
+      "name": "types_keywords",
+      "kind": "multi_hot",
+      "dimension": 256,
+      "version": "v1"
+    },
+    {
+      "name": "mana_value",
+      "kind": "numeric",
+      "dimension": 1,
+      "version": "v1"
+    },
+    {
+      "name": "roles",
+      "kind": "role_tags",
+      "dimension": 19,
+      "version": "roles-v1"
+    }
+  ],
+  "oov_policy": "structured_fallback",
+  "text_feature_policy": "deterministic_rules",
+  "uses_pretrained_language_model": false,
+  "sha256": "9999999999999999999999999999999999999999999999999999999999999999"
+}

@@ -1,0 +1,51 @@
+{
+  "schema_version": "card.v1",
+  "card_snapshot_id": "cards-2026-08-10",
+  "oracle_id": "5ed8d229-00f1-5a19-8bfc-dc38956474ba",
+  "name": "Synthetic Example Card",
+  "normalized_name": "synthetic example card",
+  "layout": "normal",
+  "mana_value": 2.0,
+  "mana_cost": "{1}{U}",
+  "colors": [
+    "U"
+  ],
+  "color_identity": [
+    "U"
+  ],
+  "supertypes": [],
+  "types": [
+    "Creature"
+  ],
+  "subtypes": [
+    "Wizard"
+  ],
+  "keywords": [
+    "Flying"
+  ],
+  "oracle_text": "Synthetic fixture text.",
+  "power": "2",
+  "toughness": "2",
+  "loyalty": null,
+  "legalities": {
+    "commander": "legal"
+  },
+  "copy_limit_policy": "default_singleton",
+  "fixed_copy_limit": null,
+  "is_basic_land": false,
+  "is_token": false,
+  "is_digital": false,
+  "released_at": "2026-01-01",
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10",
+      "source_object_id": "card-001",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:00Z",
+      "adapter_version": "fixture-v1",
+      "mapper_version": "fixture-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ]
+}

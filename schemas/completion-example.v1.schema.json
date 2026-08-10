@@ -1,0 +1,113 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/completion-example.v1.schema.json",
+  "title": "Deck Completion Example v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "example_id",
+    "dataset_id",
+    "split",
+    "deck_id",
+    "ruleset_version",
+    "card_snapshot_id",
+    "command_zone",
+    "visible_cards",
+    "positive_cards",
+    "mask_strategy",
+    "candidate_pool_manifest_id",
+    "sample_weight"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "completion-example.v1"
+    },
+    "example_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "split": {
+      "enum": [
+        "train",
+        "validation",
+        "test",
+        "cold_commander",
+        "new_card",
+        "precon_holdout"
+      ]
+    },
+    "deck_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "card_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "command_zone": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "visible_cards": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "uniqueItems": true
+    },
+    "positive_cards": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "mask_strategy": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mask_seed": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "candidate_pool_manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "sample_weight": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "profile": {
+      "enum": [
+        "casual",
+        "cedh",
+        "unknown"
+      ]
+    },
+    "observed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    }
+  }
+}

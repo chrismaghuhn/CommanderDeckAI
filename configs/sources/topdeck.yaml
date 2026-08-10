@@ -1,0 +1,14 @@
+source_id: topdeck
+approval_status: PROPOSED
+access_method: tournaments_v2_api
+api_key_env: TOPDECK_API_KEY
+sync_policy: explicit
+attribution_required: true
+raw_storage: pending_terms_review
+redistribution: not_approved
+rate_limit:
+  requests_per_minute: 100
+  respect_retry_after: true
+filters:
+  game: "Magic: The Gathering"
+  formats: [EDH, Casual EDH, Duel Commander, Pauper EDH]

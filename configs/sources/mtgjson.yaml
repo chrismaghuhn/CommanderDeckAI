@@ -1,0 +1,10 @@
+source_id: mtgjson
+approval_status: APPROVED_LOCAL
+access_method: bulk_file
+files:
+  - AllDeckFiles
+  - AllPrintings
+sync_policy: explicit
+attribution_required: true
+raw_storage: allowed_local
+redistribution: review_required

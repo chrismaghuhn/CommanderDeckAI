@@ -1,0 +1,9 @@
+experiment_id: cooccurrence-v1
+model_family: cooccurrence
+random_seed: 1729
+dataset_id: commander-completion-v1
+features:
+  commander_lift: true
+  card_card_similarity: positive_pmi
+  visible_card_aggregation: mean_top_20
+  popularity_penalty: validation_tuned

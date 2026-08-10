@@ -1,0 +1,21 @@
+optimizer_profile_id: casual-core-v1
+mode: casual
+hard_constraints:
+  enforce_legality: true
+  land_count: {min: 34, max: 40}
+soft_objectives:
+  card_rank_score: 1.0
+  pair_synergy_score: 0.7
+  role_coverage_score: 0.8
+  mana_curve_fit: 0.5
+  theme_alignment: 1.0
+  novelty: 0.4
+  staple_penalty: 0.3
+  uncertainty_penalty: 0.2
+candidate_pool:
+  global_top_n: 600
+  per_role_top_n: 120
+  long_tail_sample_n: 100
+solver:
+  num_workers: 1
+  deterministic_tiebreak: oracle_id

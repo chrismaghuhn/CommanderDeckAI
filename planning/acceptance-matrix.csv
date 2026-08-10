@@ -1,0 +1,21 @@
+capability,milestone,release_acceptance
+Foundation install,M0,Fresh checkout installs from lock and `cda doctor` succeeds
+No forbidden imports,M0,Architecture test rejects domain → infrastructure
+Source approval enforced,M0,PROPOSED/PAUSED adapter cannot sync
+Ruleset reproducible,M1,"Ruleset manifest binds source URLs, date and hash"
+Deck legality,M1,"Independent validator covers command zone, color, ban and copies"
+No split leakage,M2/M4,Revision and near-duplicate groups never cross splits
+Baseline reproducibility,M2,Same inputs/seeds create identical report
+Source contract isolation,M3,Golden fixtures detect API payload break
+PII minimization,M3,Curated tables omit raw names/account IDs
+Benchmark frozen,M4,"Masks, pools and checksums immutable"
+DeepSets permutation invariance,M5,Input order permutation changes no score beyond tolerance
+No pretrained language model,M5,Manifest field false and dependency audit clean
+Optimizer legality,M6,Every accepted result passes separate validator
+No silent relaxation,M6,Hard constraint conflict returns infeasible
+Outcome event split,M7,Entire events live in one split
+Outcome uncertainty,M7,Low-support inputs expose uncertainty
+Forge idempotence,M8,Restart resumes without duplicate completed games
+Forge abort semantics,M8,Abort/error never counted as loss
+Casual multiobjective,M9,"Output reports explicit dimensions, not universal power"
+Traceable explanation,M9,Every explanation line maps to score/constraint evidence

@@ -1,0 +1,129 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/rank-response.v1.schema.json",
+  "title": "Rank Response v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "request_id",
+    "model_id",
+    "dataset_id",
+    "ruleset_version",
+    "score_snapshot_id",
+    "candidate_pool_hash",
+    "ranked_cards",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "rank-response.v1"
+    },
+    "request_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "model_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "dataset_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "candidate_pool_hash": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "ranked_cards": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "oracle_id",
+          "rank",
+          "final_score",
+          "components",
+          "uncertainty",
+          "legal"
+        ],
+        "properties": {
+          "oracle_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "rank": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "final_score": {
+            "type": "number"
+          },
+          "components": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name",
+                "raw_value",
+                "normalized_value",
+                "weight",
+                "contribution"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "raw_value": {
+                  "type": "number"
+                },
+                "normalized_value": {
+                  "type": "number"
+                },
+                "weight": {
+                  "type": "number"
+                },
+                "contribution": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "uncertainty": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0
+          },
+          "legal": {
+            "type": "boolean"
+          },
+          "warning_codes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            },
+            "uniqueItems": true
+          }
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "score_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    }
+  }
+}

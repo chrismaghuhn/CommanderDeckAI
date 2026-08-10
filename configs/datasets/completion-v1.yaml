@@ -1,0 +1,20 @@
+dataset_id: commander-completion-v1
+schema_version: completion-example.v1
+inputs:
+  require_approved_sources: true
+  legal_decks_only: true
+  modes: [casual, cedh, unknown]
+deduplication:
+  exact_fingerprint: true
+  group_revisions: true
+  near_duplicate_jaccard_threshold: 0.92
+splits:
+  strategy: temporal_grouped
+  group_keys: [revision_group_id, near_duplicate_cluster_id]
+  extra_segments: [cold_commander, new_card, precon_holdout]
+masking:
+  strategies: [random_10_40, late_build, early_build, role_hole]
+  masks_per_deck: 4
+quality:
+  fail_on_blocking_findings: true
+  emit_leakage_report: true

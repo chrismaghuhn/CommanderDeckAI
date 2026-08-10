@@ -1,0 +1,88 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/feature-spec.v1.schema.json",
+  "title": "Feature Specification v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "feature_spec_version",
+    "card_snapshot_id",
+    "groups",
+    "oov_policy",
+    "text_feature_policy",
+    "uses_pretrained_language_model",
+    "sha256"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "feature-spec.v1"
+    },
+    "feature_spec_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "card_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "groups": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "kind",
+          "dimension",
+          "version"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "kind": {
+            "enum": [
+              "categorical_embedding",
+              "multi_hot",
+              "numeric",
+              "hashed_text",
+              "role_tags"
+            ]
+          },
+          "dimension": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "version": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "oov_policy": {
+      "enum": [
+        "structured_fallback",
+        "unknown_token",
+        "reject"
+      ]
+    },
+    "text_feature_policy": {
+      "enum": [
+        "none",
+        "deterministic_rules",
+        "hashed_ngrams"
+      ]
+    },
+    "uses_pretrained_language_model": {
+      "const": false
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

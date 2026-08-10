@@ -1,0 +1,14 @@
+dataset_id: cedh-pod-outcome-v1
+inputs:
+  sources: [topdeck, spicerack]
+  require_complete_decklists: true
+  require_complete_pod_result: true
+splits:
+  strategy: temporal_event_grouped
+  group_key: event_id
+privacy:
+  player_identifiers: pseudonymize_for_audit
+  use_player_as_model_feature: false
+quality:
+  report_seat_distribution: true
+  report_missingness: true

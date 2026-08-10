@@ -1,0 +1,284 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/deck.v1.schema.json",
+  "title": "Canonical Commander Deck v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "deck_id",
+    "format",
+    "ruleset_version",
+    "card_snapshot_id",
+    "command_zone",
+    "mainboard",
+    "deck_fingerprint",
+    "legal_status",
+    "source",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "deck.v1"
+    },
+    "deck_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "format": {
+      "const": "commander"
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "card_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "title": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "command_zone": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "oracle_id",
+          "quantity"
+        ],
+        "properties": {
+          "oracle_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "printing_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "mainboard": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "oracle_id",
+          "quantity"
+        ],
+        "properties": {
+          "oracle_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "printing_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      },
+      "minItems": 1
+    },
+    "companion": {
+      "anyOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "oracle_id",
+            "quantity"
+          ],
+          "properties": {
+            "oracle_id": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "quantity": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "printing_id": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "tags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "mode": {
+      "enum": [
+        "casual",
+        "cedh",
+        "unknown"
+      ]
+    },
+    "created_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "updated_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "deck_fingerprint": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "revision_group_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "near_duplicate_cluster_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "legal_status": {
+      "enum": [
+        "legal",
+        "illegal",
+        "unknown",
+        "quarantined"
+      ]
+    },
+    "quality_finding_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_deck_id"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_deck_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_url": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uri"
+        }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "source_id",
+          "source_snapshot_id",
+          "source_object_id",
+          "raw_sha256"
+        ],
+        "properties": {
+          "source_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_snapshot_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_object_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "raw_sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "retrieved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "adapter_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "mapper_version": {
+            "type": "string",
+            "minLength": 1
+          },
+          "approval_status": {
+            "enum": [
+              "APPROVED_LOCAL",
+              "APPROVED_REDISTRIBUTION"
+            ]
+          }
+        }
+      },
+      "minItems": 1
+    }
+  }
+}

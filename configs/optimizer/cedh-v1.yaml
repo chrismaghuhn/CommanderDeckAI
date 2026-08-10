@@ -1,0 +1,20 @@
+optimizer_profile_id: cedh-v1
+mode: cedh
+hard_constraints:
+  enforce_legality: true
+  land_count: {min: 26, max: 36}
+soft_objectives:
+  card_rank_score: 1.0
+  pair_synergy_score: 1.0
+  role_coverage_score: 0.7
+  mana_curve_fit: 0.8
+  combo_completeness: 1.0
+  tournament_outcome_score: 0.0   # bleibt 0 bis M7-Gate
+  uncertainty_penalty: 0.4
+candidate_pool:
+  global_top_n: 800
+  per_role_top_n: 150
+  long_tail_sample_n: 50
+solver:
+  num_workers: 1
+  deterministic_tiebreak: oracle_id

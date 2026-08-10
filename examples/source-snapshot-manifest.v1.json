@@ -1,0 +1,27 @@
+{
+  "schema_version": "source-snapshot-manifest.v1",
+  "source_id": "fixture",
+  "source_snapshot_id": "fixture-2026-08-10",
+  "status": "COMPLETE",
+  "approval_status": "APPROVED_REDISTRIBUTION",
+  "adapter_version": "fixture-v1",
+  "started_at": "2026-08-10T17:59:00Z",
+  "completed_at": "2026-08-10T18:00:00Z",
+  "terms_reference": null,
+  "request_parameters_redacted": {
+    "fixture": true
+  },
+  "objects": [
+    {
+      "source_object_id": "object-001",
+      "path": "objects/object-001.json",
+      "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "bytes": 128,
+      "content_type": "application/json"
+    }
+  ],
+  "pagination_state": null,
+  "attribution_required": false,
+  "redistribution_status": "approved",
+  "sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+}

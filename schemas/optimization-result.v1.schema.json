@@ -1,0 +1,218 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/optimization-result.v1.schema.json",
+  "title": "Optimization Result v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "optimization_id",
+    "status",
+    "ruleset_version",
+    "command_zone",
+    "mainboard",
+    "hard_constraints_satisfied",
+    "objective_components",
+    "solver_metadata",
+    "created_at"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "optimization-result.v1"
+    },
+    "optimization_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "OPTIMAL",
+        "FEASIBLE",
+        "INFEASIBLE",
+        "INVALID_REQUEST",
+        "SOLVER_LIMIT_REACHED"
+      ]
+    },
+    "ruleset_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "command_zone": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "oracle_id",
+          "quantity"
+        ],
+        "properties": {
+          "oracle_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "printing_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "mainboard": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "oracle_id",
+          "quantity"
+        ],
+        "properties": {
+          "oracle_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "quantity": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "printing_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        }
+      }
+    },
+    "hard_constraints_satisfied": {
+      "type": "boolean"
+    },
+    "constraint_findings": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "objective_total": {
+      "type": [
+        "number",
+        "null"
+      ]
+    },
+    "objective_components": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "name",
+          "raw_value",
+          "normalized_value",
+          "weight",
+          "contribution"
+        ],
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1
+          },
+          "raw_value": {
+            "type": "number"
+          },
+          "normalized_value": {
+            "type": "number"
+          },
+          "weight": {
+            "type": "number"
+          },
+          "contribution": {
+            "type": "number"
+          }
+        }
+      }
+    },
+    "solver_metadata": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "solver_name",
+        "solver_version",
+        "random_seed",
+        "num_workers"
+      ],
+      "properties": {
+        "solver_name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "solver_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "random_seed": {
+          "type": "integer"
+        },
+        "num_workers": {
+          "type": "integer"
+        },
+        "best_bound": {
+          "type": [
+            "number",
+            "null"
+          ]
+        }
+      }
+    },
+    "deck_fingerprint": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

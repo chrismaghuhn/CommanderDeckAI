@@ -1,0 +1,44 @@
+{
+  "schema_version": "pod.v1",
+  "event_id": "event-001",
+  "pod_id": "pod-001",
+  "round_number": 1,
+  "occurred_at": "2026-08-10T12:00:00Z",
+  "status": "complete",
+  "entries": [
+    {
+      "seat": 1,
+      "deck_id": "deck-A",
+      "player_pseudonym": "p-1",
+      "result": "win",
+      "placement": 1,
+      "points": 5
+    },
+    {
+      "seat": 2,
+      "deck_id": "deck-B",
+      "player_pseudonym": "p-2",
+      "result": "loss",
+      "placement": 2,
+      "points": 0
+    },
+    {
+      "seat": 3,
+      "deck_id": "deck-C",
+      "player_pseudonym": "p-3",
+      "result": "loss",
+      "placement": 3,
+      "points": 0
+    },
+    {
+      "seat": 4,
+      "deck_id": "deck-D",
+      "player_pseudonym": "p-4",
+      "result": "loss",
+      "placement": 4,
+      "points": 0
+    }
+  ],
+  "source_snapshot_id": "fixture-2026-08-10",
+  "provenance": []
+}

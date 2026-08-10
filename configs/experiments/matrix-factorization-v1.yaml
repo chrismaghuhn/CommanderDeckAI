@@ -1,0 +1,9 @@
+experiment_id: matrix-factorization-v1
+model_family: matrix_factorization
+random_seed: 1729
+dataset_id: commander-completion-v1
+embedding_dim: 128
+regularization: 0.01
+negative_sampling:
+  strategy: mixed_v1
+  negatives_per_positive: 20

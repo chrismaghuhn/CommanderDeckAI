@@ -1,0 +1,20 @@
+experiment_id: deepsets-v1
+model_family: deepsets
+random_seeds: [1729, 1730, 1731]
+dataset_id: commander-completion-v1
+features:
+  spec_version: card-features-v1
+  oracle_id_embedding: true
+  structured_card_features: true
+  deterministic_oracle_text_rules: true
+  pretrained_language_model: false
+model:
+  embedding_dim: 128
+  card_encoder_hidden: [256, 128]
+  pooling: mean
+  scorer_hidden: [256, 128]
+  dropout: 0.1
+training:
+  loss: sampled_bce
+  negative_sampling: mixed_v1
+  early_stopping_metric: ndcg_at_25
