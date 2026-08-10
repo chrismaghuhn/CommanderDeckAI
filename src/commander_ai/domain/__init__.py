@@ -25,6 +25,8 @@ from .provenance import (
     SourceSnapshotManifest,
     SourceSnapshotRequest,
     derive_request_parameters_summary,
+    detached_manifest_sha256,
+    validate_portable_relative_path,
 )
 
 __all__ = [
@@ -58,4 +60,6 @@ __all__ = [
     "SourceSnapshotRequest",
     "compute_structural_fingerprint",
     "derive_request_parameters_summary",
+    "detached_manifest_sha256",
+    "validate_portable_relative_path",
 ]

@@ -2,17 +2,98 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal, NoReturn
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+
+_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
+
+
+class FrozenDict(dict[str, object]):
+    """JSON-serializable mapping whose mutation operations always fail."""
+
+    def __setitem__(self, key: str, value: object) -> NoReturn:
+        raise TypeError("frozen domain mappings cannot be mutated")
+
+    def __delitem__(self, key: str) -> NoReturn:
+        raise TypeError("frozen domain mappings cannot be mutated")
+
+    def clear(self) -> NoReturn:
+        raise TypeError("frozen domain mappings cannot be mutated")
+
+    def pop(self, *args: Any, **kwargs: Any) -> NoReturn:
+        raise TypeError("frozen domain mappings cannot be mutated")
+
+    def popitem(self) -> NoReturn:
+        raise TypeError("frozen domain mappings cannot be mutated")
+
+    def setdefault(self, *args: Any, **kwargs: Any) -> NoReturn:
+        raise TypeError("frozen domain mappings cannot be mutated")
+
+    def update(self, *args: Any, **kwargs: Any) -> NoReturn:
+        raise TypeError("frozen domain mappings cannot be mutated")
+
+    def __ior__(self, value: Any) -> dict[str, object]:  # type: ignore[override, misc]
+        raise TypeError("frozen domain mappings cannot be mutated")
+
+
+def _freeze(value: object) -> object:
+    if isinstance(value, Mapping):
+        return FrozenDict({str(key): _freeze(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze(item) for item in value)
+    return value
+
+
+def validate_portable_relative_path(value: str) -> str:
+    """Require a root-relative POSIX path with no traversal or host syntax."""
+
+    if not value or value.startswith("/") or "\\" in value or _DRIVE_PREFIX.match(value):
+        raise ValueError("path must be a portable root-relative POSIX path")
+
+    segments = value.split("/")
+    if any(segment in {"", ".", ".."} for segment in segments):
+        raise ValueError("path must not contain empty, '.', or '..' segments")
+    return value
+
+
+def detached_manifest_sha256(manifest: Mapping[str, object]) -> str:
+    """Return the SHA-256 stored in a detached ``manifest.sha256`` sidecar.
+
+    The optional legacy key is omitted from the hashed payload so this hook can
+    verify that a digest is never self-referential when inspecting old fixtures.
+    Persisted source and normalized manifests do not contain that key.
+    """
+
+    payload = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
+    canonical = json.dumps(
+        payload,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+        allow_nan=False,
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
 
 
 class DomainModel(BaseModel):
     """Strict immutable base for domain values."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    def model_post_init(self, __context: object) -> None:
+        for field_name in type(self).model_fields:
+            value = getattr(self, field_name)
+            frozen_value = _freeze(value)
+            if frozen_value is not value:
+                object.__setattr__(self, field_name, frozen_value)
 
 
 Sha256 = str
@@ -39,6 +120,11 @@ class QuarantineReference(DomainModel):
     reason_code: str = Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
     path: str | None = Field(default=None, min_length=1)
     record_locator: str | None = Field(default=None, min_length=1)
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str | None) -> str | None:
+        return None if value is None else validate_portable_relative_path(value)
 
 
 class SourceSnapshotRequest(DomainModel):
@@ -77,13 +163,7 @@ def derive_request_parameters_summary(
             sorted({request.api_version for request in requests if request.api_version is not None})
         ),
         parameter_keys=tuple(
-            sorted(
-                {
-                    key
-                    for request in requests
-                    for key in request.sanitized_parameters
-                }
-            )
+            sorted({key for request in requests for key in request.sanitized_parameters})
         ),
     )
 
@@ -109,6 +189,11 @@ class RawObjectReference(DomainModel):
     ]
     logical_record_count: int | None = Field(default=None, ge=0)
 
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        return validate_portable_relative_path(value)
+
 
 class SourceSnapshotManifest(DomainModel):
     """Authoritative v2 source snapshot provenance."""
@@ -130,7 +215,6 @@ class SourceSnapshotManifest(DomainModel):
     attribution_required: bool
     redistribution_status: Literal["not_approved", "derived_only", "approved"]
     snapshot_content_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    manifest_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
 
     @model_validator(mode="after")
     def validate_request_lineage(self) -> SourceSnapshotManifest:
@@ -147,6 +231,10 @@ class SourceSnapshotManifest(DomainModel):
         if missing_request_ids:
             missing = ", ".join(sorted(missing_request_ids))
             raise ValueError(f"objects reference unknown request_id values: {missing}")
+
+        raw_object_ids = [raw_object.raw_object_id for raw_object in self.objects]
+        if len(raw_object_ids) != len(set(raw_object_ids)):
+            raise ValueError("objects must have unique raw_object_id values")
 
         expected_summary = derive_request_parameters_summary(self.requests)
         if self.request_parameters_redacted != expected_summary:
@@ -179,7 +267,22 @@ class NormalizedSnapshotManifest(DomainModel):
     started_at: datetime
     completed_at: datetime | None
     normalized_content_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    manifest_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @field_validator("normalized_artifact_path", "audit_artifact_path")
+    @classmethod
+    def validate_artifact_path(cls, value: str) -> str:
+        return validate_portable_relative_path(value)
+
+    @model_validator(mode="after")
+    def validate_provenance_scope(self) -> NormalizedSnapshotManifest:
+        for reference in self.provenance:
+            if reference.source_id != self.source_id:
+                raise ValueError("provenance source_id must match source_id")
+            if reference.source_snapshot_id != self.input_source_snapshot_manifest_id:
+                raise ValueError(
+                    "provenance source_snapshot_id must match input_source_snapshot_manifest_id"
+                )
+        return self
 
 
 class DatasetInputReference(DomainModel):
@@ -190,6 +293,11 @@ class DatasetInputReference(DomainModel):
     path: str | None = Field(default=None, min_length=1)
     sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
 
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str | None) -> str | None:
+        return None if value is None else validate_portable_relative_path(value)
+
 
 class DatasetOutputReference(DomainModel):
     """Hashed dataset output artifact reference."""
@@ -199,6 +307,11 @@ class DatasetOutputReference(DomainModel):
     sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
     rows: int = Field(ge=0)
     bytes: int | None = Field(default=None, ge=0)
+
+    @field_validator("path")
+    @classmethod
+    def validate_path(cls, value: str) -> str:
+        return validate_portable_relative_path(value)
 
 
 class DatasetExclusion(DomainModel):

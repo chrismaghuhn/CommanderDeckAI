@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 
 import pytest
@@ -19,6 +20,7 @@ from commander_ai.domain.decks import (
     CardZone,
     CommandZoneEntry,
     CommandZoneRelationship,
+    compute_structural_fingerprint,
 )
 from commander_ai.domain.evaluations import DeckLegalityEvaluation, DeckQualityEvaluation
 from commander_ai.domain.observations import EventDeckObservation, ParticipantReference, PodEntry
@@ -28,9 +30,11 @@ from commander_ai.domain.provenance import (
     DatasetOutputReference,
     NormalizedSnapshotManifest,
     ProvenanceReference,
+    QuarantineReference,
     RawObjectReference,
     SourceSnapshotManifest,
     SourceSnapshotRequest,
+    detached_manifest_sha256,
 )
 
 ORACLE_A = "11111111-1111-4111-8111-111111111111"
@@ -39,10 +43,15 @@ ORACLE_C = "33333333-3333-4333-8333-333333333333"
 PRINTING_A = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
 
 
-def provenance(source_id: str, source_object_id: str) -> ProvenanceReference:
+def provenance(
+    source_id: str,
+    source_object_id: str,
+    *,
+    source_snapshot_id: str | None = None,
+) -> ProvenanceReference:
     return ProvenanceReference(
         source_id=source_id,
-        source_snapshot_id=f"{source_id}-snapshot",
+        source_snapshot_id=source_snapshot_id or f"{source_id}-snapshot",
         source_object_id=source_object_id,
         raw_sha256="0" * 64,
         retrieved_at=datetime(2026, 8, 10, tzinfo=UTC),
@@ -238,10 +247,12 @@ def test_event_observations_repeat_decks_while_pod_entries_keep_round_and_seat()
         result="win",
         points=3,
         placement=1,
+        provenance=(provenance("fixture", "pod-1"),),
     )
 
     assert observation.canonical_deck_id == pod_entry.canonical_deck_id
     assert (pod_entry.round_number, pod_entry.seat) == (3, 2)
+    assert pod_entry.schema_version == "pod.v1"
 
 
 def test_resolution_and_combo_models_keep_identity_and_feature_facts_separate() -> None:
@@ -261,6 +272,7 @@ def test_resolution_and_combo_models_keep_identity_and_feature_facts_separate() 
         alias_catalog_version="aliases-v1",
         alias_catalog_sha256="1" * 64,
         card_catalog_snapshot_id="cards-1",
+        finding_code="resolution.exact_name",
     )
     combo_card = ComboCard(
         combo_id="combo-1",
@@ -278,6 +290,7 @@ def test_resolution_and_combo_models_keep_identity_and_feature_facts_separate() 
     )
 
     assert resolution.canonical_oracle_id == combo.required_cards[0]
+    assert resolution.finding_code == "resolution.exact_name"
     assert combo_card.role == "required"
     assert "legal_status" not in combo.model_dump()
 
@@ -314,7 +327,6 @@ def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains(
         attribution_required=False,
         redistribution_status="approved",
         snapshot_content_sha256="3" * 64,
-        manifest_sha256="4" * 64,
         request_parameters_redacted={
             "request_ids": ["request-1"],
             "methods": ["GET"],
@@ -328,7 +340,9 @@ def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains(
         normalized_snapshot_id="normalized-1",
         producing_run_id="run-1",
         input_source_snapshot_manifest_id=source_manifest.source_snapshot_id,
-        input_source_snapshot_manifest_sha256=source_manifest.manifest_sha256,
+        input_source_snapshot_manifest_sha256=detached_manifest_sha256(
+            source_manifest.model_dump(mode="json")
+        ),
         source_id="fixture",
         status="COMPLETE",
         normalized_schema_version="records-v1",
@@ -343,8 +357,7 @@ def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains(
         started_at=datetime(2026, 8, 10, 0, 1, tzinfo=UTC),
         completed_at=datetime(2026, 8, 10, 0, 2, tzinfo=UTC),
         normalized_content_sha256="7" * 64,
-        manifest_sha256="8" * 64,
-        provenance=(provenance("fixture", "object-1"),),
+        provenance=(provenance("fixture", "object-1", source_snapshot_id="snapshot-1"),),
     )
     dataset_manifest = DatasetManifest(
         dataset_id="dataset-1",
@@ -356,7 +369,7 @@ def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains(
             DatasetInputReference(
                 kind="normalized_snapshot_manifest",
                 id=normalized_manifest.normalized_snapshot_id,
-                sha256=normalized_manifest.manifest_sha256,
+                sha256=detached_manifest_sha256(normalized_manifest.model_dump(mode="json")),
             ),
         ),
         schema_versions=("canonical-deck.v1",),
@@ -369,6 +382,7 @@ def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains(
                 path="dataset/train.parquet",
                 sha256="a" * 64,
                 rows=1,
+                bytes=256,
             ),
         ),
         dataset_content_sha256="b" * 64,
@@ -377,5 +391,168 @@ def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains(
 
     assert source_manifest.requests[0].request_id == "request-1"
     assert source_manifest.objects[0].raw_object_id == "object-1"
-    assert normalized_manifest.normalized_content_sha256 != normalized_manifest.manifest_sha256
+    assert "manifest_sha256" not in source_manifest.model_dump(mode="json")
+    assert "manifest_sha256" not in normalized_manifest.model_dump(mode="json")
     assert dataset_manifest.input_manifests[0].id == "normalized-1"
+    assert dataset_manifest.outputs[0].bytes == 256
+
+
+@pytest.mark.parametrize(
+    "invalid_path",
+    ("C:/data/file", "\\\\server\\share", "/root/file", "a/../file"),
+)
+def test_domain_rejects_non_portable_persisted_paths(invalid_path: str) -> None:
+    with pytest.raises(ValidationError):
+        RawObjectReference(
+            raw_object_id="object-1",
+            request_id="request-1",
+            retrieved_at=datetime(2026, 8, 10, tzinfo=UTC),
+            path=invalid_path,
+            bytes=1,
+            sha256="2" * 64,
+            checksum_verification_status="not_provided",
+        )
+    with pytest.raises(ValidationError):
+        QuarantineReference(
+            quarantine_id="quarantine-1",
+            reason_code="integrity.invalid_path",
+            path=invalid_path,
+        )
+    with pytest.raises(ValidationError):
+        DatasetInputReference(
+            kind="normalized_snapshot_manifest",
+            id="normalized-1",
+            path=invalid_path,
+            sha256="3" * 64,
+        )
+    with pytest.raises(ValidationError):
+        DatasetOutputReference(
+            name="train",
+            path=invalid_path,
+            sha256="4" * 64,
+            rows=1,
+        )
+
+
+def test_nested_persisted_values_are_deeply_immutable_and_serializable() -> None:
+    request = SourceSnapshotRequest(
+        request_id="request-1",
+        sanitized_method="GET",
+        sanitized_endpoint="https://example.invalid/cards",
+        format="json",
+        sanitized_parameters={"nested": {"values": [1, 2]}},
+    )
+
+    with pytest.raises(TypeError):
+        request.sanitized_parameters["new"] = "value"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        request.sanitized_parameters["nested"]["new"] = "value"  # type: ignore[index]
+    with pytest.raises(TypeError):
+        request.sanitized_parameters["nested"]["values"] += (3,)  # type: ignore[index]
+
+    assert request.model_dump(mode="json")["sanitized_parameters"] == {
+        "nested": {"values": [1, 2]},
+    }
+    assert json.loads(request.model_dump_json())["sanitized_parameters"] == {
+        "nested": {"values": [1, 2]},
+    }
+    json.dumps(request.model_dump(mode="json"), ensure_ascii=False, sort_keys=True)
+
+
+def test_structural_fingerprint_rejects_duplicate_identity_rows_before_persistence() -> None:
+    with pytest.raises(ValueError, match="card identity may occur only once"):
+        compute_structural_fingerprint(
+            ({"oracle_id": ORACLE_A, "quantity": 1},),
+            (
+                {
+                    "zone": "mainboard",
+                    "cards": [
+                        {"oracle_id": ORACLE_C, "quantity": 1},
+                        {"oracle_id": ORACLE_C, "quantity": 2},
+                    ],
+                },
+            ),
+        )
+
+
+def test_structural_decks_reject_duplicate_card_identity_rows() -> None:
+    duplicate_cards = (
+        CardQuantity(oracle_id=ORACLE_C, quantity=1),
+        CardQuantity(oracle_id=ORACLE_C, quantity=2),
+    )
+    with pytest.raises(ValidationError):
+        CardZone(zone="mainboard", cards=duplicate_cards)
+
+    with pytest.raises(ValidationError):
+        make_deck(
+            (
+                CommandZoneEntry(oracle_id=ORACLE_A, quantity=1),
+                CommandZoneEntry(oracle_id=ORACLE_A, quantity=1),
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    "reference_data",
+    (
+        {"reference_id": "source", "scope": "source"},
+        {"reference_id": "event", "scope": "event"},
+        {"reference_id": "snapshot", "scope": "snapshot_object"},
+        {
+            "reference_id": "event-with-source",
+            "scope": "event",
+            "event_id": "event-1",
+            "source_id": "fixture",
+        },
+    ),
+)
+def test_participant_reference_requires_compatible_scope_fields(
+    reference_data: dict[str, str],
+) -> None:
+    with pytest.raises(ValidationError):
+        ParticipantReference.model_validate(reference_data)
+
+
+def test_participant_reference_scope_fields_are_validated() -> None:
+    assert (
+        ParticipantReference(
+            reference_id="source",
+            scope="source",
+            source_id="fixture",
+        ).source_id
+        == "fixture"
+    )
+    assert (
+        ParticipantReference(
+            reference_id="event",
+            scope="event",
+            event_id="event-1",
+        ).event_id
+        == "event-1"
+    )
+    assert (
+        ParticipantReference(
+            reference_id="snapshot",
+            scope="snapshot_object",
+            source_snapshot_id="snapshot-1",
+        ).source_snapshot_id
+        == "snapshot-1"
+    )
+
+
+def test_pod_entry_rejects_event_participant_from_another_event() -> None:
+    with pytest.raises(ValidationError, match="event participant reference must match event_id"):
+        PodEntry(
+            pod_id="pod-1",
+            event_id="event-1",
+            round_number=1,
+            seat=1,
+            canonical_deck_id="d" * 64,
+            result="win",
+            participant_reference=ParticipantReference(
+                reference_id="participant-1",
+                scope="event",
+                event_id="event-2",
+            ),
+            provenance=(provenance("fixture", "pod-1"),),
+        )

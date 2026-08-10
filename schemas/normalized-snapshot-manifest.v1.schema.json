@@ -26,9 +26,23 @@
     "created_at",
     "started_at",
     "completed_at",
-    "normalized_content_sha256",
-    "manifest_sha256"
+    "normalized_content_sha256"
   ],
+  "x-reference-constraints": [
+    {
+      "from": "provenance[].source_id",
+      "equals": "source_id"
+    },
+    {
+      "from": "provenance[].source_snapshot_id",
+      "equals": "input_source_snapshot_manifest_id"
+    }
+  ],
+  "x-detached-digest": {
+    "sidecar_filename": "manifest.sha256",
+    "algorithm": "SHA-256",
+    "canonical_payload": "manifest JSON without a self-digest field"
+  },
   "properties": {
     "schema_version": {
       "const": "normalized-snapshot-manifest.v1"
@@ -74,7 +88,8 @@
     },
     "normalized_artifact_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
     },
     "normalized_artifact_sha256": {
       "type": "string",
@@ -82,7 +97,8 @@
     },
     "audit_artifact_path": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
     },
     "audit_artifact_sha256": {
       "type": "string",
@@ -122,11 +138,18 @@
             "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$"
           },
           "path": {
-            "type": "string",
-            "minLength": 1
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "pattern": "^(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
           },
           "record_locator": {
-            "type": "string",
+            "type": [
+              "string",
+              "null"
+            ],
             "minLength": 1
           }
         }
@@ -155,10 +178,6 @@
       "format": "date-time"
     },
     "normalized_content_sha256": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
-    },
-    "manifest_sha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     }

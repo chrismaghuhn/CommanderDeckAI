@@ -45,5 +45,66 @@
       ],
       "minLength": 1
     }
-  }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "scope": {
+          "const": "source"
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "event_id": {
+          "type": "null"
+        },
+        "source_snapshot_id": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "source_id",
+        "event_id",
+        "source_snapshot_id"
+      ]
+    },
+    {
+      "properties": {
+        "scope": {
+          "const": "event"
+        },
+        "source_id": {
+          "type": "null"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "source_snapshot_id": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "source_id",
+        "event_id",
+        "source_snapshot_id"
+      ]
+    },
+    {
+      "properties": {
+        "scope": {
+          "const": "snapshot_object"
+        },
+        "event_id": {
+          "type": "null"
+        },
+        "source_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "source_snapshot_id"
+      ]
+    }
+  ]
 }

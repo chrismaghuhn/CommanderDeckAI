@@ -10,7 +10,7 @@
       "kind": "normalized_snapshot_manifest",
       "id": "fixture-normalized-2026-08-10",
       "path": "examples/normalized-snapshot-manifest.v1.json",
-      "sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+      "sha256": "ca5f3e104d6f9d5dc7a0cac0a8314bd12390819e62f276dc6e2986f55d60aa26"
     }
   ],
   "schema_versions": [

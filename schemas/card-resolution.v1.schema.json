@@ -116,7 +116,10 @@
       "minLength": 1
     },
     "finding_code": {
-      "type": "string",
+      "type": [
+        "string",
+        "null"
+      ],
       "pattern": "^resolution\\.[a-z0-9_]+$"
     },
     "provenance": {

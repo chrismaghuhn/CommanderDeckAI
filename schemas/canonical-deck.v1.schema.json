@@ -36,6 +36,8 @@
     "command_zone": {
       "type": "array",
       "minItems": 1,
+      "uniqueItems": true,
+      "x-unique-by": "oracle_id",
       "items": {
         "$ref": "#/$defs/command_zone_entry"
       }
@@ -164,6 +166,8 @@
         "cards": {
           "type": "array",
           "minItems": 1,
+          "uniqueItems": true,
+          "x-unique-by": "oracle_id",
           "items": {
             "$ref": "#/$defs/card_quantity"
           }

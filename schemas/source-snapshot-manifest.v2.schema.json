@@ -20,16 +20,26 @@
     "pagination_state",
     "attribution_required",
     "redistribution_status",
-    "snapshot_content_sha256",
-    "manifest_sha256"
+    "snapshot_content_sha256"
   ],
   "x-reference-constraints": [
     {
       "from": "objects[].request_id",
       "to": "requests[].request_id",
-      "unique_request_ids": true
+      "unique_request_ids": true,
+      "raw_object_ids_unique": true
     }
   ],
+  "x-derived-compatibility": {
+    "field": "request_parameters_redacted",
+    "from": "requests",
+    "rule": "sorted unique request_ids, methods, endpoints, formats, api_versions, and parameter_keys"
+  },
+  "x-detached-digest": {
+    "sidecar_filename": "manifest.sha256",
+    "algorithm": "SHA-256",
+    "canonical_payload": "manifest JSON without a self-digest field"
+  },
   "properties": {
     "schema_version": {
       "const": "source-snapshot-manifest.v2"
@@ -146,6 +156,7 @@
     "requests": {
       "type": "array",
       "uniqueItems": true,
+      "x-unique-by": "request_id",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -188,6 +199,8 @@
     },
     "objects": {
       "type": "array",
+      "uniqueItems": true,
+      "x-unique-by": "raw_object_id",
       "items": {
         "type": "object",
         "additionalProperties": false,
@@ -223,7 +236,8 @@
           },
           "path": {
             "type": "string",
-            "minLength": 1
+            "minLength": 1,
+            "pattern": "^(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
           },
           "bytes": {
             "type": "integer",
@@ -282,10 +296,6 @@
       ]
     },
     "snapshot_content_sha256": {
-      "type": "string",
-      "pattern": "^[a-f0-9]{64}$"
-    },
-    "manifest_sha256": {
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     }

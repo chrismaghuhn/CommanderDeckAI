@@ -23,13 +23,16 @@ class CardQuantity(DomainModel):
 class CommandZoneEntry(CardQuantity):
     """Command-zone card with preserved source role evidence."""
 
-    source_declared_role: Literal[
-        "commander",
-        "partner",
-        "background",
-        "companion",
-        "unknown",
-    ] | None = None
+    source_declared_role: (
+        Literal[
+            "commander",
+            "partner",
+            "background",
+            "companion",
+            "unknown",
+        ]
+        | None
+    ) = None
 
 
 class CommandZoneRelationship(DomainModel):
@@ -49,6 +52,7 @@ class CardZone(DomainModel):
     def reject_command_zone(self) -> CardZone:
         if self.zone == "command_zone":
             raise ValueError("command_zone must be represented by CanonicalDeck.command_zone")
+        _reject_duplicate_card_identities(self.cards)
         return self
 
 
@@ -62,6 +66,12 @@ def _sequence(value: object) -> Sequence[object]:
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return value
     return ()
+
+
+def _reject_duplicate_card_identities(cards: Sequence[object]) -> None:
+    oracle_ids = [str(_field(card, "oracle_id", "")) for card in cards]
+    if len(oracle_ids) != len(set(oracle_ids)):
+        raise ValueError("a card identity may occur only once within a zone")
 
 
 def _integer(value: object) -> int:
@@ -82,13 +92,16 @@ def _card_payload(value: object) -> dict[str, object]:
 def _structural_payload(
     command_zone: Sequence[object], card_zones: Sequence[object]
 ) -> dict[str, object]:
+    _reject_duplicate_card_identities(command_zone)
     command_cards = [_card_payload(entry) for entry in command_zone]
     command_cards.sort(key=lambda card: (str(card["oracle_id"]), _integer(card["quantity"])))
 
     zones: list[dict[str, object]] = []
     for zone in card_zones:
         cards_value = _field(zone, "cards", ())
-        cards = [_card_payload(card) for card in _sequence(cards_value)]
+        cards_sequence = _sequence(cards_value)
+        _reject_duplicate_card_identities(cards_sequence)
+        cards = [_card_payload(card) for card in cards_sequence]
         cards.sort(key=lambda card: (str(card["oracle_id"]), _integer(card["quantity"])))
         zones.append({"zone": str(_field(zone, "zone", "")), "cards": cards})
     zones.sort(key=lambda item: str(item["zone"]))
@@ -134,15 +147,14 @@ class CanonicalDeck(DomainModel):
         data = dict(value)
         command_zone = data.get("command_zone", ())
         card_zones = data.get("card_zones", ())
-        fingerprint = compute_structural_fingerprint(
-            _sequence(command_zone), _sequence(card_zones)
-        )
+        fingerprint = compute_structural_fingerprint(_sequence(command_zone), _sequence(card_zones))
         data.setdefault("canonical_deck_id", fingerprint)
         data.setdefault("structural_fingerprint", fingerprint)
         return data
 
     @model_validator(mode="after")
     def verify_structural_identity(self) -> CanonicalDeck:
+        _reject_duplicate_card_identities(self.command_zone)
         expected = compute_structural_fingerprint(self.command_zone, self.card_zones)
         if self.canonical_deck_id != expected or self.structural_fingerprint != expected:
             raise ValueError(

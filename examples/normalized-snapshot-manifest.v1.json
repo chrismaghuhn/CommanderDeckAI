@@ -3,7 +3,7 @@
   "normalized_snapshot_id": "fixture-normalized-2026-08-10",
   "producing_run_id": "normalize-fixture-run-001",
   "input_source_snapshot_manifest_id": "fixture-2026-08-10-v2",
-  "input_source_snapshot_manifest_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+  "input_source_snapshot_manifest_sha256": "f4e386eb9979be5eafc88b92d1a3d50ea9d04d0a2f488fed35d29360b150016a",
   "source_id": "fixture",
   "status": "COMPLETE",
   "normalized_schema_version": "normalized-records.v1",
@@ -37,6 +37,5 @@
   "created_at": "2026-08-10T18:02:00Z",
   "started_at": "2026-08-10T18:01:30Z",
   "completed_at": "2026-08-10T18:02:00Z",
-  "normalized_content_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
-  "manifest_sha256": "6666666666666666666666666666666666666666666666666666666666666666"
+  "normalized_content_sha256": "5555555555555555555555555555555555555555555555555555555555555555"
 }

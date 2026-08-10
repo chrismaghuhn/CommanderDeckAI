@@ -32,9 +32,7 @@ class CardFace(DomainModel):
     mana_value: float | None = Field(default=None, ge=0)
     mana_cost: str | None = None
     colors: tuple[Literal["W", "U", "B", "R", "G"], ...] = Field(default_factory=tuple)
-    color_identity: tuple[Literal["W", "U", "B", "R", "G"], ...] = Field(
-        default_factory=tuple
-    )
+    color_identity: tuple[Literal["W", "U", "B", "R", "G"], ...] = Field(default_factory=tuple)
     supertypes: tuple[str, ...] = Field(default_factory=tuple)
     types: tuple[str, ...] = Field(default_factory=tuple)
     subtypes: tuple[str, ...] = Field(default_factory=tuple)
@@ -110,7 +108,5 @@ class CardResolution(DomainModel):
     alias_catalog_version: str = Field(min_length=1)
     alias_catalog_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
     card_catalog_snapshot_id: str = Field(min_length=1)
-    finding_code: str | None = Field(
-        default=None, pattern=r"^resolution\.[a-z0-9_]+$"
-    )
+    finding_code: str | None = Field(default=None, pattern=r"^resolution\.[a-z0-9_]+$")
     provenance: tuple[ProvenanceReference, ...] = Field(default_factory=tuple)
