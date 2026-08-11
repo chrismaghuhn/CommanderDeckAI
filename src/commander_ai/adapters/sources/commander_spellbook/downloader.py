@@ -7,7 +7,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
-from commander_ai.adapters.http.transport import HttpTransportError, SafeHttpResponse
+from commander_ai.adapters.http.transport import HttpTransportError
 from commander_ai.adapters.storage.raw_snapshot_errors import RawSnapshotError
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
 from commander_ai.adapters.storage.raw_snapshots import RawSnapshotWriter, SnapshotCommit
@@ -20,6 +20,7 @@ from .errors import (
     CommanderSpellbookClientError,
     CommanderSpellbookDownloadError,
 )
+from .json_support import DuplicateJSONKey, decode_pagination_json
 from .settings import CommanderSpellbookSettings, SpellbookContract
 
 
@@ -120,86 +121,44 @@ class CommanderSpellbookDownloader:
                 }
             )
             response = self.client.fetch(contract, page=page)
-            raw_bytes = self._read_response_body(
-                writer,
-                response,
-                contract=contract,
-                page=page,
-                request_id=request_id,
-            )
-            reference = writer.write_object(
-                raw_object_id=raw_object_id,
-                request_id=request_id,
-                chunks=[raw_bytes],
-                content_type=response.metadata.content_type,
-                source_object_id=contract,
-            )
-            object_ids.append(reference.raw_object_id)
-            if not self._has_next_page(
-                writer.snapshot_dir.joinpath(*reference.path.split("/")), contract
+            try:
+                object_writer = writer.open_object(
+                    raw_object_id=raw_object_id,
+                    request_id=request_id,
+                    content_type=response.metadata.content_type,
+                    source_object_id=contract,
+                )
+            except BaseException:
+                response.close()
+                raise
+            try:
+                for chunk in response.iter_raw():
+                    object_writer.write(chunk)
+                reference = object_writer.finalize()
+                object_ids.append(reference.raw_object_id)
+                if not self._has_next_page(
+                    writer.snapshot_dir.joinpath(*reference.path.split("/")),
+                    contract,
+                    page=page,
+                ):
+                    return
+            except (
+                CommanderSpellbookDownloadError,
+                HttpTransportError,
+                RawSnapshotError,
+                OSError,
+                ValueError,
             ):
-                return
+                object_writer.abort()
+                raise
+            except Exception:
+                object_writer.abort()
+                raise CommanderSpellbookDownloadError("SPELLBOOK_DOWNLOAD_FAILED") from None
+            finally:
+                response.close()
         raise CommanderSpellbookDownloadError("SPELLBOOK_PAGE_LIMIT_EXCEEDED")
 
-    def _read_response_body(
-        self,
-        writer: RawSnapshotWriter,
-        response: SafeHttpResponse,
-        *,
-        contract: SpellbookContract,
-        page: int,
-        request_id: str,
-    ) -> bytes:
-        """Capture bounded response bytes before validating pagination metadata."""
-
-        captured = bytearray()
-        content_type = response.metadata.content_type
-        try:
-            for chunk in response.iter_raw():
-                captured.extend(chunk)
-        except HttpTransportError:
-            self._preserve_partial_response(
-                writer,
-                raw_object_id=f"{contract}-page-{page}.partial.json",
-                request_id=request_id,
-                content_type=content_type,
-                raw_bytes=bytes(captured),
-                source_object_id=contract,
-            )
-            raise
-        try:
-            response.close()
-        except HttpTransportError:
-            self._preserve_partial_response(
-                writer,
-                raw_object_id=f"{contract}-page-{page}.partial.json",
-                request_id=request_id,
-                content_type=content_type,
-                raw_bytes=bytes(captured),
-                source_object_id=contract,
-            )
-            raise
-        return bytes(captured)
-
-    @staticmethod
-    def _preserve_partial_response(
-        writer: RawSnapshotWriter,
-        *,
-        raw_object_id: str,
-        request_id: str,
-        content_type: str | None,
-        raw_bytes: bytes,
-        source_object_id: SpellbookContract,
-    ) -> None:
-        writer.write_object(
-            raw_object_id=raw_object_id,
-            request_id=request_id,
-            chunks=[raw_bytes],
-            content_type=content_type,
-            source_object_id=source_object_id,
-        )
-
-    def _has_next_page(self, path: Path, contract: SpellbookContract) -> bool:
+    def _has_next_page(self, path: Path, contract: SpellbookContract, *, page: int) -> bool:
         """Inspect only persisted bytes to control pagination; never follow a source URL."""
 
         try:
@@ -207,11 +166,8 @@ class CommanderSpellbookDownloader:
         except OSError:
             raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_READ_FAILED") from None
         try:
-            payload = json.loads(
-                raw_bytes.decode("utf-8"),
-                parse_constant=_reject_non_json_constant,
-            )
-        except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+            payload = decode_pagination_json(raw_bytes)
+        except (DuplicateJSONKey, UnicodeDecodeError, json.JSONDecodeError, ValueError):
             raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_JSON") from None
         if not isinstance(payload, Mapping) or not {
             "count",
@@ -225,15 +181,21 @@ class CommanderSpellbookDownloader:
             raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_SHAPE")
         if not isinstance(payload["results"], list):
             raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_SHAPE")
-        for link_name in ("next", "previous"):
-            link = payload[link_name]
-            if link is None:
-                continue
-            try:
-                self.settings.validate_pagination_link(contract, link)
-            except ValueError:
-                raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_LINK") from None
-        return payload["next"] is not None
+        next_link = payload["next"]
+        previous_link = payload["previous"]
+        try:
+            next_page = (
+                None
+                if next_link is None
+                else self.settings.validate_pagination_link(contract, next_link)
+            )
+            if previous_link is not None:
+                self.settings.validate_pagination_link(contract, previous_link)
+        except ValueError:
+            raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_LINK") from None
+        if next_page is not None and next_page != page + 1:
+            raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_SEQUENCE_MISMATCH")
+        return next_page is not None
 
     @staticmethod
     def _fail_if_open(writer: RawSnapshotWriter) -> None:
@@ -246,7 +208,3 @@ __all__ = [
     "CommanderSpellbookDownloadResult",
     "CommanderSpellbookDownloader",
 ]
-
-
-def _reject_non_json_constant(token: str) -> object:
-    raise ValueError("non-finite JSON constants are not valid pagination JSON")

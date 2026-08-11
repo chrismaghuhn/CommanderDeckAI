@@ -20,6 +20,14 @@ def decode_json(raw_bytes: bytes) -> object:
     )
 
 
+def decode_pagination_json(raw_bytes: bytes) -> object:
+    return json.loads(
+        raw_bytes.decode("utf-8"),
+        object_pairs_hook=_pairs_without_duplicates,
+        parse_constant=_reject_non_finite,
+    )
+
+
 def contains_malformed_value(value: object) -> bool:
     if isinstance(value, MalformedJSONScalar):
         return True
@@ -42,3 +50,7 @@ def _pairs_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, obje
             raise DuplicateJSONKey(key)
         result[key] = value
     return result
+
+
+def _reject_non_finite(token: str) -> object:
+    raise ValueError(f"non-finite JSON constant is not valid pagination JSON: {token}")

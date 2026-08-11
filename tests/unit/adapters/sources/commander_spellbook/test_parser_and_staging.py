@@ -5,8 +5,10 @@ import json
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from commander_ai.adapters.sources.commander_spellbook.api_models import (
+    CommanderSpellbookParsedRecord,
     SpellbookCard,
     SpellbookVariant,
 )
@@ -497,6 +499,69 @@ def test_staging_entry_points_require_verified_snapshot_evidence(tmp_path: Path)
     )
     with pytest.raises(ValueError):
         mapper.map_records(parsed.records, verified_snapshot=foreign)
+
+
+def test_staging_rejects_forged_result_locators_and_source_values(tmp_path: Path) -> None:
+    verified = _verified_snapshot(tmp_path, _fixture("valid_page.json"))
+    record = (
+        CommanderSpellbookParser()
+        .parse_object(
+            verified,
+            raw_object_id="variants-page-1.json",
+            contract="variants",
+        )
+        .records[0]
+    )
+    mapper = CommanderSpellbookStagingMapper()
+
+    forged_locator = record.model_copy(
+        update={
+            "raw_locator": record.raw_locator.model_copy(
+                update={"location": JsonPointerLocator(pointer="/count")}
+            )
+        }
+    )
+    with pytest.raises(ValueError):
+        mapper.map_records((forged_locator,), verified_snapshot=verified)
+
+    forged_values = record.model_copy(update={"source_values": {"id": 999}})
+    with pytest.raises(ValueError):
+        mapper.map_records((forged_values,), verified_snapshot=verified)
+
+
+def test_audit_locators_and_finding_codes_remain_bound_to_records(tmp_path: Path) -> None:
+    malformed = {**VARIANT, "uses": "not-a-list"}
+    verified = _verified_snapshot(tmp_path, _payload(malformed))
+    record = (
+        CommanderSpellbookParser()
+        .parse_object(
+            verified,
+            raw_object_id="variants-page-1.json",
+            contract="variants",
+        )
+        .records[0]
+    )
+    finding = record.findings[0]
+    foreign_finding = finding.model_copy(
+        update={
+            "raw_locator": finding.raw_locator.model_copy(update={"source_snapshot_id": "foreign"})
+        }
+    )
+    forged_record = record.model_copy(update={"findings": (foreign_finding,)})
+    with pytest.raises(ValueError):
+        CommanderSpellbookStagingMapper().map_audit_records(
+            (forged_record,), verified_snapshot=verified
+        )
+
+    with pytest.raises(ValidationError):
+        CommanderSpellbookParsedRecord(
+            record_type=record.record_type,
+            raw_locator=record.raw_locator,
+            source_values=record.source_values,
+            dto=None,
+            finding_codes=(),
+            findings=record.findings,
+        )
 
 
 def test_strict_scalar_failure_remains_auditable_in_staging(tmp_path: Path) -> None:

@@ -300,6 +300,11 @@ def test_downloader_fails_closed_at_configured_page_bound(tmp_path: Path) -> Non
     ("body", "code"),
     [
         (b'{"results":[', "SPELLBOOK_PAGINATION_INVALID_JSON"),
+        (
+            b'{"count":1,"next":"https://backend.commanderspellbook.com/api/cards/?page=2",'
+            b'"next":null,"previous":null,"results":[]}',
+            "SPELLBOOK_PAGINATION_INVALID_JSON",
+        ),
         (_fixture("malformed_pagination.json"), "SPELLBOOK_PAGINATION_INVALID_LINK"),
         (
             b'{"count":1,"next":null,"previous":null,"results":{}}',
@@ -342,9 +347,7 @@ def test_downloader_fails_closed_on_malformed_pagination(
     assert verification_error.value.code == "INTEGRITY_SNAPSHOT_NOT_COMPLETE"
 
 
-def test_downloader_preserves_partial_response_evidence_on_stream_failure(
-    tmp_path: Path,
-) -> None:
+def test_downloader_stream_failure_leaves_no_consumable_object(tmp_path: Path) -> None:
     class PartialBody(httpx.SyncByteStream):
         def __iter__(self):
             yield b'{"count":1,"next":'
@@ -370,11 +373,7 @@ def test_downloader_preserves_partial_response_evidence_on_stream_failure(
         "commander_spellbook", "spellbook-partial-response"
     )
     assert manifest.status == "FAILED"
-    assert [item.raw_object_id for item in manifest.objects] == ["cards-page-1.partial.json"]
-    partial = manifest.objects[0]
-    assert (
-        tmp_path / "raw" / "commander_spellbook" / manifest.source_snapshot_id / partial.path
-    ).read_bytes() == b'{"count":1,"next":'
+    assert manifest.objects == ()
     with pytest.raises(SnapshotIntegrityError) as verification_error:
         SnapshotVerifier(tmp_path).verify_complete_snapshot(
             "commander_spellbook", manifest.source_snapshot_id
@@ -389,10 +388,37 @@ def test_pagination_read_failure_is_not_treated_as_end_of_pagination(tmp_path: P
     )
     try:
         with pytest.raises(CommanderSpellbookDownloadError) as error:
-            adapter._has_next_page(tmp_path / "missing-page.json", "cards")
+            adapter._has_next_page(tmp_path / "missing-page.json", "cards", page=1)
     finally:
         http_client.close()
     assert error.value.code == "SPELLBOOK_PAGINATION_READ_FAILED"
+
+
+def test_downloader_rejects_non_sequential_next_page(tmp_path: Path) -> None:
+    body = _page(
+        "cards",
+        1,
+        next_page="https://backend.commanderspellbook.com/api/cards/?page=99",
+    )
+    adapter, http_client, _ = _adapter(
+        tmp_path,
+        lambda request: httpx.Response(
+            200,
+            headers={"content-type": "application/json", "content-length": str(len(body))},
+            stream=httpx.ByteStream(body),
+            request=request,
+        ),
+    )
+    try:
+        with pytest.raises(CommanderSpellbookDownloadError) as error:
+            adapter.download(snapshot_id="spellbook-pagination-sequence")
+    finally:
+        http_client.close()
+    assert error.value.code == "SPELLBOOK_PAGINATION_SEQUENCE_MISMATCH"
+    manifest = RawSnapshotStore(tmp_path).load_manifest(
+        "commander_spellbook", "spellbook-pagination-sequence"
+    )
+    assert manifest.status == "FAILED"
 
 
 def test_direct_client_calls_enforce_max_pages_before_transport(tmp_path: Path) -> None:

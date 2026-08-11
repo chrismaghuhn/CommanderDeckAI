@@ -3,20 +3,26 @@
 from __future__ import annotations
 
 import hashlib
-from collections.abc import Iterable
+from collections.abc import Iterable, Mapping
+from typing import cast
 
 from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
 from commander_ai.data_pipeline.provenance.rows import AuditRecord
 from commander_ai.data_pipeline.quality.finding_codes import FindingCode
-from commander_ai.data_pipeline.staging.raw_locators import validate_raw_locator_against_snapshot
+from commander_ai.data_pipeline.staging.raw_locators import (
+    JsonPointerLocator,
+    validate_raw_locator_against_snapshot,
+)
 from commander_ai.data_pipeline.staging.records import (
     SourceRecordDTO,
     StagingRecord,
     StagingStatus,
 )
+from commander_ai.domain.serialization import canonical_json_bytes
 
 from .api_models import CommanderSpellbookParsedRecord
 from .errors import CommanderSpellbookStagingError
+from .json_support import DuplicateJSONKey, decode_json
 from .settings import documented_endpoint, raw_object_identity
 
 
@@ -81,6 +87,9 @@ class CommanderSpellbookStagingMapper:
         for record in records:
             if not isinstance(record, CommanderSpellbookParsedRecord):
                 raise TypeError("Commander Spellbook staging requires parsed source records")
+            expected_codes = tuple(sorted({finding.code for finding in record.findings}))
+            if record.finding_codes != expected_codes:
+                raise ValueError("Commander Spellbook finding codes must match findings")
             try:
                 contract, page = raw_object_identity(record.raw_locator.raw_object_id)
             except ValueError:
@@ -122,8 +131,55 @@ class CommanderSpellbookStagingMapper:
                 verified_snapshot=verified_snapshot,
                 source_id="commander_spellbook",
             )
+            CommanderSpellbookStagingMapper._validate_record_source(record, verified_snapshot)
+            for finding in record.findings:
+                if finding.raw_locator.exact_locator != record.raw_locator.exact_locator:
+                    raise ValueError("Commander Spellbook finding locator disagrees with record")
+                validate_raw_locator_against_snapshot(
+                    finding.raw_locator,
+                    verified_snapshot=verified_snapshot,
+                    source_id="commander_spellbook",
+                )
             validated.append(record)
         return tuple(validated)
+
+    @staticmethod
+    def _validate_record_source(
+        record: CommanderSpellbookParsedRecord,
+        verified_snapshot: VerifiedSourceSnapshot,
+    ) -> None:
+        location = record.raw_locator.location
+        if not isinstance(location, JsonPointerLocator):
+            raise ValueError("Commander Spellbook records require JSON pointer locators")
+        if not location.pointer:
+            if not {
+                "parse.invalid_json",
+                "parse.duplicate_json_key",
+                "parse.invalid_response_envelope",
+            }.intersection(record.finding_codes):
+                raise ValueError("Commander Spellbook record locator must identify a result")
+            return
+        parts = location.pointer.split("/")
+        if len(parts) != 3 or parts[1] != "results" or not parts[2].isdigit():
+            raise ValueError("Commander Spellbook record locator must identify a result")
+        index_text = parts[2]
+        if index_text != "0" and index_text.startswith("0"):
+            raise ValueError("Commander Spellbook record locator index is not canonical")
+        index = int(index_text)
+        raw_path = verified_snapshot.object_paths[record.raw_locator.raw_object_id]
+        try:
+            payload = decode_json(raw_path.read_bytes())
+        except (DuplicateJSONKey, OSError, UnicodeDecodeError, ValueError):
+            raise ValueError("Commander Spellbook record source cannot be decoded") from None
+        if not isinstance(payload, Mapping) or not isinstance(payload.get("results"), list):
+            raise ValueError("Commander Spellbook record source has no results array")
+        results = cast(list[object], payload["results"])
+        if index >= len(results):
+            raise ValueError("Commander Spellbook record locator is outside results")
+        if "parse.malformed_scalar" not in record.finding_codes and canonical_json_bytes(
+            record.source_values
+        ) != canonical_json_bytes(results[index]):
+            raise ValueError("Commander Spellbook source values disagree with raw bytes")
 
     def staging_record_id(
         self,

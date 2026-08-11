@@ -16,6 +16,7 @@ from pydantic import (
     StrictInt,
     StrictStr,
     field_validator,
+    model_validator,
 )
 
 from commander_ai.data_pipeline.quality.finding_codes import validate_finding_code
@@ -182,6 +183,13 @@ class CommanderSpellbookParsedRecord(DomainModel):
         if len(normalized) != len(set(normalized)):
             raise ValueError("Commander Spellbook findings must be unique")
         return tuple(sorted(normalized))
+
+    @model_validator(mode="after")
+    def validate_finding_alignment(self) -> CommanderSpellbookParsedRecord:
+        expected = tuple(sorted({finding.code for finding in self.findings}))
+        if self.finding_codes != expected:
+            raise ValueError("Commander Spellbook finding codes must match findings")
+        return self
 
 
 @dataclass(frozen=True, slots=True)
