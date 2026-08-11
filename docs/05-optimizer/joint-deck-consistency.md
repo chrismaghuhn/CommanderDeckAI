@@ -124,20 +124,25 @@ Andernfalls wird der Repair-Pfad als Out-of-Distribution-Experiment markiert und
 
 Der Deckzustand wird über den kanonischen strukturellen Deckfingerprint verglichen, nicht über ein bloßes Set ausgewählter `oracle_id`s. Der Fingerprint muss Zonen und Quantitäten gemäß der kanonischen Deckidentität berücksichtigen; dadurch bleiben Copy-Limit-Ausnahmen und unterschiedliche Mengen unterscheidbar.
 
-Für v1 des Repair-Experiments gelten ausschließlich zustandsbasierte deterministische Stop-Gründe:
+Für v1 des Repair-Experiments werden Stop-Gründe in fester Präzedenz ausgewertet:
 
 ```text
-fingerprint_t == fingerprint_(t-1)
--> CONVERGED
+1. if fingerprint_t == fingerprint_(t-1):
+       CONVERGED
 
-fingerprint_t bereits in einer früheren Iteration gesehen
--> CYCLE
+2. else if fingerprint_t in fingerprints_[0:t-1]:
+       CYCLE
 
-max_iterations erreicht
--> LIMIT
+3. else if iteration >= max_iterations:
+       LIMIT
+
+4. else:
+       CONTINUE
 ```
 
-`LIMIT` ist kein Konvergenznachweis.
+Damit wird ein unveränderter Deckzustand als `CONVERGED` und nicht zugleich als `CYCLE` klassifiziert. Ebenso hat echte Konvergenz auf der letzten erlaubten Iteration Vorrang vor `LIMIT`. `LIMIT` ist kein Konvergenznachweis.
+
+Fingerprint-basierte Cycle Detection setzt in v1 eine deterministische, history-unabhängige Transition voraus: Derselbe kanonische Deckfingerprint muss unter demselben Modell, derselben versionierten `repair_pool_policy`, denselben Constraints und derselben Optimizer-Konfiguration wieder denselben nächsten Suchzustand erzeugen. Falls später eine history-abhängige Repair-Policy eingeführt wird, muss der Cycle-State-Key mindestens um den relevanten Policy-Zustand und den Repair-Pool-Hash erweitert werden; der Deckfingerprint allein reicht dann nicht mehr.
 
 Eine Epsilon-Regel über den jeweils aktuellen Solver-Objective ist in v1 ausdrücklich **nicht** zulässig: Durch das Contextual Re-Scoring verändert sich zwischen Iterationen die zugrunde liegende Objective-Funktion. Objective-Werte aus zwei unterschiedlich gescorten Iterationen sind daher nicht automatisch vergleichbar.
 
