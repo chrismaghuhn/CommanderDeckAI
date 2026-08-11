@@ -15,8 +15,14 @@ data/
 │   ├── reports/
 │   └── manifest.json
 ├── indexes/
+├── reports/
+├── runs/
 └── cache/
 ```
+
+`artifacts/` may contain the same run, report, and dataset outputs when an
+external artifact root is configured. All persisted paths are portable and
+root-relative; absolute machine paths are never part of a manifest.
 
 ## Raw snapshot boundary (Task 4)
 
@@ -84,3 +90,9 @@ artifact before use. The versioned `normalized-snapshot-manifest.v2` is a separa
 optional stricter extension, not a replacement for v1. The SQL
 migration `008_staging_audit_runs.sql` is only a local index and can be dropped and
 rebuilt from Raw manifests, Parquet, and the versioned normalized manifest.
+
+All DuckDB/SQL tables introduced by the data-foundation migrations are derived
+query, index, or cache infrastructure. They are never the only copy of an
+observation, finding, provenance binding, or result. Deleting DuckDB must not
+require reacquiring a source: raw manifests/raw objects plus normalized and
+curated Parquet and their manifests are sufficient to rebuild it.

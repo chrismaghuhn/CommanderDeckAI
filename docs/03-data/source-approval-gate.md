@@ -36,3 +36,25 @@ Historische Snapshot-Freigabe und aktuelle Nutzung sind getrennte Registry-Daten
 Dies ist keine Rechtsberatung und keine Garantie für Terms, Lizenzen oder Weitergaberechte.
 
 Dies ist keine Rechtsberatung, sondern ein verpflichtendes technisches Risikogate.
+
+## Registry configuration boundary
+
+The individual files under `configs/sources/` are source-owned settings and
+assessment material. Acquisition uses a separately reviewed, strict
+`SourceRegistry` document that binds settings and historical approval metadata;
+current-use/takedown decisions are an independent field when required by the
+operation. A source settings file alone is not evidence that the source may be
+synchronized.
+
+The gates are allowlists, not blocklists:
+
+- local `source sync`: only `APPROVED_LOCAL` and
+  `APPROVED_REDISTRIBUTION`;
+- public export/publish: only `APPROVED_REDISTRIBUTION` plus an allowed current-use
+  decision;
+- `PROPOSED`, `REVIEWED`, `REJECTED`, and `PAUSED`: blocked.
+
+The historical approval stored in a raw snapshot records what was true at
+acquisition time. Current-use/takedown policy is evaluated again for normalize,
+validate, report, dataset build, and export. Secrets are represented only by
+environment-variable names and are never copied into manifests or run snapshots.

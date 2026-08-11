@@ -76,3 +76,11 @@ identifiers are not copied into Curated payloads. The producing run must be a
 successful data-stage `dataset_build` run whose configuration hash and required input
 references match the dataset request; a historical source status outside the local
 approval allowlist blocks the build even when the current-use decision says ALLOWED.
+
+## Rebuildable local indexes
+
+DuckDB and SQL projections are convenience infrastructure for local queries and
+indexes. They may be deleted and rebuilt from the immutable raw snapshot
+manifests/raw objects and the versioned normalized/curated Parquet manifests.
+They are not provenance authorities and must not be needed to reconstruct a
+normalized or task-specific dataset.

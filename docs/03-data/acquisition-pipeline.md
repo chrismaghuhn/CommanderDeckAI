@@ -71,13 +71,20 @@ compressed entity remains the immutable evidence.
 
 ```text
 source_name/
-├── client.py       # HTTP/Dateizugriff
-├── api_models.py   # nur Source-Payloads
-├── mapper.py       # Source → Canonical
+├── client.py       # HTTP/file access and request construction
+├── api_models.py   # source DTOs only
+├── parser.py       # response -> DTOs and structural findings
+├── staging.py      # DTOs -> staging rows and exact raw locators
 ├── settings.py
 ├── errors.py
 └── README.md
 ```
+
+Source adapters stop at source DTOs, staging rows, and raw locators. They do not
+create canonical cards, decks, events, pods, participants, combos, or legality
+evaluations. Those mappings belong to the source-agnostic canonicalization and
+quality pipeline. A malformed source record may therefore remain a staging or
+quarantine record without satisfying canonical-domain invariants.
 ## Normalization boundary (Task 5)
 
 Only a `COMPLETE` source snapshot that passes a fresh `RawSnapshotVerifier` check may
@@ -93,3 +100,11 @@ range. Malformed and incomplete values stay in staging and may be written to aud
 quarantine with namespaced findings; they are not coerced into canonical cards, decks,
 events, or legality results. All resolution attempts, including ambiguous and
 unresolved ones, are retained.
+
+## Reproducible operation boundary
+
+The source fetch is externally controlled: the immutable raw snapshot, its
+manifest, and the request/object provenance are the reproducible boundary. Every
+downstream operation consumes only a verified `COMPLETE` snapshot and writes a
+`run-manifest.v1`. A later source-policy change may block use of an existing
+snapshot without changing its historical acquisition metadata.

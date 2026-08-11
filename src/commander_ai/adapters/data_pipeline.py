@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 from commander_ai.adapters.storage.snapshot_verifier import SnapshotVerifier
@@ -111,10 +112,15 @@ def _find_normalized_manifest(root: Path, normalized_snapshot_id: str) -> str:
     normalized_root = root / "normalized"
     if normalized_root.is_dir() and not normalized_root.is_symlink():
         for path in normalized_root.rglob("manifest.json"):
+            if not path.is_file() or path.is_symlink():
+                continue
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, UnicodeError, json.JSONDecodeError):
+                continue
             if (
-                path.parent.name == normalized_snapshot_id
-                and path.is_file()
-                and not path.is_symlink()
+                isinstance(payload, dict)
+                and payload.get("normalized_snapshot_id") == normalized_snapshot_id
             ):
                 matches.append(path.relative_to(root).as_posix())
     if not matches:

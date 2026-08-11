@@ -15,10 +15,10 @@
 | TopDeck.gg Tournaments v2 | B | cEDH/EDH Decks, Events, Standings, Runden/Pods | M3, Key + Attribution |
 | Spicerack Public Decklist DB | B | Tournament-Decklisten und Resultate | M3, Beta/API-Key |
 | manuelle User-Imports | A | private/eigene Trainings- und Produktdaten | M2 |
-| cEDH Decklist Database Repo | B/C | kuratierte Archetypen/Metadaten; verlinkte Deckinhalte separat prüfen | M3 optional |
-| EDHREC | C | aggregierte Baseline/Recherche; kein Default-Scraper | später/Permission |
-| Archidekt | C | großer Casual-Korpus | nur mit klarer Erlaubnis oder User-Export |
-| Moxfield | C | großer Casual/cEDH-Korpus | nur mit klarer Erlaubnis oder User-Export |
+| [cEDH Decklist Database Repo](source-reviews/cedh-decklist-database.md) | B/C | kuratierte Archetypen/Metadaten; verlinkte Deckinhalte separat prüfen | M3 optional, assessment-only |
+| [EDHREC](source-reviews/edhrec.md) | C | aggregierte Baseline/Recherche; kein Default-Scraper | später/Permission, assessment-only |
+| [Archidekt](source-reviews/archidekt.md) | C | großer Casual-Korpus | nur mit klarer Erlaubnis oder User-Export, assessment-only |
+| [Moxfield](source-reviews/moxfield.md) | C | großer Casual/cEDH-Korpus | nur mit klarer Erlaubnis oder User-Export, assessment-only |
 | Spellbinder.gg | C | Commander-Event-/Deckdaten | Terms/API klären |
 | MTGDecks.net | C | Event-/Decklisten | Terms/API klären |
 | EDHcheck | C | Community-Decks | Terms/API klären |
