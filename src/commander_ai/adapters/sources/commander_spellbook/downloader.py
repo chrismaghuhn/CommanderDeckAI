@@ -7,6 +7,10 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from commander_ai.adapters.http.content_coding import (
+    HttpContentCodingError,
+    decode_entity_body,
+)
 from commander_ai.adapters.http.transport import HttpTransportError
 from commander_ai.adapters.storage.raw_snapshot_errors import RawSnapshotError
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
@@ -126,6 +130,7 @@ class CommanderSpellbookDownloader:
                     raw_object_id=raw_object_id,
                     request_id=request_id,
                     content_type=response.metadata.content_type,
+                    content_encoding=response.metadata.content_encoding,
                     source_object_id=contract,
                 )
             except BaseException:
@@ -140,6 +145,7 @@ class CommanderSpellbookDownloader:
                     writer.snapshot_dir.joinpath(*reference.path.split("/")),
                     contract,
                     page=page,
+                    content_encoding=reference.content_encoding,
                 ):
                     return
             except (
@@ -158,7 +164,14 @@ class CommanderSpellbookDownloader:
                 response.close()
         raise CommanderSpellbookDownloadError("SPELLBOOK_PAGE_LIMIT_EXCEEDED")
 
-    def _has_next_page(self, path: Path, contract: SpellbookContract, *, page: int) -> bool:
+    def _has_next_page(
+        self,
+        path: Path,
+        contract: SpellbookContract,
+        *,
+        page: int,
+        content_encoding: str | None = None,
+    ) -> bool:
         """Inspect only persisted bytes to control pagination; never follow a source URL."""
 
         try:
@@ -166,7 +179,15 @@ class CommanderSpellbookDownloader:
         except OSError:
             raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_READ_FAILED") from None
         try:
-            payload = decode_pagination_json(raw_bytes)
+            payload = decode_pagination_json(
+                decode_entity_body(
+                    raw_bytes,
+                    content_encoding,
+                    max_decoded_bytes=self.settings.max_response_bytes,
+                )
+            )
+        except HttpContentCodingError as error:
+            raise CommanderSpellbookDownloadError(error.code) from None
         except (DuplicateJSONKey, UnicodeDecodeError, json.JSONDecodeError, ValueError):
             raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_JSON") from None
         if not isinstance(payload, Mapping) or not {

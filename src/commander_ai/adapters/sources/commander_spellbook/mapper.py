@@ -9,6 +9,10 @@ from typing import cast
 
 from pydantic import ValidationError
 
+from commander_ai.adapters.http.content_coding import (
+    HttpContentCodingError,
+    decode_entity_body,
+)
 from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
 from commander_ai.data_pipeline.provenance.rows import AuditRecord
 from commander_ai.data_pipeline.quality.finding_codes import FindingCode
@@ -30,7 +34,12 @@ from .api_models import (
     json_safe_source_value,
 )
 from .errors import CommanderSpellbookStagingError
-from .json_support import DuplicateJSONKey, contains_malformed_value, decode_json
+from .json_support import (
+    DuplicateJSONKey,
+    contains_malformed_value,
+    decode_json,
+    valid_pagination_envelope,
+)
 from .settings import documented_endpoint, raw_object_identity
 
 
@@ -162,12 +171,17 @@ class CommanderSpellbookStagingMapper:
         if not isinstance(location, JsonPointerLocator):
             raise ValueError("Commander Spellbook records require JSON pointer locators")
         raw_path = verified_snapshot.object_paths[record.raw_locator.raw_object_id]
+        reference = verified_snapshot.object_index[record.raw_locator.raw_object_id]
         try:
             raw_bytes = raw_path.read_bytes()
         except OSError:
             raise ValueError("Commander Spellbook record source cannot be read") from None
+        try:
+            decoded_bytes = decode_entity_body(raw_bytes, reference.content_encoding)
+        except HttpContentCodingError as error:
+            raise ValueError(error.code) from None
         if not location.pointer:
-            expected_codes, expected_values = _root_record_expectation(raw_bytes)
+            expected_codes, expected_values = _root_record_expectation(decoded_bytes)
             _assert_record_semantics(record, expected_codes, expected_values)
             return
         parts = location.pointer.split("/")
@@ -178,7 +192,7 @@ class CommanderSpellbookStagingMapper:
             raise ValueError("Commander Spellbook record locator index is not canonical")
         index = int(index_text)
         try:
-            payload = decode_json(raw_path.read_bytes())
+            payload = decode_json(decoded_bytes)
         except (DuplicateJSONKey, UnicodeDecodeError, ValueError):
             raise ValueError("Commander Spellbook record source cannot be decoded") from None
         if not isinstance(payload, Mapping) or not isinstance(payload.get("results"), list):
@@ -230,6 +244,7 @@ class CommanderSpellbookStagingMapper:
             in {
                 "parse.invalid_json",
                 "parse.duplicate_json_key",
+                "parse.invalid_response_envelope",
                 "parse.record_not_object",
             }
             for code in codes
@@ -245,7 +260,7 @@ def _root_record_expectation(raw_bytes: bytes) -> tuple[tuple[str, ...], object]
         return ("parse.duplicate_json_key",), json_safe_source_value(raw_bytes)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return ("parse.invalid_json",), json_safe_source_value(raw_bytes)
-    if not isinstance(payload, Mapping) or not isinstance(payload.get("results"), list):
+    if not valid_pagination_envelope(payload):
         return ("parse.invalid_response_envelope",), json_safe_source_value(payload)
     raise ValueError("Commander Spellbook record locator must identify a result")
 

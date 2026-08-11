@@ -13,6 +13,7 @@ from commander_ai.domain.path_policy import (
 from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
 
 from .contract_validation import (
+    ContentEncoding,
     JSONMapping,
     NonEmptyCounts,
     NonEmptyString,
@@ -197,6 +198,11 @@ class RawObjectReference(DomainModel):
     path: str = Field(min_length=1)
     bytes: int = Field(ge=0)
     content_type: str | None = None
+    content_encoding: ContentEncoding = Field(
+        default=None,
+        min_length=1,
+        exclude_if=lambda value: value is None,
+    )
     sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
     source_object_id: str | None = Field(default=None, min_length=1)
     upstream_sha256: Sha256 | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")

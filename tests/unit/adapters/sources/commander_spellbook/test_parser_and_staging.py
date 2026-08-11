@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import gzip
 import json
 from pathlib import Path
 
@@ -95,6 +96,7 @@ def _verified_snapshot(
     endpoint: str = "https://backend.commanderspellbook.com/api/variants/",
     source_object_id: str | None = None,
     logical_record_count: int | None = None,
+    content_encoding: str | None = None,
 ):
     store = RawSnapshotStore(tmp_path)
     writer = store.start_snapshot(
@@ -120,6 +122,7 @@ def _verified_snapshot(
         request_id="spellbook-request",
         chunks=[payload],
         content_type="application/json",
+        content_encoding=content_encoding,
         source_object_id=source_object_id or raw_object_id.split("-page-", 1)[0],
         logical_record_count=logical_record_count,
     )
@@ -216,6 +219,60 @@ def test_documented_card_dto_and_distinct_variants_are_not_collapsed(tmp_path: P
     assert len({row.staging_record_id for row in rows}) == 2
     assert len({row.raw_locator.exact_locator for row in rows}) == 2
     assert [row.original_source_values["description"] for row in rows] == ["first", "second"]
+
+
+def test_parser_decodes_compressed_raw_object_only_after_verification(tmp_path: Path) -> None:
+    raw_payload = _fixture("valid_page.json")
+    encoded_payload = gzip.compress(raw_payload)
+    verified = _verified_snapshot(
+        tmp_path,
+        encoded_payload,
+        content_encoding="gzip",
+    )
+
+    result = CommanderSpellbookParser().parse_object(
+        verified,
+        raw_object_id="variants-page-1.json",
+        contract="variants",
+    )
+    parsed_from_bytes = CommanderSpellbookParser().parse_bytes(
+        encoded_payload,
+        verified_snapshot=verified,
+        raw_object_id="variants-page-1.json",
+        contract="variants",
+    )
+    rows = CommanderSpellbookStagingMapper().map_records(
+        result.records,
+        verified_snapshot=verified,
+    )
+
+    assert verified.object_paths["variants-page-1.json"].read_bytes() == encoded_payload
+    assert result.records[0].source_values["id"] == 101
+    assert parsed_from_bytes.records[0].source_values["id"] == 101
+    assert rows[0].raw_locator.raw_object_path == "objects/variants-page-1.json"
+
+
+def test_parser_keeps_incomplete_pagination_envelopes_out_of_records(tmp_path: Path) -> None:
+    incomplete = json.dumps({"results": [VARIANT]}, separators=(",", ":")).encode("utf-8")
+    verified = _verified_snapshot(tmp_path, incomplete)
+
+    parsed = CommanderSpellbookParser().parse_object(
+        verified,
+        raw_object_id="variants-page-1.json",
+        contract="variants",
+    )
+
+    assert parsed.records[0].raw_locator.location == JsonPointerLocator(pointer="")
+    assert parsed.records[0].finding_codes == ("parse.invalid_response_envelope",)
+    assert (
+        CommanderSpellbookStagingMapper()
+        .map_records(
+            parsed.records,
+            verified_snapshot=verified,
+        )[0]
+        .status
+        == "PARSE_FAILED"
+    )
 
 
 def test_malformed_records_remain_staging_auditable_and_parquet_persistable(tmp_path: Path) -> None:

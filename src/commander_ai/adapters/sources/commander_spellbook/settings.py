@@ -56,7 +56,8 @@ class CommanderSpellbookSettings(BaseModel):
             raise ValueError("Commander Spellbook contracts must be a sequence")
         if any(not isinstance(item, str) for item in value):
             raise ValueError("Commander Spellbook contracts must contain strings")
-        contracts = tuple(item.strip() for item in value)
+        values = sorted(value, key=str) if isinstance(value, (set, frozenset)) else value
+        contracts = tuple(item.strip() for item in values)
         if not contracts or len(contracts) != len(set(contracts)):
             raise ValueError("Commander Spellbook contracts must be non-empty and unique")
         if any(item not in DOCUMENTED_CONTRACTS for item in contracts):
@@ -96,7 +97,8 @@ class CommanderSpellbookSettings(BaseModel):
             raise ValueError("Commander Spellbook contracts must be a sequence")
         if any(not isinstance(item, str) for item in value):
             raise ValueError("Commander Spellbook contracts must contain strings")
-        contracts = tuple(item.strip() for item in value)
+        values = sorted(value, key=str) if isinstance(value, (set, frozenset)) else value
+        contracts = tuple(item.strip() for item in values)
         if not contracts or len(contracts) != len(set(contracts)):
             raise ValueError("Commander Spellbook contracts must be non-empty and unique")
         if any(item not in DOCUMENTED_CONTRACTS for item in contracts):

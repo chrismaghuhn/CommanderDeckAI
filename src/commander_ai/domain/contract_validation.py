@@ -17,6 +17,7 @@ _URI_ALLOWED_CHARS = frozenset(
     "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~:/?#[]@!$&'()*+,;=%"
 )
 _HEX_DIGITS = frozenset("0123456789abcdefABCDEF")
+_CONTENT_ENCODING_TOKEN = re.compile(r"^[a-z0-9][a-z0-9._-]*$")
 
 
 def validate_uuid(value: str) -> str:
@@ -56,6 +57,17 @@ def validate_finite_float(value: float) -> float:
     if not isfinite(value):
         raise ValueError("number must be finite")
     return value
+
+
+def validate_content_encoding(value: str | None) -> str | None:
+    """Normalize an optional HTTP content-coding list for persisted metadata."""
+
+    if value is None:
+        return None
+    tokens = tuple(item.strip().casefold() for item in value.split(","))
+    if not tokens or any(not _CONTENT_ENCODING_TOKEN.fullmatch(item) for item in tokens):
+        raise ValueError("content_encoding must contain HTTP content-coding tokens")
+    return ", ".join(tokens)
 
 
 def validate_json_value(value: object) -> object:
@@ -125,6 +137,7 @@ def validate_non_empty_counts(value: Mapping[str, int]) -> Mapping[str, int]:
 NonEmptyString = Annotated[str, Field(min_length=1)]
 UUIDString = Annotated[str, AfterValidator(validate_uuid)]
 URIString = Annotated[str, AfterValidator(validate_uri)]
+ContentEncoding = Annotated[str | None, AfterValidator(validate_content_encoding)]
 FiniteFloat = Annotated[float, AfterValidator(validate_finite_float)]
 NonNegativeInt = Annotated[int, Field(ge=0)]
 JSONMapping = Annotated[Mapping[str, object], AfterValidator(validate_json_mapping)]
@@ -134,6 +147,7 @@ UniqueTuple = Annotated[tuple[T, ...], AfterValidator(validate_unique_items)]
 
 
 __all__ = [
+    "ContentEncoding",
     "FiniteFloat",
     "JSONMapping",
     "NonEmptyCounts",
@@ -143,6 +157,7 @@ __all__ = [
     "URIString",
     "UUIDString",
     "UniqueTuple",
+    "validate_content_encoding",
     "validate_json_mapping",
     "validate_namespaced_codes",
     "validate_non_negative_counts",

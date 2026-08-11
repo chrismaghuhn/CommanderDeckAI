@@ -7,6 +7,10 @@ import hashlib
 import json
 from pathlib import Path
 
+from commander_ai.adapters.http.content_coding import (
+    HttpContentCodingError,
+    decode_entity_body,
+)
 from commander_ai.adapters.storage.archive_safety import (
     ArchiveLimits,
     ArchiveSafetyError,
@@ -52,9 +56,13 @@ def validate_raw_locator_against_snapshot(
     raw_path = _verified_object_path(verified_snapshot, locator.raw_object_id)
     if locator.archive_member is None:
         try:
-            payload = raw_path.read_bytes()
+            raw_payload = raw_path.read_bytes()
         except OSError:
             raise ValueError("verified raw object cannot be read") from None
+        try:
+            payload = decode_entity_body(raw_payload, reference.content_encoding)
+        except HttpContentCodingError as error:
+            raise ValueError(error.code) from None
     else:
         try:
             payload = read_archive_member(
@@ -77,9 +85,7 @@ def validate_raw_locator_against_snapshot(
         raise ValueError("raw byte range is outside the verified source document")
 
 
-def _verified_object_path(
-    verified_snapshot: VerifiedSourceSnapshot, raw_object_id: str
-) -> Path:
+def _verified_object_path(verified_snapshot: VerifiedSourceSnapshot, raw_object_id: str) -> Path:
     reference = verified_snapshot.object_index[raw_object_id]
     path = verified_snapshot.object_paths[raw_object_id]
     try:
@@ -91,10 +97,7 @@ def _verified_object_path(
                 digest.update(chunk)
     except OSError:
         raise ValueError("verified raw object cannot be read") from None
-    if (
-        actual_bytes != reference.bytes
-        or digest.hexdigest() != reference.sha256
-    ):
+    if actual_bytes != reference.bytes or digest.hexdigest() != reference.sha256:
         raise ValueError("verified raw object bytes do not match its manifest digest")
     return path
 

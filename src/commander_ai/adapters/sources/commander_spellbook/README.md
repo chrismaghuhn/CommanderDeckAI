@@ -18,6 +18,11 @@ current-use approval, host allowlists, limits, and redistribution status:
   upstream pagination URL directly. Every page must have the documented
   envelope and source-owned pagination links; malformed, truncated, or
   unreadable pages fail the snapshot instead of ending pagination.
+- HTTP `content-encoding` is retained on each raw-object reference. The raw
+  entity is hashed and finalized first; bounded `gzip`/`deflate` decoding then
+  supplies the derived JSON view used for pagination, parsing, and locator
+  validation. Unsupported codings remain non-consumable rather than being
+  guessed or silently treated as identity.
 - `api_models.py` retains documented fields and unknown forward-compatible
   fields without creating canonical entities, while documented numeric,
   boolean, and text scalars are validated strictly.

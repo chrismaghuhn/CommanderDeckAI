@@ -10,6 +10,11 @@ from typing import cast
 
 from pydantic import ValidationError
 
+from commander_ai.adapters.http.content_coding import (
+    DEFAULT_MAX_DECODED_BYTES,
+    HttpContentCodingError,
+    decode_entity_body,
+)
 from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
 from commander_ai.data_pipeline.staging.raw_locators import (
     JsonPointerLocator,
@@ -25,7 +30,12 @@ from .api_models import (
     finding_record,
     record_with_findings,
 )
-from .json_support import DuplicateJSONKey, contains_malformed_value, decode_json
+from .json_support import (
+    DuplicateJSONKey,
+    contains_malformed_value,
+    decode_json,
+    valid_pagination_envelope,
+)
 from .settings import (
     DOCUMENTED_CONTRACTS,
     SpellbookContract,
@@ -45,6 +55,15 @@ class CommanderSpellbookParseError(RuntimeError):
 class CommanderSpellbookParser:
     """Read raw bytes only after the shared verifier has issued evidence."""
 
+    def __init__(self, *, max_decoded_bytes: int = DEFAULT_MAX_DECODED_BYTES) -> None:
+        if (
+            not isinstance(max_decoded_bytes, int)
+            or isinstance(max_decoded_bytes, bool)
+            or max_decoded_bytes < 1
+        ):
+            raise ValueError("max_decoded_bytes must be a positive integer")
+        self.max_decoded_bytes = max_decoded_bytes
+
     def parse_object(
         self,
         verified_snapshot: VerifiedSourceSnapshot,
@@ -52,13 +71,13 @@ class CommanderSpellbookParser:
         raw_object_id: str,
         contract: SpellbookContract | str,
     ) -> CommanderSpellbookParseResult:
-        normalized_contract, raw_object_path, raw_bytes = self._read_verified_object(
+        normalized_contract, raw_object_path, _, decoded_bytes = self._read_verified_object(
             verified_snapshot,
             raw_object_id=raw_object_id,
             contract=contract,
         )
         return self._parse_verified_bytes(
-            raw_bytes,
+            decoded_bytes,
             verified_snapshot=verified_snapshot,
             raw_object_id=raw_object_id,
             raw_object_path=raw_object_path,
@@ -73,15 +92,17 @@ class CommanderSpellbookParser:
         raw_object_id: str,
         contract: SpellbookContract | str,
     ) -> CommanderSpellbookParseResult:
-        normalized_contract, raw_object_path, verified_bytes = self._read_verified_object(
-            verified_snapshot,
-            raw_object_id=raw_object_id,
-            contract=contract,
+        normalized_contract, raw_object_path, verified_bytes, decoded_bytes = (
+            self._read_verified_object(
+                verified_snapshot,
+                raw_object_id=raw_object_id,
+                contract=contract,
+            )
         )
         if not isinstance(raw_bytes, bytes) or raw_bytes != verified_bytes:
             raise CommanderSpellbookParseError("INTEGRITY_OBJECT_BYTES_MISMATCH")
         return self._parse_verified_bytes(
-            verified_bytes,
+            decoded_bytes,
             verified_snapshot=verified_snapshot,
             raw_object_id=raw_object_id,
             raw_object_path=raw_object_path,
@@ -96,13 +117,13 @@ class CommanderSpellbookParser:
         raw_object_id: str,
         contract: SpellbookContract | str,
     ) -> CommanderSpellbookParseResult:
-        normalized_contract, raw_object_path, verified_bytes = self._read_verified_object(
+        normalized_contract, raw_object_path, _, decoded_bytes = self._read_verified_object(
             verified_snapshot,
             raw_object_id=raw_object_id,
             contract=contract,
         )
         try:
-            verified_payload = decode_json(verified_bytes)
+            verified_payload = decode_json(decoded_bytes)
         except DuplicateJSONKey:
             raise CommanderSpellbookParseError("INTEGRITY_PAYLOAD_UNAVAILABLE") from None
         except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
@@ -180,7 +201,7 @@ class CommanderSpellbookParser:
         contract: SpellbookContract,
     ) -> CommanderSpellbookParseResult:
         base = (source_id, source_snapshot_id, raw_object_id, raw_object_path)
-        if not isinstance(payload, Mapping) or not isinstance(payload.get("results"), list):
+        if not valid_pagination_envelope(payload):
             locator = CommanderSpellbookParser._locator(*base, "")
             return CommanderSpellbookParseResult(
                 records=(
@@ -193,13 +214,14 @@ class CommanderSpellbookParser:
                     ),
                 )
             )
+        payload_mapping = cast(Mapping[str, object], payload)
         records = tuple(
             CommanderSpellbookParser._record(
                 item,
                 locator=CommanderSpellbookParser._locator(*base, f"/results/{index}"),
                 contract=contract,
             )
-            for index, item in enumerate(cast(list[object], payload["results"]))
+            for index, item in enumerate(cast(list[object], payload_mapping["results"]))
         )
         return CommanderSpellbookParseResult(records=records)
 
@@ -309,7 +331,7 @@ class CommanderSpellbookParser:
         *,
         raw_object_id: str,
         contract: SpellbookContract | str,
-    ) -> tuple[SpellbookContract, str, bytes]:
+    ) -> tuple[SpellbookContract, str, bytes, bytes]:
         self._require_snapshot(verified_snapshot)
         normalized_contract = self._require_contract(contract)
         try:
@@ -346,7 +368,15 @@ class CommanderSpellbookParser:
         ):
             raise CommanderSpellbookParseError("INTEGRITY_REQUEST_MISMATCH")
         raw_bytes = self._read_verified_bytes(raw_path, reference.bytes, reference.sha256)
-        return normalized_contract, reference.path, raw_bytes
+        try:
+            decoded_bytes = decode_entity_body(
+                raw_bytes,
+                reference.content_encoding,
+                max_decoded_bytes=self.max_decoded_bytes,
+            )
+        except HttpContentCodingError as error:
+            raise CommanderSpellbookParseError(error.code) from None
+        return normalized_contract, reference.path, raw_bytes, decoded_bytes
 
     @staticmethod
     def _read_verified_bytes(path: Path, expected_bytes: int, expected_sha256: str) -> bytes:

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import gzip
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -166,6 +167,12 @@ def test_settings_admit_only_documented_contracts_and_build_allowlisted_api_urls
     assert settings.source.max_pages == 100
     assert settings.source.max_download_bytes == 1_000_000
 
+    deterministic_settings = CommanderSpellbookSettings(
+        source=source,
+        contracts={"variants", "cards"},
+    )
+    assert deterministic_settings.contracts == ("cards", "variants")
+
     with pytest.raises(ValueError, match="unknown Commander Spellbook filter"):
         CommanderSpellbookSettings.from_source_settings(
             source.model_copy(update={"filters": {"undocumented": True}})
@@ -260,6 +267,43 @@ def test_downloader_persists_exact_raw_pages_with_policy_lineage_and_no_live_net
         for item in manifest.objects
     )
     assert settings.adapter_version == "commander-spellbook-v1"
+
+
+def test_downloader_preserves_compressed_raw_entities_and_decodes_for_pagination(
+    tmp_path: Path,
+) -> None:
+    raw_pages: dict[str, bytes] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        contract = request.url.path.rstrip("/").rsplit("/", 1)[-1]
+        raw_page = _page(contract, 1)
+        encoded_page = gzip.compress(raw_page)
+        raw_pages[contract] = encoded_page
+        return httpx.Response(
+            200,
+            headers={
+                "content-type": "application/json",
+                "content-encoding": "gzip",
+                "content-length": str(len(encoded_page)),
+            },
+            stream=httpx.ByteStream(encoded_page),
+            request=request,
+        )
+
+    adapter, http_client, settings = _adapter(tmp_path, handler)
+    try:
+        result = adapter.download(snapshot_id="spellbook-gzip")
+    finally:
+        http_client.close()
+
+    manifest = RawSnapshotStore(tmp_path).load_manifest("commander_spellbook", "spellbook-gzip")
+    assert manifest.status == "COMPLETE"
+    assert result.raw_object_ids == ("cards-page-1.json", "variants-page-1.json")
+    assert all(item.content_encoding == "gzip" for item in manifest.objects)
+    for item in manifest.objects:
+        raw_path = tmp_path / "raw" / "commander_spellbook" / "spellbook-gzip" / item.path
+        assert raw_path.read_bytes() == raw_pages[item.source_object_id or ""]
+    assert settings.max_response_bytes == 1_000_000
 
 
 def test_downloader_fails_closed_at_configured_page_bound(tmp_path: Path) -> None:

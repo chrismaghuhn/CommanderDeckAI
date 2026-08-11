@@ -41,6 +41,7 @@ class RawObjectWriter:
         temp_path: Path,
         file_descriptor: int,
         content_type: str | None,
+        content_encoding: str | None,
         retrieved_at: datetime,
         source_object_id: str | None,
         upstream_sha256: str | None,
@@ -54,6 +55,7 @@ class RawObjectWriter:
         self.temp_path = temp_path
         self._fd = file_descriptor
         self._content_type = content_type
+        self._content_encoding = content_encoding
         self._retrieved_at = retrieved_at
         self._source_object_id = source_object_id
         self._upstream_sha256 = upstream_sha256
@@ -108,6 +110,7 @@ class RawObjectWriter:
                 path=to_portable_relative_path(self.final_path, self._owner.snapshot_dir),
                 bytes=self._byte_count,
                 content_type=self._content_type,
+                content_encoding=self._content_encoding,
                 sha256=digest,
                 source_object_id=self._source_object_id,
                 upstream_sha256=self._upstream_sha256,

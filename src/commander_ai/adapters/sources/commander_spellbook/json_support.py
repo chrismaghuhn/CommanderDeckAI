@@ -43,6 +43,27 @@ def contains_malformed_value(value: object) -> bool:
     return False
 
 
+def valid_pagination_envelope(payload: object) -> bool:
+    """Return whether a decoded page has the documented structural envelope."""
+
+    if not isinstance(payload, Mapping) or not {
+        "count",
+        "next",
+        "previous",
+        "results",
+    }.issubset(payload):
+        return False
+    count = payload["count"]
+    return (
+        isinstance(count, int)
+        and not isinstance(count, bool)
+        and count >= 0
+        and isinstance(payload["results"], list)
+        and (payload["next"] is None or isinstance(payload["next"], str))
+        and (payload["previous"] is None or isinstance(payload["previous"], str))
+    )
+
+
 def _pairs_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:

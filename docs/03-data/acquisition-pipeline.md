@@ -54,6 +54,13 @@ device names are also rejected, and the extraction destination must remain below
 configured root. Extracted files are temporary derived views under that root; the
 compressed raw object remains authoritative.
 
+For HTTP responses, `content-encoding` is persisted per raw object as an
+allowlisted response-metadata field. The raw entity bytes are finalized and
+hashed before any decoding. Bounded `gzip` and `deflate` decoding is used only
+for pagination and parsing; unsupported codings and decompressed-size limits
+fail closed. Locators resolve against that verified decoded view while the
+compressed entity remains the immutable evidence.
+
 ## Adapterstruktur
 
 ```text

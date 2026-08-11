@@ -253,6 +253,14 @@
               "null"
             ]
           },
+          "content_encoding": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]*(?:\\s*,\\s*[a-z0-9][a-z0-9._-]*)*$"
+          },
           "sha256": {
             "type": "string",
             "pattern": "^[a-f0-9]{64}$"
