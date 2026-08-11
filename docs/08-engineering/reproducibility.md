@@ -42,6 +42,24 @@ Die Digest-Funktionen bilden eine neue Payload-Projektion, ohne das Eingabeobjek
 mutieren. Die genauen Snapshot- und Manifest-Anmerkungen bleiben in den versionierten
 Schemas und Beispielen maßgeblich.
 
+## Raw snapshot verification boundary (Task 4)
+
+Raw snapshot evidence is byte-oriented. Object digests cover the exact stored bytes;
+the snapshot-content digest covers only the canonical object summary; and the detached
+manifest digest covers the canonical manifest projection without its own digest field.
+These domains remain separate from request metadata, logical record counts, and later
+normalized artifacts.
+
+Consumption requires a verified `COMPLETE` manifest. Verification happens before
+normalization and rejects missing or corrupt objects, wrong sizes, duplicate IDs,
+lineage errors, and digest mismatches. `INCOMPLETE` and `FAILED` snapshots remain
+available for audit/recovery inspection but contribute no records.
+
+The local SQL snapshot/request/object tables are rebuildable indexes and caches only.
+They must never be treated as the sole source of truth or as a substitute for the raw
+objects and manifests. Archive extraction and HTTP metadata handling follow the safety
+rules documented in the acquisition pipeline; neither operation changes raw evidence.
+
 ## Dirty-Worktree-Zustandsdigest
 
 `git_worktree_sha256` ist **kein** Hash eines normalen `git diff`. Er ist der SHA-256-Hash eines separaten, reproduzierbaren `git-worktree-state.v1`-Datensatzes. Dieser Datensatz enthält genau:

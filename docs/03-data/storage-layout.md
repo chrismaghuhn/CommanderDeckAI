@@ -18,6 +18,20 @@ data/
 └── cache/
 ```
 
+## Raw snapshot boundary (Task 4)
+
+Raw object files preserve the exact HTTP entity or source archive bytes. The snapshot
+writer streams bytes into a same-filesystem temporary file, verifies the byte count and
+SHA-256, and publishes the object atomically. A manifest and its detached digest are
+published only after every referenced object is final; the `COMPLETE` state is written
+last. `INCOMPLETE` and `FAILED` snapshots are never normalizer input.
+
+The verifier checks manifest structure, request/object lineage, object paths, sizes,
+hashes, snapshot-content digest, and detached manifest digest before any parsing. The
+raw files and manifests are authoritative evidence. SQL tables created by migration
+`007_snapshot_objects.sql` are derived query/cache projections and may be deleted and
+rebuilt from those files without reacquisition.
+
 ## Regeln
 
 - Raw und Curated sind immutable;
