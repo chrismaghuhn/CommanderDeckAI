@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from commander_ai.adapters.sources.commander_spellbook.api_models import (
+    CommanderSpellbookFinding,
     CommanderSpellbookParsedRecord,
     SpellbookCard,
     SpellbookVariant,
@@ -528,6 +529,47 @@ def test_staging_rejects_forged_result_locators_and_source_values(tmp_path: Path
     with pytest.raises(ValueError):
         mapper.map_records((forged_values,), verified_snapshot=verified)
 
+    forged_root_finding = CommanderSpellbookFinding(
+        code="parse.invalid_json",
+        message="forged root finding",
+        raw_locator=record.raw_locator.model_copy(
+            update={"location": JsonPointerLocator(pointer="")}
+        ),
+    )
+    forged_root = record.model_copy(
+        update={
+            "raw_locator": forged_root_finding.raw_locator,
+            "source_values": {"forged": True},
+            "finding_codes": (forged_root_finding.code,),
+            "findings": (forged_root_finding,),
+        }
+    )
+    with pytest.raises(ValueError):
+        mapper.map_records((forged_root,), verified_snapshot=verified)
+
+
+def test_staging_rejects_forged_malformed_scalar_evidence(tmp_path: Path) -> None:
+    payload = (
+        b'{"count":1,"next":null,"previous":null,"results":['
+        b'{"id":101,"uses":[NaN],"requires":[],"produces":[],"status":"LEGAL"}'
+        b"]}"
+    )
+    verified = _verified_snapshot(tmp_path, payload)
+    record = (
+        CommanderSpellbookParser()
+        .parse_object(
+            verified,
+            raw_object_id="variants-page-1.json",
+            contract="variants",
+        )
+        .records[0]
+    )
+    assert record.finding_codes == ("parse.malformed_scalar",)
+
+    forged = record.model_copy(update={"source_values": {"forged": True}})
+    with pytest.raises(ValueError):
+        CommanderSpellbookStagingMapper().map_records((forged,), verified_snapshot=verified)
+
 
 def test_audit_locators_and_finding_codes_remain_bound_to_records(tmp_path: Path) -> None:
     malformed = {**VARIANT, "uses": "not-a-list"}
@@ -561,6 +603,29 @@ def test_audit_locators_and_finding_codes_remain_bound_to_records(tmp_path: Path
             dto=None,
             finding_codes=(),
             findings=record.findings,
+        )
+
+    with pytest.raises(ValidationError):
+        CommanderSpellbookParsedRecord(
+            record_type=record.record_type,
+            raw_locator=record.raw_locator,
+            source_values=record.source_values,
+            dto=None,
+            finding_codes=(finding.code,),
+            findings=(finding, finding),
+        )
+
+    duplicate_findings = CommanderSpellbookParsedRecord.model_construct(
+        record_type=record.record_type,
+        raw_locator=record.raw_locator,
+        source_values=record.source_values,
+        dto=None,
+        finding_codes=record.finding_codes,
+        findings=(finding, finding),
+    )
+    with pytest.raises(ValueError):
+        CommanderSpellbookStagingMapper().map_audit_records(
+            (duplicate_findings,), verified_snapshot=verified
         )
 
 

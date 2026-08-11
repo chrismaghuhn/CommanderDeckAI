@@ -172,7 +172,7 @@ class CommanderSpellbookParsedRecord(DomainModel):
     @field_validator("source_values", mode="before")
     @classmethod
     def make_json_safe(cls, value: object) -> object:
-        return _json_safe_source_value(value)
+        return json_safe_source_value(value)
 
     @field_validator("finding_codes")
     @classmethod
@@ -187,6 +187,8 @@ class CommanderSpellbookParsedRecord(DomainModel):
     @model_validator(mode="after")
     def validate_finding_alignment(self) -> CommanderSpellbookParsedRecord:
         expected = tuple(sorted({finding.code for finding in self.findings}))
+        if len(expected) != len(self.findings):
+            raise ValueError("Commander Spellbook findings must use unique codes")
         if self.finding_codes != expected:
             raise ValueError("Commander Spellbook finding codes must match findings")
         return self
@@ -237,7 +239,7 @@ def _freeze_value(value: object) -> object:
     return value
 
 
-def _json_safe_source_value(value: object) -> object:
+def json_safe_source_value(value: object) -> object:
     if isinstance(value, MalformedJSONScalar):
         raw = value.token.encode("ascii")
         return {
@@ -267,11 +269,11 @@ def _json_safe_source_value(value: object) -> object:
     if isinstance(value, Mapping):
         if any(isinstance(key, str) and _has_surrogate(key) for key in value):
             return _json_object_entries(value)
-        return {str(key): _json_safe_source_value(item) for key, item in value.items()}
+        return {str(key): json_safe_source_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
-        return [_json_safe_source_value(item) for item in value]
+        return [json_safe_source_value(item) for item in value]
     if isinstance(value, (set, frozenset)):
-        return [_json_safe_source_value(item) for item in sorted(value, key=str)]
+        return [json_safe_source_value(item) for item in sorted(value, key=str)]
     return value
 
 
@@ -288,7 +290,7 @@ def _json_object_entries(value: Mapping[object, object]) -> dict[str, object]:
             }
         else:
             key_payload = {"role": "text", "value": str(key)}
-        entries.append({"key": key_payload, "value": _json_safe_source_value(item)})
+        entries.append({"key": key_payload, "value": json_safe_source_value(item)})
     payload = {"entries": entries}
     return {
         "encoding": "json_object_entries",
@@ -316,5 +318,6 @@ __all__ = [
     "SpellbookVariantResult",
     "SpellbookVariantUse",
     "finding_record",
+    "json_safe_source_value",
     "record_with_findings",
 ]

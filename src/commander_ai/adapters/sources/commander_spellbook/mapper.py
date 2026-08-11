@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import hashlib
+import json
 from collections.abc import Iterable, Mapping
 from typing import cast
+
+from pydantic import ValidationError
 
 from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
 from commander_ai.data_pipeline.provenance.rows import AuditRecord
@@ -20,9 +23,14 @@ from commander_ai.data_pipeline.staging.records import (
 )
 from commander_ai.domain.serialization import canonical_json_bytes
 
-from .api_models import CommanderSpellbookParsedRecord
+from .api_models import (
+    CommanderSpellbookParsedRecord,
+    SpellbookCard,
+    SpellbookVariant,
+    json_safe_source_value,
+)
 from .errors import CommanderSpellbookStagingError
-from .json_support import DuplicateJSONKey, decode_json
+from .json_support import DuplicateJSONKey, contains_malformed_value, decode_json
 from .settings import documented_endpoint, raw_object_identity
 
 
@@ -88,6 +96,8 @@ class CommanderSpellbookStagingMapper:
             if not isinstance(record, CommanderSpellbookParsedRecord):
                 raise TypeError("Commander Spellbook staging requires parsed source records")
             expected_codes = tuple(sorted({finding.code for finding in record.findings}))
+            if len(expected_codes) != len(record.findings):
+                raise ValueError("Commander Spellbook findings must use unique codes")
             if record.finding_codes != expected_codes:
                 raise ValueError("Commander Spellbook finding codes must match findings")
             try:
@@ -151,13 +161,14 @@ class CommanderSpellbookStagingMapper:
         location = record.raw_locator.location
         if not isinstance(location, JsonPointerLocator):
             raise ValueError("Commander Spellbook records require JSON pointer locators")
+        raw_path = verified_snapshot.object_paths[record.raw_locator.raw_object_id]
+        try:
+            raw_bytes = raw_path.read_bytes()
+        except OSError:
+            raise ValueError("Commander Spellbook record source cannot be read") from None
         if not location.pointer:
-            if not {
-                "parse.invalid_json",
-                "parse.duplicate_json_key",
-                "parse.invalid_response_envelope",
-            }.intersection(record.finding_codes):
-                raise ValueError("Commander Spellbook record locator must identify a result")
+            expected_codes, expected_values = _root_record_expectation(raw_bytes)
+            _assert_record_semantics(record, expected_codes, expected_values)
             return
         parts = location.pointer.split("/")
         if len(parts) != 3 or parts[1] != "results" or not parts[2].isdigit():
@@ -166,20 +177,19 @@ class CommanderSpellbookStagingMapper:
         if index_text != "0" and index_text.startswith("0"):
             raise ValueError("Commander Spellbook record locator index is not canonical")
         index = int(index_text)
-        raw_path = verified_snapshot.object_paths[record.raw_locator.raw_object_id]
         try:
             payload = decode_json(raw_path.read_bytes())
-        except (DuplicateJSONKey, OSError, UnicodeDecodeError, ValueError):
+        except (DuplicateJSONKey, UnicodeDecodeError, ValueError):
             raise ValueError("Commander Spellbook record source cannot be decoded") from None
         if not isinstance(payload, Mapping) or not isinstance(payload.get("results"), list):
             raise ValueError("Commander Spellbook record source has no results array")
         results = cast(list[object], payload["results"])
         if index >= len(results):
             raise ValueError("Commander Spellbook record locator is outside results")
-        if "parse.malformed_scalar" not in record.finding_codes and canonical_json_bytes(
-            record.source_values
-        ) != canonical_json_bytes(results[index]):
-            raise ValueError("Commander Spellbook source values disagree with raw bytes")
+        target = results[index]
+        expected_code = _expected_record_finding(target, record.record_type)
+        expected_codes = () if expected_code is None else (expected_code,)
+        _assert_record_semantics(record, expected_codes, json_safe_source_value(target))
 
     def staging_record_id(
         self,
@@ -226,6 +236,58 @@ class CommanderSpellbookStagingMapper:
         ):
             return "PARSE_FAILED"
         return "STRUCTURAL_INVALID"
+
+
+def _root_record_expectation(raw_bytes: bytes) -> tuple[tuple[str, ...], object]:
+    try:
+        payload = decode_json(raw_bytes)
+    except DuplicateJSONKey:
+        return ("parse.duplicate_json_key",), json_safe_source_value(raw_bytes)
+    except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
+        return ("parse.invalid_json",), json_safe_source_value(raw_bytes)
+    if not isinstance(payload, Mapping) or not isinstance(payload.get("results"), list):
+        return ("parse.invalid_response_envelope",), json_safe_source_value(payload)
+    raise ValueError("Commander Spellbook record locator must identify a result")
+
+
+def _assert_record_semantics(
+    record: CommanderSpellbookParsedRecord,
+    expected_codes: tuple[str, ...],
+    expected_values: object,
+) -> None:
+    if record.finding_codes != expected_codes:
+        raise ValueError("Commander Spellbook finding codes disagree with raw bytes")
+    if canonical_json_bytes(record.source_values) != canonical_json_bytes(expected_values):
+        raise ValueError("Commander Spellbook source values disagree with raw bytes")
+
+
+def _expected_record_finding(value: object, record_type: str) -> str | None:
+    if not isinstance(value, Mapping):
+        return "parse.record_not_object"
+    contract = "cards" if record_type in {"card", "cards"} else "variants"
+    if contains_malformed_value(value):
+        return "parse.malformed_scalar"
+    required = (
+        ("id", "name")
+        if contract == "cards"
+        else (
+            "id",
+            "uses",
+            "requires",
+            "produces",
+            "status",
+        )
+    )
+    if any(field not in value for field in required):
+        return "parse.missing_required_field"
+    try:
+        if contract == "cards":
+            SpellbookCard.model_validate(value)
+        else:
+            SpellbookVariant.model_validate(value)
+    except ValidationError:
+        return "parse.invalid_record_shape"
+    return None
 
 
 CommanderSpellbookMapper = CommanderSpellbookStagingMapper
