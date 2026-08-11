@@ -31,9 +31,11 @@ DeepSets v1
 
 Keine spätere Stufe darf eine fehlgeschlagene frühere Stufe durch bloß größeres Modellbudget verdecken.
 
-## Primäre Entscheidungsmetrik
+## Primäre Entscheidungsmetrik und Anti-Collapse-Diagnostik
 
-Für v1 ist `NDCG@25` die primäre Learnability-Metrik. Recall@25, MRR, Catalog Coverage, Long-Tail Recall und segmentierte Werte bleiben verpflichtende Sekundärmetriken.
+Für v1 ist `NDCG@25` die primäre Learnability-Metrik. Recall@25, MRR, Catalog Coverage, Long-Tail Recall sowie Novelty-/Popularity-Verteilung bleiben verpflichtende Sekundärmetriken.
+
+NDCG entscheidet den primären Uplift, darf aber keinen offensichtlichen Recommendation-Collapse verdecken. Das Freeze-Profil definiert deshalb vorab geschützte Sekundär-Guardrails. Mindestens werden Catalog Coverage, Long-Tail Recall und Novelty-/Popularity-Verteilung berichtet. Ein primäres `PASS`, das eine preregistrierte Anti-Collapse- oder Segmentgrenze verletzt, kann **nicht** zu `GREEN` führen; der Gate-Zustand ist mindestens `YELLOW`.
 
 Jeder Vergleich berichtet Samplecount und Bootstrap-Konfidenzintervall. Relative Uplifts werden gegen dieselben eingefrorenen Samples, Masken und Candidate Pools berechnet.
 
@@ -100,6 +102,25 @@ Ein Scheitern von B6 beweist nicht automatisch, dass DeepSets nutzlos ist. Es en
 
 Ein fehlgeschlagenes begrenztes DeepSets-v1-Experiment rechtfertigt **keine automatische Skalierung** zu größeren Netzen oder Set Transformern.
 
+## Geschützte Segmente
+
+Ein Overall-Uplift darf Tail- oder Generalisierungsfehler nicht verdecken. Das M4-Freeze-Profil muss für Benchmark v1 numerisch definierte Mindest-Samplecounts und Guardrails für die geschützten Segmente festlegen.
+
+Mindestens getrennt berichtet werden:
+
+- `high_data_commander`;
+- `low_data_commander`;
+- `cold_commander`;
+- Standard-Temporal-Holdout;
+- `late_build`;
+- `early_build`;
+- `new_card`;
+- Precon-/Precon-ähnliches Segment, soweit der eingefrorene Benchmark dafür den preregistrierten Mindest-Samplecount erreicht.
+
+Die Regeln, nach denen Commander als high-data, low-data oder cold klassifiziert werden, sind Teil des Freeze-Profils und dürfen nach Sichtung der Gate-Ergebnisse nicht verschoben werden. Ein Segment unter seinem preregistrierten Mindest-Samplecount darf nicht still mit einem anderen Segment zusammengelegt werden; es wird als `INSUFFICIENT_COVERAGE` ausgewiesen.
+
+Für `GREEN` dürfen keine preregistrierten geschützten Segment- oder Anti-Collapse-Grenzen verletzt sein. Eine Verletzung führt mindestens zu `YELLOW`, auch wenn Overall-NDCG das primäre Uplift-Gate besteht.
+
 ## Gate-Zustand über M4 und M5
 
 M4 bewertet G0/G1 und erzeugt den ersten Gate-Zustand. G2 wird erst in M5 nach B6 ergänzt und kann den Zustand aktualisieren.
@@ -111,7 +132,7 @@ M4-GREEN verlangt:
 - G0a bestanden;
 - G0b bestanden;
 - G1 bestanden;
-- keine unakzeptierte preregistrierte Temporal-/Cold-/Long-Tail-Regression.
+- keine preregistrierte geschützte Segment- oder Anti-Collapse-Grenze verletzt.
 
 M5 darf regulär fortfahren. B6 wird vor DeepSets ausgeführt.
 
@@ -121,10 +142,12 @@ Beispiele:
 
 - G0a besteht, G0b ist schwach;
 - Commander-Signal ist vorhanden, aber B4 liefert nur schwachen zusätzlichen Deckkontext-Nutzen;
-- der Gesamtwert steigt, aber Cold-/Long-Tail-Segmente regressieren;
+- der Gesamtwert steigt, aber Cold-/Low-Data-/Long-Tail- oder Anti-Collapse-Guardrails regressieren;
 - G1 ist stark, B6 liefert in M5 aber kaum weiteren Gewinn.
 
-YELLOW erlaubt nur ein **begrenztes, vorab dokumentiertes Diagnosebudget**. Es darf nicht in eine offene Hyperparameter- oder Infrastrukturphase übergehen.
+YELLOW erlaubt pro Benchmark-/Gate-Version genau **eine begrenzte Diagnosephase**. Vor ihrem ersten zusätzlichen Lauf wird ein Diagnoseplan committed, der Hypothesen, erlaubte Änderungen, Zielmetriken und das verbleibende Experimentbudget festlegt.
+
+Nach Ausschöpfen dieser Diagnosephase muss der Zustand für die betroffene Entscheidung zu `GREEN` oder `RED` aufgelöst werden. Ein zweites YELLOW-Budget innerhalb derselben Gate-Version ist nicht zulässig. Weitere Diagnose nach Sichtung der Resultate benötigt eine neue dokumentierte Forschungsentscheidung und eine neue Gate-/Benchmarkversion; das eingefrorene Testset bleibt unangetastet.
 
 ### RED — Formulierung oder Benchmark pivoten
 
@@ -133,7 +156,8 @@ RED wird ausgelöst, wenn nach validierter Pipeline und ausgeschöpftem Diagnose
 - G0a scheitert weiterhin;
 - Commander-/Deckkontext liefert keinen belastbaren Zusatznutzen und B5/B6 können das nicht erklären oder beheben;
 - scheinbare Gewinne verschwinden nach Leakage-/Duplicate-Kontrolle;
-- Gewinne entstehen praktisch nur durch Popularity Memorization, während preregistrierte Generalisierungssegmente kollabieren.
+- Gewinne entstehen praktisch nur durch Popularity Memorization, während preregistrierte Generalisierungs- oder Anti-Collapse-Guardrails kollabieren;
+- ein YELLOW-Zustand nach der einmaligen zulässigen Diagnosephase die preregistrierten GREEN-Bedingungen weiterhin nicht erfüllt.
 
 RED bedeutet nicht „DeepSets war schlecht“, sondern: Die aktuelle supervised Completion-Formulierung liefert nicht ausreichend das Signal, auf dem die geplante Architektur basiert.
 
@@ -150,7 +174,29 @@ Wenn kein begründeter anderer Wert preregistriert wurde, gelten für v1 diese O
 - B6: maximal 20 Konfigurationen, jeweils höchstens 3 Seeds;
 - ein ausdrücklich genehmigtes DeepSets-v1-Diagnoseexperiment: maximal 12 Konfigurationen, jeweils höchstens 3 Seeds.
 
+Das YELLOW-Diagnosebudget ist **kein zusätzliches unbegrenztes Budget**. Sein Laufkontingent muss aus dem vorab eingefrorenen Diagnose-/Experimentbudget stammen oder vor dem ersten YELLOW-Diagnoselauf explizit innerhalb der bereits preregistrierten Obergrenzen zugewiesen werden.
+
 Zusätzliche Versuche nach Sichtung der Ergebnisse benötigen eine dokumentierte neue Hypothese und dürfen das eingefrorene Testset nicht als Tuning-Signal verwenden.
+
+## Deterministische Gate-Entscheidung
+
+Die Gate-Schwellen sind Entscheidungskriterien, keine Reviewer-Empfehlungen. Grenzfälle werden mechanisch klassifiziert.
+
+Beispiel:
+
+```text
+preregistered G1 margin = 5.0 %
+observed uplift = 4.8 %
+CI lower bound > 0
+
+=> WEAK / YELLOW, nicht "praktisch GREEN"
+```
+
+Ein Reviewer — auch der Projektowner — darf einen verfehlten preregistrierten Schwellenwert nicht nachträglich zu `GREEN` erklären. Review prüft Datenintegrität, korrekte Gate-Ausführung und Interpretation; es überschreibt nicht die Schwelle.
+
+Eine andere Schwelle oder Segmentgrenze erfordert eine neue Gate-/Benchmarkversion, die **vor** dem nächsten entscheidenden Validation-Lauf committed wird. Retroaktive Ausnahmen für bereits gesehene Ergebnisse sind unzulässig.
+
+Jede Gate-Entscheidung erzeugt einen reproduzierbaren Gate-Report mit Benchmark-/Gate-Version, Input-/Run-IDs, Metriken, CIs, Segment-Guardrails, Budgetverbrauch und dem mechanisch abgeleiteten Zustand.
 
 ## Train / Validation / Test
 
@@ -173,14 +219,21 @@ Das Testset wird nicht nach jedem schlechten Ergebnis erneut konsultiert. Eine w
 
 Vor dem Exit von M3 muss ein versioniertes M4-Freeze-Profil committed sein. Es definiert **vor Betrachtung der entscheidenden M4-Ergebnisse** mindestens:
 
-- minimale Anzahl qualitätsgeprüfter Decks;
-- minimale Commander-/Command-Zone-Abdeckung;
-- Temporal-Cutoffs und minimale Split-/Segment-Samplecounts;
+- `min_qualified_decks` als konkrete Ganzzahl;
+- `min_unique_command_zones` als konkrete Ganzzahl;
+- Temporal-Cutoff(s) als konkrete Datumswerte sowie den geforderten abgedeckten Zeitraum;
+- minimale Train-/Validation-/Test-Samplecounts als konkrete Ganzzahlen;
+- minimale Samplecounts je geschütztem Segment als konkrete Ganzzahlen;
+- die numerischen Grenzen für high-/low-data-Commander-Klassifikation;
 - Maskenregime und Candidate-Pool-Policy;
-- primäre/sekundäre Metriken;
+- primäre/sekundäre Metriken und Anti-Collapse-Guardrails;
 - G0/G1/G2-Margins und geschützte Segmentgrenzen;
 - Bootstrap-/Unsicherheitsmethode;
-- Experimentbudgets.
+- Experiment- und Diagnosebudgets.
+
+Qualitative Platzhalter wie „genug Decks“, „ausreichende Commander-Abdeckung“ oder „hinreichend großer Holdout“ erfüllen diesen Contract **nicht**. M3 kann nicht als bereit für den M4-Freeze gelten, solange diese numerischen Mindestwerte nicht committed sind.
+
+Die konkreten Zahlen werden bewusst nicht in diesem Architekturtext erfunden. Sie müssen aus dem bis dahin gemessenen Datenbestand abgeleitet und **vor** dem ersten entscheidenden M4-Validation-Lauf preregistriert werden. Sobald sie für Benchmark v1 committed sind, dürfen sie nicht anhand der beobachteten Gate-Ergebnisse nachjustiert werden.
 
 Sobald diese Mindestbedingungen erfüllt sind, wird Benchmark v1 eingefroren. M4 darf dann nicht verzögert werden, nur weil eine zusätzliche Quelle, mehr historische Abdeckung oder „noch sauberere“ Infrastruktur wünschenswert wäre.
 
