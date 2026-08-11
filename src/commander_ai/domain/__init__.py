@@ -1,6 +1,13 @@
 """Source-agnostic domain contracts and immutable value objects."""
 
-from .cards import CardFace, CardIdentity, CardResolution, CardResolutionCandidate, Printing
+from .cards import (
+    CanonicalCard,
+    CardFace,
+    CardIdentity,
+    CardResolution,
+    CardResolutionCandidate,
+    Printing,
+)
 from .combos import Combo, ComboCard
 from .decks import (
     CanonicalDeck,
@@ -30,6 +37,7 @@ from .provenance import (
 )
 
 __all__ = [
+    "CanonicalCard",
     "CanonicalDeck",
     "CardFace",
     "CardIdentity",

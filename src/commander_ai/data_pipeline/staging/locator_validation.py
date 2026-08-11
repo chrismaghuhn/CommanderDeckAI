@@ -93,6 +93,30 @@ def validate_raw_locator_against_snapshot(
         raise ValueError("raw byte range is outside the verified source document")
 
 
+def validate_raw_object_against_snapshot(
+    raw_object_id: str,
+    *,
+    verified_snapshot: VerifiedSourceSnapshot,
+    source_id: str | None = None,
+    source_snapshot_id: str | None = None,
+    raw_sha256: str | None = None,
+) -> None:
+    """Validate object-level provenance when no exact record locator is embedded."""
+
+    verified_snapshot.assert_consistent()
+    manifest = verified_snapshot.manifest
+    if source_id is not None and source_id != manifest.source_id:
+        raise ValueError("raw object source_id does not match verified snapshot")
+    if source_snapshot_id is not None and source_snapshot_id != manifest.source_snapshot_id:
+        raise ValueError("raw object source_snapshot_id does not match verified snapshot")
+    reference = verified_snapshot.object_index.get(raw_object_id)
+    if reference is None:
+        raise ValueError("raw object raw_object_id is absent from verified snapshot")
+    if raw_sha256 is not None and raw_sha256 != reference.sha256:
+        raise ValueError("raw object sha256 does not match verified source object")
+    _verified_object_path(verified_snapshot, raw_object_id)
+
+
 def _verified_object_path(verified_snapshot: VerifiedSourceSnapshot, raw_object_id: str) -> Path:
     reference = verified_snapshot.object_index[raw_object_id]
     path = verified_snapshot.object_paths[raw_object_id]
@@ -205,4 +229,8 @@ def _validate_record_index(payload: bytes, index: int, expected_count: int | Non
         raise ValueError("verified record count does not match the source document")
 
 
-__all__ = ["RawLocatorValidationError", "validate_raw_locator_against_snapshot"]
+__all__ = [
+    "RawLocatorValidationError",
+    "validate_raw_locator_against_snapshot",
+    "validate_raw_object_against_snapshot",
+]

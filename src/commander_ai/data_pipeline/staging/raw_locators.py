@@ -193,6 +193,27 @@ def validate_raw_locator_against_snapshot(
     )
 
 
+def validate_raw_object_against_snapshot(
+    raw_object_id: str,
+    *,
+    verified_snapshot: VerifiedSourceSnapshot,
+    source_id: str | None = None,
+    source_snapshot_id: str | None = None,
+    raw_sha256: str | None = None,
+) -> None:
+    """Validate an object hash when a canonical contract has no exact locator."""
+
+    from .locator_validation import validate_raw_object_against_snapshot as validate
+
+    validate(
+        raw_object_id,
+        verified_snapshot=verified_snapshot,
+        source_id=source_id,
+        source_snapshot_id=source_snapshot_id,
+        raw_sha256=raw_sha256,
+    )
+
+
 RawObjectLocator = RawLocator
 
 
@@ -219,4 +240,5 @@ __all__ = [
     "RawObjectLocator",
     "RecordIndexLocator",
     "validate_raw_locator_against_snapshot",
+    "validate_raw_object_against_snapshot",
 ]

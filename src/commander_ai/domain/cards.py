@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import date
 from typing import Literal
 
@@ -18,6 +19,59 @@ class CardIdentity(DomainModel):
     name: str = Field(min_length=1)
     normalized_name: str | None = Field(default=None, min_length=1)
     card_snapshot_id: str | None = Field(default=None, min_length=1)
+
+
+class CanonicalCard(DomainModel):
+    """Canonical card concept facts persisted by the frozen ``card.v1`` contract."""
+
+    schema_version: Literal["card.v1"] = "card.v1"
+    card_snapshot_id: str = Field(min_length=1)
+    oracle_id: UUIDString
+    name: str = Field(min_length=1)
+    normalized_name: str = Field(min_length=1)
+    layout: str = Field(min_length=1)
+    mana_value: FiniteFloat = Field(ge=0)
+    mana_cost: str | None = None
+    colors: UniqueTuple[Literal["W", "U", "B", "R", "G"]] = Field(
+        default_factory=tuple, max_length=5
+    )
+    color_identity: UniqueTuple[Literal["W", "U", "B", "R", "G"]] = Field(
+        default_factory=tuple, max_length=5
+    )
+    supertypes: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    types: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    subtypes: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    keywords: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    oracle_text: str | None = None
+    power: str | None = None
+    toughness: str | None = None
+    loyalty: str | None = None
+    legalities: Mapping[str, Literal["legal", "not_legal", "banned", "restricted", "unknown"]]
+    copy_limit_policy: Literal["default_singleton", "unlimited", "fixed", "rule_derived"] = (
+        "default_singleton"
+    )
+    fixed_copy_limit: int | None = Field(default=None, ge=1)
+    is_basic_land: bool = False
+    is_token: bool = False
+    is_digital: bool = False
+    released_at: date | None = None
+    provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)
+
+    @model_validator(mode="after")
+    def require_commander_legality(
+        self,
+    ) -> CanonicalCard:
+        if "commander" not in self.legalities:
+            raise ValueError("legalities must include commander")
+        if any(
+            reference.retrieved_at is None
+            or reference.adapter_version is None
+            or reference.mapper_version is None
+            or reference.approval_status is None
+            for reference in self.provenance
+        ):
+            raise ValueError("canonical card provenance must be complete")
+        return self
 
 
 class CardFace(DomainModel):

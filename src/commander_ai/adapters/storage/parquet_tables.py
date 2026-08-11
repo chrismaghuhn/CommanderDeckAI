@@ -23,8 +23,10 @@ from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord
 from commander_ai.data_pipeline.staging.raw_locators import (
     RawLocator,
     validate_raw_locator_against_snapshot,
+    validate_raw_object_against_snapshot,
 )
 from commander_ai.data_pipeline.staging.records import StagingRecord
+from commander_ai.domain.cards import CanonicalCard, CardFace, Printing
 from commander_ai.domain.provenance import DomainModel
 from commander_ai.domain.serialization import canonical_json_bytes
 
@@ -95,7 +97,8 @@ class ParquetTableWriter:
         )
         normalized_rows = [_row_payload(row, contract, layer) for row in typed_rows]
         portable_path = validate_portable_relative_path(
-            relative_path or f"normalized/{table_name}.parquet"
+            relative_path
+            or f"{'curated' if layer == 'curated' else 'normalized'}/{table_name}.parquet"
         )
         final_path = resolve_under_root(self.root, portable_path)
         if final_path.exists() or final_path.is_symlink():
@@ -208,7 +211,7 @@ def _require_row_contract(layer: str, contract: type[DomainModel] | None) -> typ
         "normalized": (StagingRecord,),
         "audit": (AuditRecord, ResolutionAttempt, ProvenanceRow),
         "quarantine": (QuarantineRecord,),
-        "curated": (CuratedRow,),
+        "curated": (CuratedRow, CanonicalCard, CardFace, Printing),
     }
     if contract not in allowed[layer]:
         raise ValueError(f"row contract is not valid for the {layer} layer")
@@ -229,6 +232,10 @@ def _row_payload(
         raise TypeError("Parquet row contract must be a Pydantic domain model")
     if not isinstance(value, dict):
         raise TypeError("Parquet row model_dump must return a mapping")
+    if contract in (CanonicalCard, CardFace, Printing):
+        if layer != "curated":
+            raise ValueError("canonical card contracts may only be persisted in curated")
+        return value
     declared_layer = value.get("layer")
     expected_layers = {"staging"} if layer == "normalized" else {layer}
     if declared_layer not in expected_layers:
@@ -266,6 +273,17 @@ def _validate_source_locators(
                     )
                 else:
                     identities.append(("audit", row.entity_id, row.finding_code, locator.identity))
+        elif isinstance(row, (CanonicalCard, CardFace, Printing)):
+            if verified_snapshot is None:
+                raise ValueError("canonical curated rows require verified raw snapshot evidence")
+            for reference in row.provenance:
+                validate_raw_object_against_snapshot(
+                    reference.source_object_id,
+                    verified_snapshot=verified_snapshot,
+                    source_id=reference.source_id,
+                    source_snapshot_id=reference.source_snapshot_id,
+                    raw_sha256=reference.raw_sha256,
+                )
     if len(set(identities)) != len(identities):
         raise ValueError("duplicate source-backed logical rows")
     if locators and verified_snapshot is None:
@@ -298,7 +316,7 @@ def validate_parquet_table_rows(
         "normalized": StagingRecord,
         "audit": (AuditRecord, ResolutionAttempt, ProvenanceRow),
         "quarantine": QuarantineRecord,
-        "curated": CuratedRow,
+        "curated": (CuratedRow, CanonicalCard, CardFace, Printing),
     }[layer]
     try:
         table = pq.read_table(path)

@@ -17,3 +17,17 @@ im Content-Digest und in den drei typisierten Parquet-Artefakten: portable Pfade
 Byte- und Zeilenzahlen werden gegen das persistierte Run-Manifest, den verifizierten
 Raw-Snapshot und jede Datei geprüft. `normalized-snapshot-manifest.v2` bleibt eine separate
 optionale strengere Erweiterung und ersetzt v1 nicht.
+
+Die Task-10-Kartenpipeline verarbeitet ausschließlich `OBSERVED`-Stagingzeilen.
+`CardCatalogBuilder` erzeugt daraus getrennte Karten-, Face- und Printing-Identitäten
+mit einem deterministischen Katalog-Snapshot. Kartenauflösung verwendet nur
+Quellen-Identifier, exakte Identifier, Unicode-normalisierte exakte Namen und
+dokumentierte Aliase; jeder Versuch bleibt als Auditzeile erhalten, einschließlich
+Ambiguitäten und ungelöster Werte. Widersprüchliche Identifier, fehlende
+Pflichtfakten und inkonsistente Face-/Printing-Beziehungen werden quarantänisiert.
+
+`CatalogBuildResult.provenance_rows` bewahrt für jede akzeptierte kanonische
+Beobachtung den exakten `RawLocator`. Das Schreiben kanonischer Parquet-Zeilen in
+die Curated-Schicht benötigt zusätzlich ein verifiziertes, vollständiges Raw-Snapshot
+und prüft dessen Objektpfad, Bytes und SHA-256 erneut. Die v1-Kartenverträge bleiben
+unverändert; DuckDB und andere lokale Indizes sind aus diesen Artefakten rebuildbar.

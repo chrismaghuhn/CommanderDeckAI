@@ -9,7 +9,7 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import ValidationError
 
-from commander_ai.domain.cards import CardFace, CardResolution, Printing
+from commander_ai.domain.cards import CanonicalCard, CardFace, CardResolution, Printing
 from commander_ai.domain.combos import Combo, ComboCard
 from commander_ai.domain.decks import CanonicalDeck
 from commander_ai.domain.evaluations import DeckLegalityEvaluation, DeckQualityEvaluation
@@ -31,6 +31,7 @@ NEW_CONTRACT_STEMS = (
     "deck-legality-evaluation.v1",
     "deck-quality-evaluation.v1",
     "card-resolution.v1",
+    "card.v1",
     "printing.v1",
     "card-face.v1",
     "event-deck-observation.v1",
@@ -197,6 +198,7 @@ def test_source_snapshot_v2_rejects_unknown_object_request_and_non_derived_summa
     ("stem", "model_type"),
     (
         ("card-resolution.v1", CardResolution),
+        ("card.v1", CanonicalCard),
         ("dataset-manifest.v2", DatasetManifest),
         ("source-snapshot-manifest.v2", SourceSnapshotManifest),
         ("normalized-snapshot-manifest.v1", NormalizedSnapshotManifest),
@@ -230,7 +232,7 @@ def test_affected_domain_models_round_trip_through_their_contract(
     elif stem == "canonical-deck.v1":
         candidate["command_zone"][0]["source_declared_role"] = None  # type: ignore[index]
 
-    if candidate.get("provenance"):
+    if candidate.get("provenance") and stem != "card.v1":
         candidate["provenance"][0].update(  # type: ignore[index]
             {
                 "retrieved_at": None,
@@ -257,6 +259,7 @@ def test_affected_domain_models_round_trip_through_their_contract(
 def test_persisted_domain_models_dump_json_that_matches_their_schema() -> None:
     persisted_models: tuple[tuple[str, type[object]], ...] = (
         ("card-resolution.v1", CardResolution),
+        ("card.v1", CanonicalCard),
         ("dataset-manifest.v2", DatasetManifest),
         ("source-snapshot-manifest.v2", SourceSnapshotManifest),
         ("normalized-snapshot-manifest.v1", NormalizedSnapshotManifest),
