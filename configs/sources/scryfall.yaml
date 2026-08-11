@@ -1,12 +1,21 @@
 source_id: scryfall
 approval_status: APPROVED_LOCAL
 access_method: bulk_data
+review_path: docs/03-data/source-reviews/scryfall.md
 bulk_type: oracle_cards
 sync_policy: explicit
 attribution_required: true
 raw_storage: allowed_local
 redistribution: review_required
-http:
-  timeout_seconds: 60
-  max_download_bytes: 2000000000
-  user_agent_env: CDA_USER_AGENT
+endpoints:
+  - https://api.scryfall.com/bulk-data
+host_allowlist: [api.scryfall.com]
+timeout_seconds: 60
+max_retries: 2
+rate_limit_per_minute: 30
+respect_retry_after: true
+max_pages: 1
+max_download_bytes: 2000000000
+user_agent_env: CDA_USER_AGENT
+filters:
+  bulk_type: oracle_cards

@@ -29,4 +29,10 @@ PROPOSED → REVIEWED → APPROVED_LOCAL → APPROVED_REDISTRIBUTION
 - Raw Manifest speichert Terms-/Policy-Version und Abrufdatum;
 - öffentliche Exportjobs filtern Quellen ohne Redistribution-Freigabe.
 
+Die technische Allowlist ist exakt: lokaler Sync erlaubt nur `APPROVED_LOCAL` und `APPROVED_REDISTRIBUTION`; öffentliche Exporte erlauben nur `APPROVED_REDISTRIBUTION`. `PROPOSED`, `REVIEWED`, `REJECTED` und `PAUSED` sind blockiert.
+
+Historische Snapshot-Freigabe und aktuelle Nutzung sind getrennte Registry-Datensätze. Normalize, Validate, Report, Dataset-Build und Public Export benötigen eine aktuelle Entscheidung mit Grund und effektivem Zeitpunkt. `REJECTED`, `PAUSED`, Takedown und ausdrückliche Prohibition blockieren die spätere Verarbeitung auch bei historischer Freigabe.
+
+Dies ist keine Rechtsberatung und keine Garantie für Terms, Lizenzen oder Weitergaberechte.
+
 Dies ist keine Rechtsberatung, sondern ein verpflichtendes technisches Risikogate.

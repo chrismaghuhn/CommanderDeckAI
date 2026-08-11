@@ -1,14 +1,21 @@
 source_id: topdeck
 approval_status: PROPOSED
 access_method: tournaments_v2_api
+review_path: docs/03-data/source-reviews/topdeck.md
+endpoints:
+  - https://topdeck.gg
+host_allowlist: [topdeck.gg]
 api_key_env: TOPDECK_API_KEY
 sync_policy: explicit
 attribution_required: true
 raw_storage: pending_terms_review
 redistribution: not_approved
-rate_limit:
-  requests_per_minute: 100
-  respect_retry_after: true
+timeout_seconds: 30
+max_retries: 2
+rate_limit_per_minute: 100
+respect_retry_after: true
+max_pages: 100
+max_download_bytes: 200000000
 filters:
   game: "Magic: The Gathering"
   formats: [EDH, Casual EDH, Duel Commander, Pauper EDH]

@@ -2,6 +2,8 @@
 
 **Abruf-/Prüfstand: 10. August 2026.** URLs und Bedingungen können sich ändern; vor Adapteraktivierung erneut prüfen.
 
+Technischer Registry-Stand für Task 2: MTGJSON, Commander Spellbook und die bestehende Scryfall-Konfiguration sind lokal freigegeben; TopDeck und Spicerack bleiben `PROPOSED` sowie Credential-/Terms-gated. Archidekt, Moxfield, EDHREC und cEDH Decklist Database bleiben assessment-only. Diese Einstufung ist keine Rechtsgarantie und kann nur durch einen neuen Review-/Registry-Eintrag geändert werden.
+
 | ID | Quelle | URL | Relevanter Fakt |
 |---|---|---|---|
 | SRC-TOPDECK | TopDeck.gg Tournaments v2 | https://topdeck.gg/docs/tournaments-v2 | dokumentierte API, API-Key, Attribution; Rate Limits |

@@ -3,8 +3,16 @@ inputs:
   sources: [topdeck, spicerack]
   require_complete_decklists: true
   require_complete_pod_result: true
+deduplication:
+  exact_fingerprint: true
+  group_revisions: true
+  near_duplicate:
+    algorithm: jaccard
+    version: jaccard-v1
+    threshold: 0.92
 splits:
   strategy: temporal_event_grouped
+  version: temporal-event-grouped-v1
   group_key: event_id
 privacy:
   player_identifiers: pseudonymize_for_audit

@@ -7,9 +7,13 @@ inputs:
 deduplication:
   exact_fingerprint: true
   group_revisions: true
-  near_duplicate_jaccard_threshold: 0.92
+  near_duplicate:
+    algorithm: jaccard
+    version: jaccard-v1
+    threshold: 0.92
 splits:
   strategy: temporal_grouped
+  version: temporal-grouped-v1
   group_keys: [revision_group_id, near_duplicate_cluster_id]
   extra_segments: [cold_commander, new_card, precon_holdout]
 masking:
