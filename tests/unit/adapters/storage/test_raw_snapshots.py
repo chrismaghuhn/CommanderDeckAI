@@ -4,10 +4,13 @@ import hashlib
 from datetime import UTC, datetime
 from pathlib import Path
 
+import httpx
 import pytest
 
+from commander_ai.adapters.http.transport import HttpTransport, HttpTransportError
 from commander_ai.adapters.storage import raw_snapshot_objects, raw_snapshots
 from commander_ai.adapters.storage.digests import detached_manifest_sha256, snapshot_content_sha256
+from commander_ai.adapters.storage.snapshot_verifier import SnapshotVerifier
 from commander_ai.domain.provenance import SourceSnapshotRequest
 
 
@@ -22,7 +25,9 @@ def _request(request_id: str = "request-1") -> SourceSnapshotRequest:
 
 
 def _start(
-    tmp_path: Path, snapshot_id: str = "fixture-snapshot"
+    tmp_path: Path,
+    snapshot_id: str = "fixture-snapshot",
+    terms_reference: str | None = None,
 ) -> raw_snapshots.RawSnapshotWriter:
     writer = raw_snapshots.RawSnapshotStore(tmp_path).start_snapshot(
         source_id="fixture",
@@ -33,6 +38,7 @@ def _start(
         attribution_required=False,
         redistribution_status="not_approved",
         started_at=datetime(2026, 8, 11, tzinfo=UTC),
+        terms_reference=terms_reference,
     )
     writer.add_request(_request())
     return writer
@@ -147,6 +153,58 @@ def test_request_metadata_is_redacted_again_at_snapshot_persistence_boundary(
         assert f'"{key}"' not in serialized
 
 
+def test_all_request_metadata_is_redacted_at_the_persistence_boundary(
+    tmp_path: Path,
+) -> None:
+    writer = _start(
+        tmp_path,
+        terms_reference="https://terms.invalid/policy?token=terms-secret",
+    )
+    writer.add_request(
+        {
+            "request_id": "request-2",
+            "sanitized_method": "GET",
+            "sanitized_endpoint": "https://fixture.invalid/cards",
+            "api_version": "v1?api_key=api-secret",
+            "format": "json?token=format-secret",
+            "sanitized_parameters": {
+                "fields": {"page": 2, "token": "nested-secret"},
+                "page": 1,
+            },
+        }
+    )
+
+    persisted = writer.manifest.requests[-1]
+    assert persisted.api_version is None
+    assert persisted.format == "[redacted]"
+    assert persisted.sanitized_parameters == {"fields": {"page": 2}, "page": 1}
+    assert writer.manifest.terms_reference == "https://terms.invalid/policy"
+    serialized = writer.manifest_path.read_text(encoding="utf-8")
+    for secret in ("terms-secret", "api-secret", "format-secret", "nested-secret"):
+        assert secret not in serialized
+
+
+def test_writer_normalizes_manifest_method_before_complete_verification(
+    tmp_path: Path,
+) -> None:
+    writer = _start(tmp_path)
+    writer.add_request(
+        {
+            "request_id": "request-2",
+            "sanitized_method": "get",
+            "sanitized_endpoint": "https://fixture.invalid/cards",
+            "format": "json",
+            "sanitized_parameters": {},
+        }
+    )
+    writer.write_object(raw_object_id="object-1", request_id="request-1", chunks=[b"raw"])
+
+    writer.finalize()
+
+    assert writer.manifest.requests[-1].sanitized_method == "GET"
+    assert SnapshotVerifier(tmp_path).inspect("fixture", writer.snapshot_id).consumable is True
+
+
 def test_finalize_persists_distinct_snapshot_and_detached_manifest_digests(
     tmp_path: Path,
 ) -> None:
@@ -238,6 +296,47 @@ def test_stream_failure_leaves_failed_snapshot_without_partial_final_object(tmp_
     assert not list((tmp_path / "raw/fixture/fixture-snapshot/objects").glob(".object-*"))
 
 
+def test_http_body_failure_aborts_object_writer_and_closes_snapshot_state(
+    tmp_path: Path,
+) -> None:
+    writer = _start(tmp_path)
+
+    class FailingBody(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"partial"
+            raise httpx.ReadError("body-secret")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=FailingBody(), request=request)
+
+    client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    transport = HttpTransport(
+        allowed_hosts={"fixture.invalid"},
+        client=client,
+        rate_limit_per_minute=None,
+        user_agent="CommanderDeckAI/Test-1.0",
+    )
+    response = transport.request("GET", "https://fixture.invalid/body")
+    try:
+        with pytest.raises(HttpTransportError) as error:
+            writer.write_object(
+                raw_object_id="object-1",
+                request_id="request-1",
+                chunks=response.iter_raw(),
+            )
+    finally:
+        transport.close()
+
+    assert error.value.code == "HTTP_ENTITY_STREAM_FAILED"
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    assert writer.state == "FAILED"
+    assert writer.manifest.status == "FAILED"
+    assert not writer._open_object_ids
+    assert not (writer.objects_dir / "object-1").exists()
+    assert not list(writer.objects_dir.glob(".object-*"))
+
+
 def test_upstream_checksum_mismatch_keeps_local_digest_distinct_and_fails_snapshot(
     tmp_path: Path,
 ) -> None:
@@ -258,6 +357,26 @@ def test_upstream_checksum_mismatch_keeps_local_digest_distinct_and_fails_snapsh
     assert writer.manifest.objects[0].upstream_sha256 == "0" * 64
     assert writer.manifest.objects[0].checksum_verification_status == "mismatch"
     assert (tmp_path / "raw/fixture/fixture-snapshot/objects/object-1").read_bytes() == raw_bytes
+
+
+def test_verified_checksum_requires_an_upstream_checksum_and_comparison(
+    tmp_path: Path,
+) -> None:
+    writer = _start(tmp_path)
+
+    with pytest.raises(raw_snapshots.RawSnapshotError) as error:
+        writer.write_object(
+            raw_object_id="object-1",
+            request_id="request-1",
+            chunks=[b"raw"],
+            checksum_verification_status="verified",
+        )
+
+    assert error.value.code == "ACQ_CHECKSUM_STATUS_INVALID"
+    assert writer.state == "FAILED"
+    assert writer.manifest.status == "FAILED"
+    assert not (writer.objects_dir / "object-1").exists()
+    assert not list(writer.objects_dir.glob(".object-*"))
 
 
 def test_finalize_replace_failure_cannot_publish_complete_manifest(
@@ -282,6 +401,32 @@ def test_finalize_replace_failure_cannot_publish_complete_manifest(
         raw_snapshots.RawSnapshotStore(tmp_path).load_manifest("fixture", writer.snapshot_id).status
         == "INCOMPLETE"
     )
+
+
+def test_snapshot_directory_durability_failure_cannot_leave_consumable_complete(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writer = _start(tmp_path)
+    writer.write_object(raw_object_id="object-1", request_id="request-1", chunks=[b"raw"])
+    calls: list[Path] = []
+
+    def fail_snapshot_directory(directory: Path) -> None:
+        calls.append(directory)
+        if directory == writer.snapshot_dir:
+            raise OSError("directory durability failure")
+
+    monkeypatch.setattr(raw_snapshots, "fsync_directory", fail_snapshot_directory)
+    with pytest.raises(raw_snapshots.RawSnapshotError) as error:
+        writer.finalize()
+
+    assert error.value.code == "ACQ_FINALIZE_FAILED"
+    assert calls == [writer.objects_dir, writer.snapshot_dir, writer.snapshot_dir]
+    assert writer.state == "FAILED"
+    loaded = raw_snapshots.RawSnapshotStore(tmp_path).load_manifest("fixture", writer.snapshot_id)
+    assert loaded.status == "FAILED"
+    inspection = SnapshotVerifier(tmp_path).inspect("fixture", writer.snapshot_id)
+    assert inspection.consumable is False
+    assert inspection.status == "FAILED"
 
 
 def test_object_fsync_failure_leaves_no_final_object_or_temp_file(

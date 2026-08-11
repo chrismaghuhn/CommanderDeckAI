@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import math
 from collections.abc import Iterable
 from pathlib import PurePosixPath
 from urllib.parse import SplitResult, urljoin, urlsplit
+
+MAX_REDIRECTS = 100
 
 
 class RedirectPolicyError(ValueError):
@@ -24,8 +27,14 @@ class RedirectPolicy:
             not host or "/" in host or ":" in host or "*" in host for host in normalized
         ):
             raise ValueError("an explicit non-empty host allowlist is required")
-        if max_redirects < 0:
-            raise ValueError("max_redirects must be non-negative")
+        if (
+            isinstance(max_redirects, bool)
+            or not isinstance(max_redirects, int)
+            or not math.isfinite(max_redirects)
+            or max_redirects < 0
+            or max_redirects > MAX_REDIRECTS
+        ):
+            raise ValueError("max_redirects must be finite, bounded, and non-negative")
         self.allowed_hosts = frozenset(normalized)
         self.max_redirects = max_redirects
 
@@ -45,13 +54,16 @@ class RedirectPolicy:
 
         if not isinstance(location, str) or not location or "\\" in location:
             raise RedirectPolicyError("SECURITY_REDIRECT_URL")
-        raw_path = urlsplit(location).path
+        try:
+            raw_path = urlsplit(location).path
+        except (TypeError, ValueError):
+            raise RedirectPolicyError("SECURITY_REDIRECT_URL") from None
         if any(part == ".." for part in PurePosixPath(raw_path).parts):
             raise RedirectPolicyError("SECURITY_REDIRECT_URL")
         try:
             destination = urljoin(current_url, location)
-        except (TypeError, ValueError) as error:
-            raise RedirectPolicyError("SECURITY_REDIRECT_URL") from error
+        except (TypeError, ValueError):
+            raise RedirectPolicyError("SECURITY_REDIRECT_URL") from None
         validated = self._validate_redirect(destination)
         if redirects_followed >= self.max_redirects:
             raise RedirectPolicyError("HTTP_REDIRECT_LIMIT")
@@ -90,10 +102,10 @@ class RedirectPolicy:
             return parsed
         except RedirectPolicyError:
             raise
-        except (TypeError, ValueError) as error:
+        except (TypeError, ValueError):
             raise RedirectPolicyError(
                 "SECURITY_REDIRECT_URL" if redirect else "SECURITY_ENDPOINT_URL"
-            ) from error
+            ) from None
 
 
 __all__ = ["RedirectPolicy", "RedirectPolicyError"]

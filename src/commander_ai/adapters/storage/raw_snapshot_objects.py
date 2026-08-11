@@ -81,9 +81,9 @@ class RawObjectWriter:
                 if written <= 0:
                     raise OSError("raw object write made no progress")
                 view = view[written:]
-        except OSError as error:
+        except BaseException:
             self._abort("ACQ_WRITE_FAILED", "raw object write failed")
-            raise RawSnapshotError("ACQ_WRITE_FAILED", "raw object write failed") from error
+            raise RawSnapshotError("ACQ_WRITE_FAILED", "raw object write failed") from None
         self._digest.update(data)
         self._byte_count += len(data)
 
@@ -123,16 +123,12 @@ class RawObjectWriter:
                 raise RawSnapshotError("ACQ_UPSTREAM_CHECKSUM_MISMATCH")
             return reference
         except RawSnapshotError:
-            self._cleanup_temp()
-            self._finished = True
-            self._owner._release_object_id(self.raw_object_id)
+            self._finish_without_reference()
             raise
-        except (OSError, ValueError) as error:
-            self._cleanup_temp()
-            self._finished = True
-            self._owner._release_object_id(self.raw_object_id)
+        except BaseException:
+            self._finish_without_reference()
             self._owner._fail("ACQ_OBJECT_FINALIZE_FAILED", "raw object finalization failed")
-            raise RawSnapshotError("ACQ_OBJECT_FINALIZE_FAILED") from error
+            raise RawSnapshotError("ACQ_OBJECT_FINALIZE_FAILED") from None
 
     def abort(self) -> None:
         if not self._finished:
@@ -153,6 +149,11 @@ class RawObjectWriter:
         self._finished = True
         self._owner._release_object_id(self.raw_object_id)
         self._owner._fail(code, detail)
+
+    def _finish_without_reference(self) -> None:
+        self._cleanup_temp()
+        self._finished = True
+        self._owner._release_object_id(self.raw_object_id)
 
     def _cleanup_temp(self) -> None:
         if self._fd >= 0:

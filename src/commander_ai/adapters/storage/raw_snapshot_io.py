@@ -2,11 +2,24 @@
 
 from __future__ import annotations
 
+import errno
 import hashlib
 import os
 import tempfile
 from contextlib import suppress
 from pathlib import Path
+
+_UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS = frozenset(
+    value
+    for value in (
+        getattr(errno, "EINVAL", None),
+        getattr(errno, "ENOSYS", None),
+        getattr(errno, "ENOTSUP", None),
+        getattr(errno, "EOPNOTSUPP", None),
+        getattr(errno, "ENOTTY", None),
+    )
+    if value is not None
+)
 
 
 def write_temp_file(directory: Path, prefix: str, data: bytes) -> Path:
@@ -25,7 +38,8 @@ def write_temp_file(directory: Path, prefix: str, data: bytes) -> Path:
         return path
     except OSError:
         if descriptor >= 0:
-            os.close(descriptor)
+            with suppress(OSError):
+                os.close(descriptor)
         with suppress(OSError):
             path.unlink()
         raise
@@ -39,12 +53,30 @@ def publish_new(temp_path: Path, final_path: Path) -> None:
 
 
 def fsync_directory(directory: Path) -> None:
-    try:
-        descriptor = os.open(directory, os.O_RDONLY)
-    except OSError:
+    """Flush a directory or use the documented atomic fallback when unsupported.
+
+    Windows does not expose a portable directory descriptor for ``fsync``. The
+    caller has already fsynced every file, and ``link``/``replace`` provide the
+    atomic publication boundary there. On other platforms only errors explicitly
+    identifying an unsupported directory operation use that fallback; all other
+    durability errors propagate and fail the snapshot.
+    """
+
+    if os.name == "nt":
         return
     try:
-        os.fsync(descriptor)
+        descriptor = os.open(directory, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+    except OSError as error:
+        if error.errno in _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS:
+            return
+        raise
+    try:
+        try:
+            os.fsync(descriptor)
+        except OSError as error:
+            if error.errno in _UNSUPPORTED_DIRECTORY_FSYNC_ERRNOS:
+                return
+            raise
     finally:
         os.close(descriptor)
 

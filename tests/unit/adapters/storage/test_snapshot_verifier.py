@@ -154,6 +154,17 @@ def test_verifier_rejects_invalid_v2_uri_semantics(tmp_path: Path, field_mutatio
     assert error.value.code == "INTEGRITY_MANIFEST_FORMAT"
 
 
+def test_verifier_rejects_unsanitized_pagination_metadata(tmp_path: Path) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    payload["pagination_state"] = {"page": 2, "token": "pagination-secret"}
+    _rewrite_manifest(manifest_path, payload)
+
+    with pytest.raises(SnapshotIntegrityError) as error:
+        verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
+
+    assert error.value.code == "INTEGRITY_MANIFEST_FORMAT"
+
+
 def test_verifier_rejects_object_symlink_before_resolving_containment(
     tmp_path: Path,
 ) -> None:

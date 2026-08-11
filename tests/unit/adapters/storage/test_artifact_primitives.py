@@ -8,6 +8,7 @@ from pathlib import Path
 import pytest
 
 import commander_ai.domain.path_policy as domain_path_policy
+from commander_ai.adapters.storage import raw_snapshot_io
 from commander_ai.adapters.storage.canonical_json import canonical_json_bytes
 from commander_ai.adapters.storage.digests import (
     DETACHED_MANIFEST_DIGEST_FIELD,
@@ -200,6 +201,18 @@ def test_detached_manifest_digest_does_not_omit_unrelated_sha256_field() -> None
         "objects/~",
         "objects/~user/file.bin",
         "~/machine-specific/file.bin",
+        "objects/CON",
+        "objects/con.txt",
+        "objects/LPT1",
+        "objects/COM9.txt",
+        "objects/trailing-dot.",
+        "objects/trailing-space ",
+        "objects/file:alternate-stream",
+        "objects/file<wildcard>",
+        "objects/file|wildcard",
+        "objects/file?wildcard",
+        "objects/file*wildcard",
+        "objects/file\x01control",
     ],
 )
 def test_portable_path_policy_rejects_nonportable_paths(path: str) -> None:
@@ -271,3 +284,37 @@ def test_portable_path_policy_rejects_symlink_even_when_target_stays_inside_root
 
     with pytest.raises(ValueError):
         resolve_under_root(root, "link/artifact.json")
+
+
+def test_directory_fsync_does_not_suppress_actual_durability_errors(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(raw_snapshot_io.os, "name", "posix")
+
+    def fail_open(*args: object, **kwargs: object) -> int:
+        del args, kwargs
+        raise OSError("directory fsync failure")
+
+    monkeypatch.setattr(raw_snapshot_io.os, "open", fail_open)
+    with pytest.raises(OSError, match="directory fsync failure"):
+        raw_snapshot_io.fsync_directory(tmp_path)
+
+
+def test_temp_file_failure_removes_file_even_when_close_reports_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    real_close = raw_snapshot_io.os.close
+
+    def fail_fsync(_descriptor: int) -> None:
+        raise OSError("file fsync failure")
+
+    def close_then_fail(descriptor: int) -> None:
+        real_close(descriptor)
+        raise OSError("file close failure")
+
+    monkeypatch.setattr(raw_snapshot_io.os, "fsync", fail_fsync)
+    monkeypatch.setattr(raw_snapshot_io.os, "close", close_then_fail)
+    with pytest.raises(OSError, match="file fsync failure"):
+        raw_snapshot_io.write_temp_file(tmp_path, ".manifest-", b"payload")
+
+    assert not list(tmp_path.glob(".manifest-*"))

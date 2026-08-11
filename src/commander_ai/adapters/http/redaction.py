@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import re
 from collections.abc import Mapping, Set
 from urllib.parse import urlsplit, urlunsplit
@@ -17,6 +18,8 @@ _SECRET_TEXT = re.compile(
     r"\s*[:=]\s*(?:Bearer\s+)?([^\s,;]+)"
 )
 _URL = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_SAFE_METHOD = re.compile(r"[A-Z][A-Z0-9-]*")
+_SAFE_METADATA_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/+:-]{0,63}")
 _SAFE_HEADERS = frozenset(
     {"content-type", "content-encoding", "content-length", "etag", "last-modified", "retry-after"}
 )
@@ -78,6 +81,58 @@ def redact_request_parameters(parameters: Mapping[str, object]) -> dict[str, obj
     return redact_parameters(parameters, allowed_keys=SAFE_REQUEST_PARAMETER_KEYS)
 
 
+def sanitize_method(value: object) -> str:
+    """Normalize an HTTP method to the manifest's safe uppercase grammar."""
+
+    if not isinstance(value, str):
+        raise ValueError("HTTP method must be a string")
+    normalized = value.strip().upper()
+    if not _SAFE_METHOD.fullmatch(normalized):
+        raise ValueError("HTTP method is not a safe token")
+    return normalized
+
+
+def sanitize_metadata_token(
+    value: object,
+    *,
+    optional: bool,
+    redacted_value: str = "[redacted]",
+) -> str | None:
+    """Keep only bounded scalar metadata after credential/error redaction."""
+
+    if value is None:
+        if optional:
+            return None
+        raise ValueError("required metadata is missing")
+    if not isinstance(value, str) or not value.strip():
+        raise ValueError("metadata token must be a non-empty string")
+    safe = redact_error_text(value).strip()
+    if not _SAFE_METADATA_TOKEN.fullmatch(safe):
+        return None if optional else redacted_value
+    return safe
+
+
+def sanitize_request_metadata(
+    method: object,
+    endpoint: str,
+    parameters: Mapping[str, object] | None,
+    api_version: object,
+    format_value: object,
+) -> dict[str, object]:
+    """Build the allowlisted request projection used by snapshot persistence."""
+
+    sanitized_endpoint = sanitize_endpoint(endpoint)
+    if sanitized_endpoint == "[redacted-endpoint]":
+        raise ValueError("request endpoint is not safe")
+    return {
+        "sanitized_method": sanitize_method(method),
+        "sanitized_endpoint": sanitized_endpoint,
+        "api_version": sanitize_metadata_token(api_version, optional=True),
+        "format": sanitize_metadata_token(format_value, optional=False),
+        "sanitized_parameters": redact_request_parameters(parameters or {}),
+    }
+
+
 def sanitize_endpoint(url: str) -> str:
     """Return an endpoint without credentials, query parameters, or fragments."""
 
@@ -126,6 +181,10 @@ def redact_error_text(message: str) -> str:
 def _redact_value(value: object, allowed_keys: Set[str] | None) -> object:
     if value is None or isinstance(value, (bool, int)):
         return value
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise TypeError("HTTP parameters cannot contain non-finite numbers")
+        return value
     if isinstance(value, str):
         return redact_error_text(value)
     if isinstance(value, Mapping):
@@ -143,4 +202,7 @@ __all__ = [
     "redact_request_parameters",
     "sanitize_endpoint",
     "sanitize_headers",
+    "sanitize_metadata_token",
+    "sanitize_method",
+    "sanitize_request_metadata",
 ]

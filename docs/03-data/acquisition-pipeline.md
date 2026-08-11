@@ -28,8 +28,15 @@ persisted only as a deterministic safe projection: method, sanitized endpoint, A
 version, format, and redacted parameters. Authorization headers, cookies, API keys,
 credentials, secret query parameters, and unsanitized redirect URLs are not persisted.
 The snapshot writer applies the parameter allowlist again at the persistence boundary;
-an open raw-object writer blocks `COMPLETE`, and a published complete manifest cannot be
-downgraded by a later writer or error path.
+method/API-version/format/terms metadata is normalized or redacted there, including
+nested parameter values. An open raw-object writer blocks `COMPLETE`; a streaming or
+durability failure closes the writer, removes its temporary object, and leaves the
+snapshot `FAILED` or otherwise non-consumable.
+
+Raw-object and manifest files are fsynced before publication. Directory fsync is used
+where supported. Windows and explicitly unsupported directory fsync operations use the
+safe atomic fallback after file fsync; unexpected fsync errors fail the snapshot before
+its `COMPLETE` state becomes consumable.
 
 Every redirect hop must satisfy the configured source host allowlist. Timeouts,
 connection failures, `429`, and retryable server responses use bounded retries and

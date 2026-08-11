@@ -32,6 +32,13 @@ raw files and manifests are authoritative evidence. SQL tables created by migrat
 `007_snapshot_objects.sql` are derived query/cache projections and may be deleted and
 rebuilt from those files without reacquisition.
 
+Persisted paths are portable root-relative POSIX paths. Absolute paths, traversal,
+alternate-data-stream colons, trailing dot/space segments, Windows device names, and
+symlink escapes are rejected before publication. File contents are fsynced; directory
+fsync is required where available, with an atomic publication fallback only for known
+unsupported directory operations. Other durability errors leave the snapshot
+non-consumable.
+
 ## Regeln
 
 - Raw und Curated sind immutable;

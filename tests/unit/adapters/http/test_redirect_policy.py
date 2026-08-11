@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import math
+
 import pytest
 
 from commander_ai.adapters.http.redirect_policy import RedirectPolicy, RedirectPolicyError
@@ -52,3 +54,11 @@ def test_redirect_policy_has_a_bounded_chain() -> None:
     with pytest.raises(RedirectPolicyError) as error:
         policy.resolve("https://allowed.example/one", "/two", redirects_followed=1)
     assert error.value.code == "HTTP_REDIRECT_LIMIT"
+
+
+@pytest.mark.parametrize("max_redirects", [math.nan, math.inf, -math.inf, 101])
+def test_redirect_policy_rejects_non_finite_and_unbounded_limits(
+    max_redirects: float | int,
+) -> None:
+    with pytest.raises(ValueError):
+        RedirectPolicy({"allowed.example"}, max_redirects=max_redirects)  # type: ignore[arg-type]

@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO, Literal, cast
 
-from commander_ai.adapters.http.redaction import redact_request_parameters, sanitize_endpoint
+from commander_ai.adapters.http.redaction import redact_request_parameters
 from commander_ai.domain.provenance import (
     RawObjectReference,
     SourceSnapshotManifest,
@@ -21,12 +21,15 @@ from commander_ai.domain.provenance import (
 
 from .canonical_json import canonical_json_bytes
 from .digests import detached_manifest_sha256, snapshot_content_sha256
+from .manifest_policy import manifest_semantic_code
 from .path_policy import (
     resolve_under_root,
     validate_portable_relative_path,
 )
 from .raw_snapshot_errors import ChecksumStatus, RawSnapshotError, SnapshotState
 from .raw_snapshot_io import fsync_directory, publish_new, sha256_file, write_temp_file
+from .raw_snapshot_metadata import sanitize_snapshot_request, sanitize_terms_reference
+from .raw_snapshot_object_policy import consistent_checksum_status, valid_upstream_checksum
 from .raw_snapshot_objects import RawObjectWriter
 from .raw_snapshot_store import RawSnapshotStore
 
@@ -75,7 +78,7 @@ class RawSnapshotWriter:
         self._attribution_required = attribution_required
         self._redistribution_status = redistribution_status
         self._started_at = started_at
-        self._terms_reference = terms_reference
+        self._terms_reference = sanitize_terms_reference(terms_reference)
         self._pagination_state = (
             None if pagination_state is None else redact_request_parameters(pagination_state)
         )
@@ -103,19 +106,10 @@ class RawSnapshotWriter:
     def add_request(self, request: SourceSnapshotRequest | Mapping[str, object]) -> None:
         self._ensure_incomplete()
         try:
-            value = SourceSnapshotRequest.model_validate(request)
-            sanitized_endpoint = sanitize_endpoint(value.sanitized_endpoint)
-            if sanitized_endpoint == "[redacted-endpoint]":
-                raise ValueError("request endpoint is not a safe HTTP URI")
-            value = value.model_copy(
-                update={
-                    "sanitized_endpoint": sanitized_endpoint,
-                    "sanitized_parameters": redact_request_parameters(value.sanitized_parameters),
-                }
-            )
-        except (TypeError, ValueError) as error:
+            value = sanitize_snapshot_request(request)
+        except (TypeError, ValueError):
             self._fail("ACQ_REQUEST_INVALID", "request metadata is invalid")
-            raise RawSnapshotError("ACQ_REQUEST_INVALID") from error
+            raise RawSnapshotError("ACQ_REQUEST_INVALID") from None
         if any(item.request_id == value.request_id for item in self._requests):
             self._fail("ACQ_REQUEST_COLLISION", "request ID is already registered")
             raise RawSnapshotError("ACQ_REQUEST_COLLISION")
@@ -144,12 +138,12 @@ class RawSnapshotWriter:
         ):
             self._fail("ACQ_OBJECT_COLLISION", "raw object ID is already registered")
             raise RawSnapshotError("ACQ_OBJECT_COLLISION")
-        if upstream_sha256 is not None and (
-            len(upstream_sha256) != 64
-            or any(char not in "0123456789abcdef" for char in upstream_sha256)
-        ):
+        if not valid_upstream_checksum(upstream_sha256):
             self._fail("ACQ_CHECKSUM_INVALID", "upstream checksum is not lowercase SHA-256")
             raise RawSnapshotError("ACQ_CHECKSUM_INVALID")
+        if not consistent_checksum_status(checksum_verification_status, upstream_sha256):
+            self._fail("ACQ_CHECKSUM_STATUS_INVALID", "checksum status lacks an upstream checksum")
+            raise RawSnapshotError("ACQ_CHECKSUM_STATUS_INVALID")
         if logical_record_count is not None and logical_record_count < 0:
             self._fail("ACQ_OBJECT_METADATA_INVALID", "logical record count must be non-negative")
             raise RawSnapshotError("ACQ_OBJECT_METADATA_INVALID")
@@ -161,11 +155,11 @@ class RawSnapshotWriter:
             raise RawSnapshotError("ACQ_OBJECT_COLLISION")
         try:
             descriptor, temp_name = tempfile.mkstemp(prefix=".object-", dir=self.objects_dir)
-        except OSError as error:
+        except OSError:
             self._fail(
                 "ACQ_TEMP_CREATE_FAILED", "same-filesystem temporary object could not be created"
             )
-            raise RawSnapshotError("ACQ_TEMP_CREATE_FAILED") from error
+            raise RawSnapshotError("ACQ_TEMP_CREATE_FAILED") from None
         temp_path = Path(temp_name)
         self._open_object_ids.add(raw_object_id)
         return RawObjectWriter(
@@ -214,14 +208,19 @@ class RawSnapshotWriter:
             if not object_writer._finished:
                 object_writer._abort("ACQ_WRITE_FAILED", "raw object write failed")
             raise
-        except (OSError, TypeError, ValueError) as error:
-            object_writer._abort("ACQ_WRITE_FAILED", "raw object stream failed")
-            raise RawSnapshotError("ACQ_WRITE_FAILED", "raw object stream failed") from error
+        except BaseException as error:
+            if not object_writer._finished:
+                object_writer._abort("ACQ_WRITE_FAILED", "raw object stream failed")
+            if _is_sanitized_transport_error(error):
+                raise error.with_traceback(None) from None
+            raise RawSnapshotError("ACQ_WRITE_FAILED", "raw object stream failed") from None
 
     def finalize(self) -> SnapshotCommit:
         self._ensure_incomplete()
         if self._open_object_ids:
             raise RawSnapshotError("ACQ_OBJECTS_OPEN")
+        manifest_temp: Path | None = None
+        sidecar_temp: Path | None = None
         try:
             for reference in self._objects:
                 path = resolve_under_root(self.snapshot_dir, reference.path)
@@ -232,6 +231,9 @@ class RawSnapshotWriter:
             fsync_directory(self.objects_dir)
             completed_at = datetime.now(UTC)
             complete_manifest = self._build_manifest("COMPLETE", completed_at)
+            semantic_code = manifest_semantic_code(complete_manifest)
+            if semantic_code is not None:
+                raise RawSnapshotError("ACQ_MANIFEST_SEMANTICS", semantic_code)
             manifest_payload = complete_manifest.model_dump(mode="json")
             manifest_bytes = canonical_json_bytes(manifest_payload)
             manifest_digest = detached_manifest_sha256(manifest_payload)
@@ -240,9 +242,11 @@ class RawSnapshotWriter:
                 self.snapshot_dir, ".manifest-digest-", f"{manifest_digest}\n".encode("ascii")
             )
             publish_new(sidecar_temp, self.detached_manifest_path)
+            sidecar_temp = None
             os.replace(manifest_temp, self.manifest_path)
-            self._complete_manifest_published = True
+            manifest_temp = None
             fsync_directory(self.snapshot_dir)
+            self._complete_manifest_published = True
             self._manifest = complete_manifest
             self._detached_digest = manifest_digest
             self._state = "COMPLETE"
@@ -256,9 +260,14 @@ class RawSnapshotWriter:
         except RawSnapshotError:
             self._fail("ACQ_FINALIZE_FAILED", "snapshot finalization failed")
             raise
-        except (OSError, ValueError, TypeError) as error:
+        except BaseException:
             self._fail("ACQ_FINALIZE_FAILED", "snapshot finalization failed")
-            raise RawSnapshotError("ACQ_FINALIZE_FAILED") from error
+            raise RawSnapshotError("ACQ_FINALIZE_FAILED") from None
+        finally:
+            for temporary_path in (manifest_temp, sidecar_temp):
+                if temporary_path is not None:
+                    with suppress(FileNotFoundError, OSError):
+                        temporary_path.unlink()
 
     def _register_object(self, reference: RawObjectReference) -> None:
         if self._state != "INCOMPLETE" or self._complete_manifest_published:
@@ -271,25 +280,29 @@ class RawSnapshotWriter:
     def _publish_object(self, temp_path: Path, final_path: Path) -> None:
         try:
             publish_new(temp_path, final_path)
-        except FileExistsError as error:
-            raise RawSnapshotError("ACQ_OBJECT_COLLISION") from error
-        except OSError as error:
-            raise RawSnapshotError("ACQ_ATOMIC_FINALIZE_FAILED") from error
+        except FileExistsError:
+            raise RawSnapshotError("ACQ_OBJECT_COLLISION") from None
+        except OSError:
+            raise RawSnapshotError("ACQ_ATOMIC_FINALIZE_FAILED") from None
 
     def _persist_manifest(self, manifest: SourceSnapshotManifest) -> None:
         if self._complete_manifest_published or (
             self._state == "COMPLETE" and manifest.status != "COMPLETE"
         ):
             raise RawSnapshotError("ACQ_SNAPSHOT_FINALIZED")
-        payload = canonical_json_bytes(manifest.model_dump(mode="json"))
+        if manifest.status == "COMPLETE":
+            semantic_code = manifest_semantic_code(manifest)
+            if semantic_code is not None:
+                raise RawSnapshotError("ACQ_MANIFEST_SEMANTICS", semantic_code)
         try:
+            payload = canonical_json_bytes(manifest.model_dump(mode="json"))
             temp_path = write_temp_file(self.snapshot_dir, ".manifest-write-", payload)
             os.replace(temp_path, self.manifest_path)
             fsync_directory(self.snapshot_dir)
-        except (OSError, TypeError, ValueError) as error:
+        except (OSError, TypeError, ValueError):
             self._state = "FAILED"
             self._manifest = manifest.model_copy(update={"status": "FAILED", "completed_at": None})
-            raise RawSnapshotError("ACQ_MANIFEST_WRITE_FAILED") from error
+            raise RawSnapshotError("ACQ_MANIFEST_WRITE_FAILED") from None
         self._manifest = manifest
 
     def _fail(self, code: str, detail: str) -> None:
@@ -351,8 +364,8 @@ class RawSnapshotWriter:
             raise RawSnapshotError("ACQ_OBJECT_ID_INVALID")
         try:
             validate_portable_relative_path(f"objects/{raw_object_id}")
-        except ValueError as error:
-            raise RawSnapshotError("ACQ_OBJECT_ID_INVALID") from error
+        except ValueError:
+            raise RawSnapshotError("ACQ_OBJECT_ID_INVALID") from None
 
     @staticmethod
     def _iter_chunks(chunks: Iterable[bytes] | BinaryIO) -> Iterable[bytes]:
@@ -365,6 +378,12 @@ class RawSnapshotWriter:
                 yield chunk
             return
         yield from chunks
+
+
+def _is_sanitized_transport_error(error: BaseException) -> bool:
+    return error.__class__.__module__ == "commander_ai.adapters.http.transport" and isinstance(
+        getattr(error, "code", None), str
+    )
 
 
 __all__ = [

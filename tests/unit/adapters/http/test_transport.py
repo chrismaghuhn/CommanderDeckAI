@@ -268,6 +268,8 @@ def test_connection_and_timeout_failures_are_bounded_and_redacted(
 
     assert error.value.code in {"HTTP_CONNECTION_FAILED", "HTTP_TIMEOUT"}
     assert calls == 2
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
     assert "transport-secret" not in str(error.value)
     assert "transport secret" not in str(error.value)
 
@@ -299,6 +301,25 @@ def test_truncated_content_length_is_rejected_after_raw_stream_completion() -> N
     assert error.value.code == "HTTP_ENTITY_TRUNCATED"
 
 
+def test_unexpected_body_failure_is_a_sanitized_transport_error() -> None:
+    class FailingBody(httpx.SyncByteStream):
+        def __iter__(self):
+            yield b"partial"
+            raise RuntimeError("body-secret")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, stream=FailingBody(), request=request)
+
+    response = _transport(handler).request("GET", "https://fixture.invalid/body")
+    with pytest.raises(HttpTransportError) as error:
+        list(response.iter_raw())
+
+    assert error.value.code == "HTTP_ENTITY_STREAM_FAILED"
+    assert error.value.__cause__ is None
+    assert error.value.__context__ is None
+    assert "body-secret" not in str(error.value)
+
+
 def test_transport_error_text_is_sanitized_before_exposure() -> None:
     error = HttpTransportError(
         "HTTP_FAILURE",
@@ -307,6 +328,31 @@ def test_transport_error_text_is_sanitized_before_exposure() -> None:
 
     assert "url-secret" not in str(error)
     assert "header-secret" not in str(error)
+
+
+def test_malformed_redirect_location_is_a_stable_sanitized_transport_error() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            302,
+            headers={"Location": "https://[malformed"},
+            request=request,
+        )
+
+    transport = _transport(handler)
+    with pytest.raises(HttpTransportError) as error:
+        transport.request("GET", "https://fixture.invalid/start")
+
+    assert error.value.code == "SECURITY_REDIRECT_URL"
+    assert error.value.__cause__ is None
+
+
+@pytest.mark.parametrize("rate_limit", [float("nan"), float("inf"), float("-inf")])
+def test_non_finite_rate_limits_are_rejected(rate_limit: float) -> None:
+    with pytest.raises(ValueError):
+        _transport(
+            lambda request: httpx.Response(200, request=request),
+            rate_limit_per_minute=rate_limit,
+        )
 
 
 def test_rate_limit_sleeps_between_requests_without_parallelism() -> None:

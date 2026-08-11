@@ -30,13 +30,31 @@ def validate_portable_relative_path(value: str) -> str:
         raise ValueError("path must be a portable root-relative POSIX path")
 
     segments = value.split("/")
-    if any(
-        segment in {"", ".", ".."}
-        or segment.startswith("~")
-        or segment in _NON_RELOADABLE_ROOT_MARKERS
-        for segment in segments
-    ):
-        raise ValueError("path must not contain empty, '.', '..', tilde, or root-marker segments")
+    for segment in segments:
+        device_stem = segment.rstrip(". ").split(".", maxsplit=1)[0].casefold()
+        is_device_name = device_stem in {
+            "con",
+            "prn",
+            "aux",
+            "nul",
+            "clock$",
+            "conin$",
+            "conout$",
+        } or (
+            len(device_stem) == 4
+            and device_stem[:3] in {"com", "lpt"}
+            and device_stem[3] in "123456789"
+        )
+        if (
+            segment in {"", ".", ".."}
+            or segment.startswith("~")
+            or segment in _NON_RELOADABLE_ROOT_MARKERS
+            or ":" in segment
+            or segment.endswith((".", " "))
+            or is_device_name
+            or any(char in '<>"|?*' or ord(char) < 0x20 for char in segment)
+        ):
+            raise ValueError("path contains a platform-special or non-portable segment")
     return value
 
 

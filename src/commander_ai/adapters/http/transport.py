@@ -13,17 +13,19 @@ from typing import Literal
 import httpx
 
 from .entity_framing import parse_content_length
+from .error_boundary import detached_error_boundary, detached_generator_boundary
 from .origin import same_origin
 from .redaction import (
     is_sensitive_request_header,
     redact_error_text,
-    redact_request_parameters,
     sanitize_endpoint,
     sanitize_headers,
+    sanitize_request_metadata,
 )
 from .redirect_policy import RedirectPolicy, RedirectPolicyError
 
 HttpQueryValue = str | int | float | bool | None | list[str | int | float | bool | None]
+MAX_RATE_LIMIT_PER_MINUTE = 1_000_000
 
 
 class HttpTransportError(RuntimeError):
@@ -59,6 +61,7 @@ class HttpResponseMetadata:
 class SafeHttpResponse:
     """Response port whose only body interface is bounded ``iter_raw``."""
 
+    @detached_error_boundary(HttpTransportError)
     def __init__(
         self,
         response: httpx.Response,
@@ -71,9 +74,9 @@ class SafeHttpResponse:
         self._read_bytes = 0
         try:
             self._expected_bytes = parse_content_length(response.headers.get("content-length"))
-        except ValueError as error:
+        except ValueError:
             response.close()
-            raise HttpTransportError("HTTP_ENTITY_INVALID") from error
+            raise HttpTransportError("HTTP_ENTITY_INVALID") from None
         if self._expected_bytes is not None and self._expected_bytes > max_response_bytes:
             response.close()
             raise HttpTransportError("HTTP_RESPONSE_TOO_LARGE")
@@ -89,6 +92,7 @@ class SafeHttpResponse:
             retry_after=safe_headers.get("retry-after"),
         )
 
+    @detached_generator_boundary(HttpTransportError)
     def iter_raw(self) -> Iterator[bytes]:
         """Yield HTTPX ``iter_raw`` chunks without content decoding."""
         try:
@@ -104,14 +108,18 @@ class SafeHttpResponse:
         except HttpTransportError:
             self.close()
             raise
-        except (httpx.HTTPError, OSError) as error:
+        except Exception:
             self.close()
-            raise HttpTransportError("HTTP_ENTITY_STREAM_FAILED") from error
+            raise HttpTransportError("HTTP_ENTITY_STREAM_FAILED") from None
         finally:
             self.close()
 
+    @detached_error_boundary(HttpTransportError)
     def close(self) -> None:
-        self._response.close()
+        try:
+            self._response.close()
+        except Exception:
+            raise HttpTransportError("HTTP_RESPONSE_CLOSE_FAILED") from None
 
     def __enter__(self) -> SafeHttpResponse:
         return self
@@ -159,8 +167,14 @@ class HttpTransport:
             or max_retry_delay_seconds < 0
         ):
             raise ValueError("HTTP retry delays cannot be negative")
-        if rate_limit_per_minute is not None and rate_limit_per_minute < 1:
-            raise ValueError("rate_limit_per_minute must be positive or None")
+        if rate_limit_per_minute is not None and (
+            isinstance(rate_limit_per_minute, bool)
+            or not isinstance(rate_limit_per_minute, (int, float))
+            or not math.isfinite(float(rate_limit_per_minute))
+            or rate_limit_per_minute < 1
+            or rate_limit_per_minute > MAX_RATE_LIMIT_PER_MINUTE
+        ):
+            raise ValueError("rate_limit_per_minute must be finite, bounded, and positive or None")
         if not user_agent.strip():
             raise ValueError("user_agent must be identifiable")
         self._policy = RedirectPolicy(allowed_hosts, max_redirects=max_redirects)
@@ -178,6 +192,7 @@ class HttpTransport:
         self._client = client or httpx.Client(follow_redirects=False, timeout=timeout_seconds)
         self._owns_client = client is None
 
+    @detached_error_boundary(HttpTransportError)
     def request(
         self,
         method: str,
@@ -193,7 +208,7 @@ class HttpTransport:
         try:
             self._policy.validate(url)
         except RedirectPolicyError as error:
-            raise HttpTransportError(error.code) from error
+            raise HttpTransportError(error.code) from None
         normalized_method = method.strip().upper()
         if not normalized_method:
             raise HttpTransportError("HTTP_METHOD_INVALID")
@@ -228,7 +243,7 @@ class HttpTransport:
                     str(response.url), location, redirects_followed=redirects_followed
                 )
             except RedirectPolicyError as error:
-                raise HttpTransportError(error.code) from error
+                raise HttpTransportError(error.code) from None
             if not same_origin(str(response.url), next_url):
                 strip_sensitive_headers = True
             current_method = _redirect_method(current_method, response.status_code)
@@ -236,6 +251,7 @@ class HttpTransport:
             current_parameters = None
             redirects_followed += 1
 
+    @detached_error_boundary(HttpTransportError)
     def request_metadata(
         self,
         method: str,
@@ -247,13 +263,10 @@ class HttpTransport:
     ) -> dict[str, object]:
         """Return the only request fields safe for a snapshot manifest."""
 
-        return {
-            "sanitized_method": method.strip().upper(),
-            "sanitized_endpoint": sanitize_endpoint(url),
-            "api_version": api_version,
-            "format": format,
-            "sanitized_parameters": redact_request_parameters(parameters or {}),
-        }
+        try:
+            return sanitize_request_metadata(method, url, parameters, api_version, format)
+        except (TypeError, ValueError):
+            raise HttpTransportError("HTTP_METADATA_INVALID") from None
 
     def close(self) -> None:
         if self._owns_client:
@@ -300,14 +313,14 @@ class HttpTransport:
                     auth=None if strip_sensitive_headers else httpx.USE_CLIENT_DEFAULT,
                     follow_redirects=False,
                 )
-            except httpx.TimeoutException as error:
+            except httpx.TimeoutException:
                 if attempt >= self._max_retries:
-                    raise HttpTransportError("HTTP_TIMEOUT") from error
+                    raise HttpTransportError("HTTP_TIMEOUT") from None
                 self._sleeper(self._retry_delay(attempt, None))
                 continue
-            except httpx.RequestError as error:
+            except httpx.RequestError:
                 if attempt >= self._max_retries:
-                    raise HttpTransportError("HTTP_CONNECTION_FAILED") from error
+                    raise HttpTransportError("HTTP_CONNECTION_FAILED") from None
                 self._sleeper(self._retry_delay(attempt, None))
                 continue
             if (
@@ -381,9 +394,4 @@ def _retry_after_seconds(value: str) -> float | None:
             return None
 
 
-__all__ = [
-    "HttpResponseMetadata",
-    "HttpTransport",
-    "HttpTransportError",
-    "SafeHttpResponse",
-]
+__all__ = ["HttpResponseMetadata", "HttpTransport", "HttpTransportError", "SafeHttpResponse"]
