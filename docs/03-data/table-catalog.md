@@ -45,3 +45,10 @@ Stabile Finding-Codes, Severity, Entity-ID und Details.
 ## `provenance.parquet`
 
 Source-Objekt, Snapshot, Rohhash, Mapperversion, Terms-Review und Transformationslinie.
+## Task-5 staging and audit tables
+
+`staging.parquet` preserves source DTO values and exact raw locators without canonical
+identity requirements. `audit.parquet` retains namespaced findings, provenance, and
+every resolution attempt. `quarantine.parquet` retains failed observations and their
+reason codes. None of these tables is a curated output; all are rebuildable from the
+verified raw snapshot and the immutable normalized manifest.

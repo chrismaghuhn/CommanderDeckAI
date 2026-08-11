@@ -64,3 +64,18 @@ source_name/
 ├── errors.py
 └── README.md
 ```
+## Normalization boundary (Task 5)
+
+Only a `COMPLETE` source snapshot that passes a fresh `RawSnapshotVerifier` check may
+be parsed. `INCOMPLETE`, `FAILED`, missing-object, byte-count, object-hash,
+snapshot-content-digest, and detached-manifest-digest failures are rejected before
+parsing. Historical snapshot approval is not a current-use decision: normalization also
+requires the current source policy to allow `normalize`, including takedown/prohibited
+checks.
+
+Parsing produces source DTOs and immutable staging records. Every record retains the
+source snapshot ID, raw object ID/path, and an exact JSON pointer, record index, or byte
+range. Malformed and incomplete values stay in staging and may be written to audit or
+quarantine with namespaced findings; they are not coerced into canonical cards, decks,
+events, or legality results. All resolution attempts, including ambiguous and
+unresolved ones, are retained.

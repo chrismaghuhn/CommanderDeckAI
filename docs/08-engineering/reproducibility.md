@@ -75,3 +75,11 @@ Ein Dirty-Run referenziert zusätzlich in `artifacts` ein Artefakt mit `kind: "g
 ## Verifikation
 
 Ein `cda reproduce <run_manifest>`-Use-Case ist später vorgesehen. Bereits M0 definiert die Manifeststruktur in [`schemas/run-manifest.v1.schema.json`](../../schemas/run-manifest.v1.schema.json), damit Reproduzierbarkeit nicht nachträglich erfunden werden muss.
+Die Data-Foundation verwendet diese unveränderte `run-manifest.v1`-Form auch für
+Normalisierung. Konfigurationen werden als redigierter, kanonischer Snapshot gehasht;
+API-Schlüssel, Tokens, Authentifizierungswerte, Cookies und Passwörter dürfen weder im
+Snapshot noch in der Run-Metadatenprojektion erscheinen. Normalisierte Snapshots
+werden über die sortierte Liste ihrer Layer-Artefakte, Hashes, Zeilenzahlen, Befunde,
+Quarantäne-Referenzen, Input-Manifest-Hash und Versionen identifiziert. Dadurch sind
+identische Offline-Eingaben unabhängig von Maschinenpfaden und SQL-/DuckDB-Caches
+wiederaufbaubar.

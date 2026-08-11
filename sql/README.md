@@ -8,4 +8,4 @@ reacquisition. The migration is idempotent and does not replace the raw-byte or
 
 Die Dateien sind bewusst nach Verantwortungsgruppen getrennt. Migrations-/Produktionsschema kann Pydantic/SQL-Modelle verwenden, aber die resultierenden Tabellen müssen diese Semantik beibehalten.
 
-Ausführungsreihenfolge: `001` bis `007`. Alle DDLs sind idempotent (`CREATE TABLE IF NOT EXISTS`). Parquet und Raw-Manifeste bleiben die veröffentlichte/immutable Wahrheit; diese Tabellen dienen lokalen Materialisierungen und Qualitätsabfragen.
+Ausführungsreihenfolge: `001` bis `008`. Migration `008_staging_audit_runs.sql` ergänzt ausschließlich rebuildbare lokale Indizes für Staging, Audit/Resolution/Quarantäne, Run-Manifeste und normalisierte Snapshot-Manifeste samt Artefakt-Referenzen. Parquet, Raw-Manifeste und normalisierte Manifeste bleiben die veröffentlichte/immutable Wahrheit; alle Tabellen können aus diesen Dateien ohne erneuten Quellenabruf rekonstruiert werden.
