@@ -80,6 +80,24 @@ def test_streaming_object_uses_same_filesystem_temp_and_preserves_raw_bytes(
     )
 
 
+def test_invalid_object_metadata_cannot_publish_an_unregistered_raw_blob(tmp_path: Path) -> None:
+    writer = _start(tmp_path)
+
+    with pytest.raises(raw_snapshots.RawSnapshotError) as error:
+        writer.write_object(
+            raw_object_id="object-1",
+            request_id="request-1",
+            chunks=[b"raw"],
+            content_encoding="gzip;invalid",
+        )
+
+    assert error.value.code == "ACQ_OBJECT_FINALIZE_FAILED"
+    assert writer.state == "FAILED"
+    assert writer.manifest.objects == ()
+    assert not (writer.objects_dir / "object-1").exists()
+    assert not list(writer.objects_dir.glob(".object-*"))
+
+
 def test_finalize_rejects_open_object_writer_before_publishing_complete_manifest(
     tmp_path: Path,
 ) -> None:

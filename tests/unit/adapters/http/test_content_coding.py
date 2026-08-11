@@ -39,3 +39,9 @@ def test_entity_decoder_rejects_unsupported_coding_and_decompression_bombs() -> 
     with pytest.raises(HttpContentCodingError) as oversized:
         decode_entity_body(gzip.compress(b"0123456789"), "gzip", max_decoded_bytes=5)
     assert oversized.value.code == "HTTP_DECOMPRESSED_SIZE_LIMIT"
+
+
+def test_entity_decoder_rejects_deflate_trailers() -> None:
+    with pytest.raises(HttpContentCodingError) as error:
+        decode_entity_body(zlib.compress(b"payload") + b"trailer", "deflate")
+    assert error.value.code == "HTTP_CONTENT_ENCODING_INVALID"

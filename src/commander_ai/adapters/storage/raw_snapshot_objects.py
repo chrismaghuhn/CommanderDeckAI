@@ -99,7 +99,6 @@ class RawObjectWriter:
             os.fsync(self._fd)
             os.close(self._fd)
             self._fd = -1
-            self._owner._publish_object(self.temp_path, self.final_path)
             checksum_status: ChecksumStatus = self._checksum_status
             if self._upstream_sha256 is not None:
                 checksum_status = "verified" if digest == self._upstream_sha256 else "mismatch"
@@ -117,6 +116,7 @@ class RawObjectWriter:
                 checksum_verification_status=checksum_status,
                 logical_record_count=self._logical_record_count,
             )
+            self._owner._publish_object(self.temp_path, self.final_path)
             self._owner._register_object(reference)
             self._reference = reference
             self._finished = True

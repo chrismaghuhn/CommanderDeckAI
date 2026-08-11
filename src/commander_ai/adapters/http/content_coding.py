@@ -95,7 +95,7 @@ def _decode_deflate(raw_bytes: bytes, max_decoded_bytes: int) -> bytes:
         raise HttpContentCodingError("HTTP_CONTENT_ENCODING_INVALID") from None
     if len(output) > max_decoded_bytes:
         raise HttpContentCodingError("HTTP_DECOMPRESSED_SIZE_LIMIT")
-    if not decompressor.eof:
+    if not decompressor.eof or decompressor.unused_data:
         raise HttpContentCodingError("HTTP_CONTENT_ENCODING_INVALID")
     return bytes(output)
 
