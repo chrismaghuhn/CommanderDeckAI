@@ -7,7 +7,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from commander_ai.domain.path_policy import (
+from commander_ai.adapters.storage.path_policy import (
     resolve_under_root,
     to_portable_relative_path,
     validate_portable_relative_path,

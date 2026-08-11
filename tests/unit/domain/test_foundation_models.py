@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from datetime import UTC, datetime
 
 import pytest
 from pydantic import ValidationError
 
+import commander_ai.domain.decks as decks_module
 from commander_ai.domain.cards import (
     CardFace,
     CardIdentity,
@@ -305,6 +307,31 @@ def test_deck_identity_ignores_source_and_observation_context() -> None:
     assert second_observation.canonical_deck_id == first_observation.canonical_deck_id
     assert other_legality.canonical_deck_id == legality.canonical_deck_id
     assert quality.canonical_deck_id == first.canonical_deck_id
+
+
+def test_structural_fingerprint_uses_the_shared_canonical_json_port(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[object] = []
+
+    def fake_canonical_json_bytes(value: object) -> bytes:
+        calls.append(value)
+        return b"canonical-deck-bytes"
+
+    monkeypatch.setattr(
+        decks_module,
+        "canonical_json_bytes",
+        fake_canonical_json_bytes,
+        raising=False,
+    )
+
+    fingerprint = compute_structural_fingerprint(
+        (CommandZoneEntry(oracle_id=ORACLE_A, quantity=1),),
+        card_zones(),
+    )
+
+    assert calls
+    assert fingerprint == hashlib.sha256(b"canonical-deck-bytes").hexdigest()
 
 
 def test_event_observations_repeat_decks_while_pod_entries_keep_round_and_seat() -> None:

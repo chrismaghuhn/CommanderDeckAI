@@ -95,6 +95,17 @@ def test_runtime_roots_are_normalized_and_artifact_paths_stay_portable(tmp_path:
         runtime.portable_artifact_path("reports\\summary.json")
 
 
+def test_runtime_uses_storage_filesystem_path_policy() -> None:
+    assert (
+        RuntimeConfig.resolve_artifact_path.__globals__["resolve_under_root"].__module__
+        == "commander_ai.adapters.storage.path_policy"
+    )
+    assert (
+        RuntimeConfig.portable_artifact_path.__globals__["to_portable_relative_path"].__module__
+        == "commander_ai.adapters.storage.path_policy"
+    )
+
+
 def test_default_runtime_roots_are_repository_anchored_not_cwd(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:

@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
 from collections.abc import Mapping, Sequence
 from typing import Literal
 
 from pydantic import Field, model_validator
 
 from .provenance import DomainModel, ProvenanceReference
+from .serialization import canonical_json_bytes, sha256_hex
 
 
 class CardQuantity(DomainModel):
@@ -124,13 +123,8 @@ def compute_structural_fingerprint(
 ) -> str:
     """Return the stable structural fingerprint for a Commander deck."""
 
-    canonical = json.dumps(
-        _structural_payload(command_zone, card_zones),
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
+    canonical = canonical_json_bytes(_structural_payload(command_zone, card_zones))
+    return sha256_hex(canonical)
 
 
 class CanonicalDeck(DomainModel):

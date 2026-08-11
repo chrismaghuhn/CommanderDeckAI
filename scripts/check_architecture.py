@@ -35,6 +35,7 @@ FORBIDDEN = {
     ),
 }
 FORBIDDEN_FILENAMES = {"utils.py", "helpers.py", "common.py"}
+DOMAIN_FORBIDDEN_FILESYSTEM_MODULES = {"os", "pathlib", "shutil", "tempfile"}
 
 
 def imports(path: Path) -> list[str]:
@@ -60,6 +61,11 @@ def main() -> None:
         for imported in imports(path):
             if imported.startswith(FORBIDDEN[top]):
                 failures.append(f"{path.relative_to(ROOT)} imports forbidden {imported}")
+            if (
+                top == "domain"
+                and imported.split(".", maxsplit=1)[0] in DOMAIN_FORBIDDEN_FILESYSTEM_MODULES
+            ):
+                failures.append(f"{path.relative_to(ROOT)} imports filesystem module {imported}")
     if failures:
         raise SystemExit("\n".join(failures))
     print("architecture: ok")

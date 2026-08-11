@@ -26,6 +26,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 NEW_CONTRACT_STEMS = (
     "source-snapshot-manifest.v2",
     "normalized-snapshot-manifest.v1",
+    "normalized-snapshot-manifest.v2",
     "canonical-deck.v1",
     "deck-legality-evaluation.v1",
     "deck-quality-evaluation.v1",
@@ -383,6 +384,92 @@ def test_contracts_reject_non_portable_persisted_paths(
     }[stem]
     with pytest.raises(ValidationError):
         model_type.model_validate(candidate)
+
+
+def _set_versioned_path_values(
+    stem: str,
+    candidate: dict[str, object],
+    value: str,
+) -> None:
+    if stem == "source-snapshot-manifest.v2":
+        candidate["objects"][0]["path"] = value  # type: ignore[index]
+    elif stem == "normalized-snapshot-manifest.v2":
+        candidate["normalized_artifact_path"] = value
+        candidate["audit_artifact_path"] = value
+        candidate["quarantine_references"] = [
+            {"quarantine_id": "q-1", "reason_code": "integrity.bad", "path": value}
+        ]
+    elif stem == "dataset-manifest.v2":
+        candidate["input_manifests"][0]["path"] = value  # type: ignore[index]
+        candidate["outputs"][0]["path"] = value  # type: ignore[index]
+        candidate["quality_report"]["path"] = value  # type: ignore[index]
+        candidate["leakage_report"]["path"] = value  # type: ignore[index]
+    else:
+        raise AssertionError(f"unsupported path contract: {stem}")
+
+
+@pytest.mark.parametrize(
+    "stem",
+    (
+        "source-snapshot-manifest.v2",
+        "normalized-snapshot-manifest.v2",
+        "dataset-manifest.v2",
+    ),
+)
+@pytest.mark.parametrize(
+    "invalid_path",
+    (
+        "/root/file",
+        "//server/share/file",
+        "C:/data/file",
+        "objects\\file.bin",
+        "objects\x00file.bin",
+        "objects/../file.bin",
+        "objects/./file.bin",
+        "objects/~",
+        "objects/~user/file.bin",
+        "~/machine-specific/file.bin",
+        "<external-root>",
+        "objects/<repository-root>/file.bin",
+    ),
+)
+def test_authoritative_versioned_path_schemas_reject_nonportable_values(
+    stem: str, invalid_path: str
+) -> None:
+    schema, example = load_contract(stem)
+    candidate = copy.deepcopy(example)
+    _set_versioned_path_values(stem, candidate, invalid_path)
+
+    assert validation_errors(schema, candidate), f"{stem} accepted {invalid_path!r}"
+
+
+def test_frozen_v1_path_contracts_keep_their_legacy_compatibility_boundary() -> None:
+    legacy_path = "<external-root>"
+
+    source_v1_schema, source_v1_example = load_contract("source-snapshot-manifest.v1")
+    source_v1_candidate = copy.deepcopy(source_v1_example)
+    source_v1_candidate["objects"][0]["path"] = legacy_path  # type: ignore[index]
+    assert not validation_errors(source_v1_schema, source_v1_candidate)
+
+    normalized_v1_schema, normalized_v1_example = load_contract("normalized-snapshot-manifest.v1")
+    normalized_v1_candidate = copy.deepcopy(normalized_v1_example)
+    normalized_v1_candidate["normalized_artifact_path"] = legacy_path
+    assert not validation_errors(normalized_v1_schema, normalized_v1_candidate)
+
+    dataset_v1_schema, dataset_v1_example = load_contract("dataset-manifest.v1")
+    dataset_v1_candidate = copy.deepcopy(dataset_v1_example)
+    dataset_v1_candidate["tables"][0]["path"] = legacy_path  # type: ignore[index]
+    assert not validation_errors(dataset_v1_schema, dataset_v1_candidate)
+
+    for stem in (
+        "source-snapshot-manifest.v2",
+        "normalized-snapshot-manifest.v2",
+        "dataset-manifest.v2",
+    ):
+        schema, example = load_contract(stem)
+        candidate = copy.deepcopy(example)
+        _set_versioned_path_values(stem, candidate, legacy_path)
+        assert validation_errors(schema, candidate), f"{stem} accepted legacy path syntax"
 
 
 def test_source_snapshot_contract_marks_lineage_constraints_as_authoritative() -> None:

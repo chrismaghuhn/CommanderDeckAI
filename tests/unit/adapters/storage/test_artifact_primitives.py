@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+import commander_ai.domain.path_policy as domain_path_policy
 from commander_ai.adapters.storage.canonical_json import canonical_json_bytes
 from commander_ai.adapters.storage.digests import (
     DETACHED_MANIFEST_DIGEST_FIELD,
@@ -196,6 +197,8 @@ def test_detached_manifest_digest_does_not_omit_unrelated_sha256_field() -> None
         "<external-root>",
         "<repository-root>",
         "objects/<repository-root>/file.bin",
+        "objects/~",
+        "objects/~user/file.bin",
         "~/machine-specific/file.bin",
     ],
 )
@@ -204,6 +207,11 @@ def test_portable_path_policy_rejects_nonportable_paths(path: str) -> None:
         validate_portable_relative_path(path)
     with pytest.raises(ValueError):
         normalize_portable_relative_path(path)
+
+
+def test_filesystem_path_policy_is_not_implemented_in_domain() -> None:
+    assert not hasattr(domain_path_policy, "resolve_under_root")
+    assert not hasattr(domain_path_policy, "to_portable_relative_path")
 
 
 def test_portable_path_policy_returns_posix_root_relative_paths(tmp_path: Path) -> None:
