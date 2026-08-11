@@ -113,6 +113,14 @@ class SourcePolicy:
         if entry is None:
             return self._unknown_source(normalized, normalized_operation)
         historical_status = entry.historical_approval.approval_status
+        if normalized_operation.is_audit_only:
+            current = CurrentUsePolicy.check(
+                source_id=normalized,
+                historical_status=historical_status,
+                current_use=entry.current_use,
+                operation=normalized_operation,
+            )
+            return self._from_current(current)
         if historical_status not in self.LOCAL_SYNC_ALLOWLIST:
             return self._blocked_historical(entry, normalized_operation)
 
@@ -160,6 +168,9 @@ class SourcePolicy:
         entry = self._registry.get(normalized)
         if entry is None:
             raise SourcePolicyError(self._unknown_source(normalized, PolicyOperation.SOURCE_SYNC))
+        acquisition = self.check_local_sync(normalized)
+        if not acquisition.allowed:
+            raise SourcePolicyError(acquisition)
         if entry.settings.review_path is None:
             decision = SourcePolicyDecision(
                 source_id=normalized,

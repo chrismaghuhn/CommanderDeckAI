@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from commander_ai.application.source_policy import SourcePolicy
+from commander_ai.application.source_policy import SourcePolicy, SourcePolicyError
 from commander_ai.config.current_use_policy import CurrentUseDecision
 from commander_ai.config.source_registry import (
     HistoricalApprovalMetadata,
@@ -154,3 +154,66 @@ def test_source_adapter_configuration_is_gated_by_explicit_review_record() -> No
                 )
             )
         ).adapter_configuration("example_source")
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        SourceApprovalStatus.PROPOSED,
+        SourceApprovalStatus.REJECTED,
+        SourceApprovalStatus.PAUSED,
+    ],
+)
+def test_source_adapter_configuration_requires_local_acquisition_approval(
+    status: SourceApprovalStatus,
+) -> None:
+    with pytest.raises(SourcePolicyError) as error:
+        SourcePolicy(registry_for(status)).adapter_configuration("example_source")
+
+    assert error.value.code == "POLICY_SOURCE_NOT_APPROVED"
+
+
+def test_source_adapter_configuration_requires_current_use_allowance() -> None:
+    policy = SourcePolicy(
+        registry_for(SourceApprovalStatus.APPROVED_LOCAL, current_status="REJECTED")
+    )
+
+    with pytest.raises(SourcePolicyError) as error:
+        policy.adapter_configuration("example_source")
+
+    assert error.value.code == "POLICY_CURRENT_USE_BLOCKED"
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        SourceApprovalStatus.PROPOSED,
+        SourceApprovalStatus.REVIEWED,
+        SourceApprovalStatus.REJECTED,
+        SourceApprovalStatus.PAUSED,
+    ],
+)
+def test_audit_inspect_can_inspect_historically_blocked_snapshots(
+    status: SourceApprovalStatus,
+) -> None:
+    policy = SourcePolicy(registry_for(status, current_status="REJECTED"))
+
+    decision = policy.check_operation("example_source", "audit_inspect")
+
+    assert decision.allowed
+    assert decision.code == "POLICY_AUDIT_ONLY_ALLOWED"
+    assert decision.operation.value == "audit_inspect"
+    assert not policy.operation_allowed("example_source", "normalize")
+    assert not policy.operation_allowed("example_source", "public_export")
+
+
+def test_audit_inspect_can_inspect_currently_blocked_approved_snapshot() -> None:
+    policy = SourcePolicy(
+        registry_for(SourceApprovalStatus.APPROVED_LOCAL, current_status="TAKEDOWN")
+    )
+
+    decision = policy.check_operation("example_source", "audit_inspect")
+
+    assert decision.allowed
+    assert decision.code == "POLICY_AUDIT_ONLY_ALLOWED"
+    assert not policy.operation_allowed("example_source", "report")

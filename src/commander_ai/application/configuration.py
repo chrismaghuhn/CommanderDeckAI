@@ -49,6 +49,7 @@ class OperationConfig(BaseModel):
             PolicyOperation.VALIDATE,
             PolicyOperation.REPORT,
             PolicyOperation.PUBLIC_EXPORT,
+            PolicyOperation.AUDIT_INSPECT,
         }
         if self.operation in source_operations and self.source_id is None:
             raise ValueError("source_id is required for this operation")

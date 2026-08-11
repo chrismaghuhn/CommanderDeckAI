@@ -11,7 +11,7 @@ from commander_ai.domain.provenance import validate_portable_relative_path
 
 
 class RuntimeConfig(BaseModel):
-    """Global paths and conservative defaults shared by an operation."""
+    """Global paths anchored to the repository, not the process working directory."""
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
@@ -26,11 +26,19 @@ class RuntimeConfig(BaseModel):
 
     @model_validator(mode="after")
     def normalize_roots(self) -> RuntimeConfig:
-        data_root = self.data_root.expanduser().resolve()
-        artifact_root = self.artifact_root.expanduser().resolve()
+        repository_root = Path(__file__).resolve().parents[3]
+        data_root = self._resolve_root(self.data_root, repository_root)
+        artifact_root = self._resolve_root(self.artifact_root, repository_root)
         object.__setattr__(self, "data_root", data_root)
         object.__setattr__(self, "artifact_root", artifact_root)
         return self
+
+    @staticmethod
+    def _resolve_root(path: Path, repository_root: Path) -> Path:
+        expanded = path.expanduser()
+        if not expanded.is_absolute():
+            expanded = repository_root / expanded
+        return expanded.resolve()
 
     def resolve_artifact_path(self, relative_path: str) -> Path:
         """Resolve a portable artifact path while keeping it below ``artifact_root``."""

@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-import re
 from datetime import datetime
 from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from .source_settings import SourceApprovalStatus, normalize_source_id
+from .yaml_loader import redact_text
 
 
 class CurrentUseStatus(StrEnum):
@@ -27,6 +27,10 @@ class PolicyOperation(StrEnum):
     DATASET_BUILD = "dataset_build"
     PUBLIC_EXPORT = "public_export"
     AUDIT_INSPECT = "audit_inspect"
+
+    @property
+    def is_audit_only(self) -> bool:
+        return self is PolicyOperation.AUDIT_INSPECT
 
     @classmethod
     def normalize(cls, value: object) -> PolicyOperation:
@@ -115,16 +119,6 @@ class CurrentUseResult(BaseModel):
     current_status: CurrentUseStatus | None = None
 
 
-_CREDENTIAL_ASSIGNMENT = re.compile(
-    r"(?i)(api[_-]?key|access[_-]?token|authorization|cookie|password|secret|token)"
-    r"(\s*[:=]\s*)([^,\s;}]+)"
-)
-
-
-def _safe_reason(reason: str) -> str:
-    return _CREDENTIAL_ASSIGNMENT.sub(r"\1\2[REDACTED]", reason)
-
-
 class CurrentUsePolicy:
     """Evaluate current-use decisions without reading files or making requests."""
 
@@ -154,6 +148,17 @@ class CurrentUsePolicy:
         normalized_source_id = normalize_source_id(source_id)
         normalized_operation = PolicyOperation.normalize(operation)
         if current_use is None:
+            if normalized_operation.is_audit_only:
+                return CurrentUseResult(
+                    source_id=normalized_source_id,
+                    operation=normalized_operation,
+                    allowed=True,
+                    code="POLICY_AUDIT_ONLY_ALLOWED",
+                    reason=(
+                        "audit-only inspection does not emit processed or redistributable records"
+                    ),
+                    historical_status=historical_status,
+                )
             if cls.requires_decision(normalized_operation):
                 return CurrentUseResult(
                     source_id=normalized_source_id,
@@ -179,6 +184,16 @@ class CurrentUsePolicy:
                 allowed=False,
                 code="POLICY_SOURCE_MISMATCH",
                 reason="current-use decision source does not match requested source",
+                historical_status=historical_status,
+                current_status=current_use.status,
+            )
+        if normalized_operation.is_audit_only:
+            return CurrentUseResult(
+                source_id=normalized_source_id,
+                operation=normalized_operation,
+                allowed=True,
+                code="POLICY_AUDIT_ONLY_ALLOWED",
+                reason=("audit-only inspection does not emit processed or redistributable records"),
                 historical_status=historical_status,
                 current_status=current_use.status,
             )
@@ -209,7 +224,7 @@ class CurrentUsePolicy:
             operation=normalized_operation,
             allowed=True,
             code="POLICY_CURRENT_USE_ALLOWED",
-            reason=_safe_reason(current_use.reason),
+            reason=redact_text(current_use.reason),
             historical_status=historical_status,
             current_status=current_use.status,
         )

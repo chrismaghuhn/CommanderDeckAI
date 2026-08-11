@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 from pydantic import BaseModel, ValidationError
 
 from commander_ai.application.configuration import OperationConfig
+from commander_ai.config.current_use_policy import CurrentUseDecision, CurrentUsePolicy
 from commander_ai.config.dataset_settings import DatasetSettings
 from commander_ai.config.runtime import RuntimeConfig
-from commander_ai.config.source_settings import SourceSettings
+from commander_ai.config.source_settings import SourceApprovalStatus, SourceSettings
 from commander_ai.config.yaml_loader import (
     ConfigurationError,
     load_dataset_settings,
@@ -84,11 +86,119 @@ def test_runtime_roots_are_normalized_and_artifact_paths_stay_portable(tmp_path:
         runtime.portable_artifact_path("reports\\summary.json")
 
 
+def test_default_runtime_roots_are_repository_anchored_not_cwd(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.chdir(tmp_path)
+
+    default_runtime = RuntimeConfig()
+    runtime = RuntimeConfig(
+        data_root=Path("portable-data"), artifact_root=Path("portable-artifacts")
+    )
+    repository_root = Path(__file__).resolve().parents[3]
+
+    assert default_runtime.data_root == (repository_root / "data").resolve()
+    assert default_runtime.artifact_root == (repository_root / "artifacts").resolve()
+    assert runtime.data_root == (repository_root / "portable-data").resolve()
+    assert runtime.artifact_root == (repository_root / "portable-artifacts").resolve()
+
+
 def test_source_ids_and_statuses_are_normalized() -> None:
     settings = SourceSettings.model_validate(minimal_source_payload())
 
     assert settings.source_id == "example_source"
     assert settings.approval_status.value == "PROPOSED"
+
+
+@pytest.mark.parametrize(
+    "nested_filters",
+    [
+        {"request": {"api_key": "nested-secret"}},
+        {"items": [{"authorization": "Bearer nested-secret"}]},
+        {"items": [{"details": [{"token": "nested-secret"}]}]},
+    ],
+)
+def test_source_filters_reject_credential_keys_at_any_nesting_depth(
+    nested_filters: dict[str, object],
+) -> None:
+    payload = minimal_source_payload()
+    payload["filters"] = nested_filters
+
+    with pytest.raises(ValidationError) as error:
+        SourceSettings.model_validate(payload)
+
+    assert "nested-secret" not in str(error.value)
+
+
+def test_source_features_reject_credential_keys() -> None:
+    payload = minimal_source_payload()
+    payload["features"] = {"token": True}
+
+    with pytest.raises(ValidationError):
+        SourceSettings.model_validate(payload)
+
+
+def test_nested_environment_names_remain_allowed_and_nested_serialization_is_redacted() -> None:
+    payload = minimal_source_payload()
+    payload["filters"] = {
+        "request": {
+            "api_key_env": "TOPDECK_API_KEY",
+            "items": [{"token_env": "TOPDECK_TOKEN"}],
+        }
+    }
+
+    settings = SourceSettings.model_validate(payload)
+    serialized = serialize_config(settings)
+
+    assert serialized["filters"] == payload["filters"]
+
+    nested = serialize_config(
+        {
+            "filters": {
+                "request": [
+                    {"authorization": "Bearer nested-secret"},
+                    {"token": "token-secret"},
+                    {"token_env": "TOPDECK_TOKEN"},
+                ]
+            }
+        }
+    )
+    nested_text = str(nested)
+    assert "nested-secret" not in nested_text
+    assert "token-secret" not in nested_text
+    assert nested["filters"]["request"][2]["token_env"] == "TOPDECK_TOKEN"
+
+
+def test_current_use_reason_redacts_bearer_and_other_credential_forms() -> None:
+    decision = CurrentUseDecision(
+        source_id="example_source",
+        status="ALLOWED",
+        approval_status=SourceApprovalStatus.APPROVED_LOCAL,
+        reason=(
+            "Authorization: Bearer bearer-secret; api_key=api-secret; "
+            "access_token: access-secret; cookie=cookie-secret; "
+            "password=password-secret; secret: secret-value; token=token-secret"
+        ),
+        effective_at=datetime(2026, 8, 10, tzinfo=UTC),
+    )
+
+    result = CurrentUsePolicy.check(
+        source_id="example_source",
+        historical_status=SourceApprovalStatus.APPROVED_LOCAL,
+        current_use=decision,
+        operation="normalize",
+    )
+
+    assert result.allowed
+    assert "bearer-secret" not in result.reason
+    assert "api-secret" not in result.reason
+    assert "access-secret" not in result.reason
+    assert "cookie-secret" not in result.reason
+    assert "password-secret" not in result.reason
+    assert "secret-value" not in result.reason
+    assert "token-secret" not in result.reason
+    assert "Authorization" in result.reason
+    assert "[REDACTED]" in result.reason
 
 
 def test_checked_in_source_and_dataset_configs_are_explicit_and_offline_loadable() -> None:
@@ -141,6 +251,11 @@ def test_operation_configuration_has_no_experiment_or_optimizer_override_fields(
                     forbidden_field: {"timeout_seconds": 1},
                 }
             )
+
+
+def test_audit_inspect_requires_a_source_reference() -> None:
+    with pytest.raises(ValidationError):
+        OperationConfig(operation="audit_inspect")
 
 
 def test_loader_error_and_serialized_config_do_not_expose_secret_values(tmp_path: Path) -> None:

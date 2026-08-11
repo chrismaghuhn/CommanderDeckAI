@@ -21,6 +21,34 @@ _SECRET_KEY = re.compile(
 )
 
 
+def is_credential_key(value: object) -> bool:
+    """Return whether a configuration key names a credential-like value."""
+
+    return _SECRET_KEY.search(str(value)) is not None
+
+
+def _reject_nested_credential_keys(
+    value: object, *, field_name: str, seen: set[int] | None = None
+) -> None:
+    if not isinstance(value, (Mapping, list, tuple, set, frozenset)):
+        return
+    visited = seen if seen is not None else set()
+    marker = id(value)
+    if marker in visited:
+        return
+    visited.add(marker)
+
+    if isinstance(value, Mapping):
+        for key, item in value.items():
+            if is_credential_key(key):
+                raise ValueError(f"{field_name} cannot contain credential fields")
+            _reject_nested_credential_keys(item, field_name=field_name, seen=visited)
+        return
+
+    for item in value:
+        _reject_nested_credential_keys(item, field_name=field_name, seen=visited)
+
+
 class SourceApprovalStatus(StrEnum):
     """Historical acquisition/redistribution status from a source review."""
 
@@ -227,12 +255,10 @@ class SourceSettings(BaseModel):
             normalized.append(item.strip().upper())
         return tuple(dict.fromkeys(normalized))
 
-    @field_validator("filters")
+    @field_validator("filters", "features")
     @classmethod
-    def validate_filters(cls, value: Mapping[str, Any]) -> Mapping[str, Any]:
-        for key in value:
-            if _SECRET_KEY.search(str(key)):
-                raise ValueError("source filters cannot contain credential fields")
+    def validate_credential_free_mappings(cls, value: Mapping[str, Any]) -> Mapping[str, Any]:
+        _reject_nested_credential_keys(value, field_name="source configuration mappings")
         return value
 
     @model_validator(mode="after")

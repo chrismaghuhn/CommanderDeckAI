@@ -13,16 +13,11 @@ from pydantic import BaseModel, ValidationError
 
 from .dataset_settings import DatasetSettings
 from .runtime import RuntimeConfig
-from .source_settings import SourceSettings
+from .source_settings import SourceSettings, is_credential_key
 
 if TYPE_CHECKING:
     from commander_ai.application.configuration import OperationConfig
 
-_SECRET_KEY = re.compile(
-    r"(?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)"
-    r"(?![_-]?env(?:ironment)?\b)",
-    re.IGNORECASE,
-)
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)(api[_-]?key|access[_-]?token|authorization|cookie|password|secret|token)"
     r"(\s*[:=]\s*)([^,\s;}]+)"
@@ -46,12 +41,12 @@ class ConfigurationError(ValueError):
 def _redact_value(value: object) -> object:
     if isinstance(value, Mapping):
         return {
-            str(key): "[REDACTED]" if _SECRET_KEY.search(str(key)) else _redact_value(item)
+            str(key): "[REDACTED]" if is_credential_key(key) else _redact_value(item)
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
         return [_redact_value(item) for item in value]
-    if isinstance(value, set):
+    if isinstance(value, (set, frozenset)):
         return [_redact_value(item) for item in sorted(value, key=str)]
     if isinstance(value, str):
         return redact_text(value)
