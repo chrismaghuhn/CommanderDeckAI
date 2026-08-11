@@ -49,7 +49,7 @@ class SnapshotVerifier:
     """Verify raw objects and manifest digests before parsing or normalization."""
 
     def __init__(self, root: Path | str) -> None:
-        self.root = Path(root).expanduser().resolve()
+        self.root = Path(root).expanduser().absolute()
 
     def verify_complete_snapshot(self, source_id: str, snapshot_id: str) -> VerifiedSnapshot:
         inspection = self.inspect(source_id, snapshot_id)

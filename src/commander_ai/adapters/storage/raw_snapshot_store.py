@@ -26,7 +26,7 @@ class RawSnapshotStore:
     """Filesystem repository for immutable raw snapshots and their manifests."""
 
     def __init__(self, root: Path | str, *, max_object_bytes: int = 20_000_000_000) -> None:
-        self.root = Path(root).expanduser().resolve()
+        self.root = Path(root).expanduser().absolute()
         if (
             not isinstance(max_object_bytes, int)
             or isinstance(max_object_bytes, bool)

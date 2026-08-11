@@ -46,6 +46,12 @@ Digest JSON-sicher dargestellt.
 
 ## Operation runs and normalized snapshots
 
+Dataset inspection is fail-closed: the requested dataset ID, dataset-local output
+paths, declared byte counts, output hashes, row counts, and the logical content digest
+must all verify before an artifact is treated as inspectable. A failed dataset-manifest
+publication removes only the newly written, still-unreferenced Parquet output; no
+previous immutable artifact is overwritten.
+
 `run-manifest.v1` is reused for `source_sync`, `normalize`, `validate`, `report`, and
 dataset operations. A constructed run binds the full Git commit and dirty-worktree
 state where applicable, dependency-lock hash, a portable configuration path and hash
@@ -61,3 +67,12 @@ hashes and row counts, findings, quarantine references, source provenance, and
 timestamps. The frozen v1 JSON shape stays unchanged; detailed byte/row descriptors
 are verified from the typed Parquet artifacts and persisted run bindings. Parquet and
 this manifest are authoritative; the SQL tables are derived and rebuildable.
+
+Dataset builds fail closed before writing Curated Parquet unless they have a completed
+`run-manifest.v1`, a portable configuration snapshot/path, current-use decisions for
+their source inputs, and hash-verified file-backed input manifests. Current-use
+decisions are persisted as redacted policy bindings, while credentials and raw player
+identifiers are not copied into Curated payloads. The producing run must be a
+successful data-stage `dataset_build` run whose configuration hash and required input
+references match the dataset request; a historical source status outside the local
+approval allowlist blocks the build even when the current-use decision says ALLOWED.

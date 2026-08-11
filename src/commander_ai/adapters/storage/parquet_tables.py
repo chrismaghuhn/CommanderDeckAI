@@ -60,7 +60,7 @@ class ParquetTableWriter:
     """Write immutable row-json Parquet tables below one configured artifact root."""
 
     def __init__(self, root: Path | str) -> None:
-        self.root = Path(root).expanduser().resolve()
+        self.root = Path(root).expanduser().absolute()
 
     def write_table(
         self,
@@ -115,6 +115,7 @@ class ParquetTableWriter:
             }
         )
         temporary_path: Path | None = None
+        published = False
         try:
             descriptor, name = _temporary_path(final_path.parent)
             os.close(descriptor)
@@ -132,8 +133,14 @@ class ParquetTableWriter:
             with temporary_path.open("r+b") as stream:
                 os.fsync(stream.fileno())
             publish_new(temporary_path, final_path)
+            published = True
             temporary_path = None
             fsync_directory(final_path.parent)
+        except Exception:
+            if published:
+                with suppress(FileNotFoundError):
+                    final_path.unlink()
+            raise
         finally:
             if temporary_path is not None:
                 with suppress(FileNotFoundError):

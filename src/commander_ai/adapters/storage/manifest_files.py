@@ -35,7 +35,7 @@ class ManifestFileWriter:
     """Publish immutable manifest/config bytes beneath one portable artifact root."""
 
     def __init__(self, root: Path | str) -> None:
-        self.root = Path(root).expanduser().resolve()
+        self.root = Path(root).expanduser().absolute()
 
     def write_run_manifest(
         self,
@@ -51,11 +51,17 @@ class ManifestFileWriter:
         manifest_payload = run_manifest_bytes(manifest)
         if validate_portable_relative_path(manifest_path) == manifest.configuration.path:
             raise ValueError("run manifest and configuration paths must differ")
-        configuration = self.write_json(
-            manifest.configuration.path,
-            configuration_payload,
-        )
-        manifest_artifact = self.write_json(manifest_path, manifest_payload)
+        configuration: JsonArtifact | None = None
+        try:
+            configuration = self.write_json(
+                manifest.configuration.path,
+                configuration_payload,
+            )
+            manifest_artifact = self.write_json(manifest_path, manifest_payload)
+        except Exception:
+            if configuration is not None:
+                self._remove_published(configuration.path)
+            raise
         return manifest_artifact, configuration
 
     def write_normalized_manifest(
@@ -65,15 +71,21 @@ class ManifestFileWriter:
         manifest_path: str,
     ) -> tuple[JsonArtifact, JsonArtifact]:
         validate_normalized_snapshot_manifest(build.manifest, build.table_artifacts)
-        manifest_artifact = self.write_json(
-            manifest_path,
-            normalized_snapshot_manifest_bytes(build),
-        )
-        sidecar_path = _sidecar_path(manifest_path)
-        sidecar = self.write_json(
-            sidecar_path,
-            f"{normalized_snapshot_manifest_sha256(build)}\n".encode("ascii"),
-        )
+        manifest_artifact: JsonArtifact | None = None
+        try:
+            manifest_artifact = self.write_json(
+                manifest_path,
+                normalized_snapshot_manifest_bytes(build),
+            )
+            sidecar_path = _sidecar_path(manifest_path)
+            sidecar = self.write_json(
+                sidecar_path,
+                f"{normalized_snapshot_manifest_sha256(build)}\n".encode("ascii"),
+            )
+        except Exception:
+            if manifest_artifact is not None:
+                self._remove_published(manifest_artifact.path)
+            raise
         return manifest_artifact, sidecar
 
     def write_normalized_table_artifact_index(
@@ -95,7 +107,13 @@ class ManifestFileWriter:
         try:
             publish_new(temporary, final_path)
             published = True
-            fsync_directory(final_path.parent)
+            try:
+                fsync_directory(final_path.parent)
+            except Exception:
+                with suppress(FileNotFoundError):
+                    final_path.unlink()
+                published = False
+                raise
         finally:
             if not published:
                 with suppress(FileNotFoundError):
@@ -106,6 +124,11 @@ class ManifestFileWriter:
             sha256=sha256_hex(payload),
             bytes=len(payload),
         )
+
+    def _remove_published(self, relative_path: str) -> None:
+        final_path = resolve_under_root(self.root, relative_path)
+        with suppress(FileNotFoundError):
+            final_path.unlink()
 
 
 def _sidecar_path(manifest_path: str) -> str:

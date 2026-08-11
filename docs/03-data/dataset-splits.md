@@ -42,6 +42,16 @@ Kombinationen und Low-Data-Commander separat ausweisen.
 
 ## Task-13-Artefakte
 
+Dataset-Builder wenden die konfigurierten Source-, Mode-, Status-, Zeit- und
+Acquisition-Approval-Filter vor der Split-Bildung an. Nicht unterstuetzte
+Inclusion-/Exclusion-Selektoren oder Filter fuer Record-Typen ohne die noetige
+Semantik werden abgewiesen statt stillschweigend ignoriert. Jede solche
+Auswahl erscheint als versionierbarer Ausschlusscode im Datasetmanifest.
+
+Die Curated-Payload-Minimierung behandelt sowohl Snake-Case- als auch
+Camel-Case-Schreibweisen gaengiger Player-, Participant-, Account- und
+Display-Identifiers als PII und ersetzt sie durch `[EXCLUDED]`.
+
 `DatasetSettings` verlangt für die implementierten Split-Builder explizite
 timezone-aware `train_until`- und `validation_until`-Cutoffs. Der
 `dataset-manifest.v2` bindet zusätzlich `dataset_kind`, Konfigurationsversion,
@@ -53,3 +63,9 @@ Der Dataset-Builder schreibt eine immutable Curated-Projektion unter
 prüft Manifest-Digest, Existenz, Hash und Row-Count jedes Outputs. Die
 Curated-Payload maskiert bekannte Player-/Account-Felder; Audit- und
 Quarantine-Informationen bleiben außerhalb dieses Trainingsartefakts.
+Jeder Dataset-Typ benötigt eine aktuelle Current-Use-Entscheidung sowie einen
+historisch zulässigen Source-Approval-Status (`APPROVED_LOCAL` oder
+`APPROVED_REDISTRIBUTION`). Run-Art, Konfigurations-Hash und alle relevanten
+Input-Bindings werden vor dem Schreiben geprüft. `inspect` rekonstruiert die
+Split-, Eligibility-, Exclusion- und Report-Bindings aus den Artefakten und
+verwirft inkonsistente Manifeste.

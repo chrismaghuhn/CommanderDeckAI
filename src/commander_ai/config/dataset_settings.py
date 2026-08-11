@@ -108,6 +108,10 @@ class DatasetSplitSettings(StrictDatasetModel):
             "extra_segments",
             tuple(dict.fromkeys(item.strip() for item in self.extra_segments if item.strip())),
         )
+        for field_name in ("train_until", "validation_until"):
+            value = getattr(self, field_name)
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError(f"{field_name} must include a timezone")
         if (self.train_until is None) != (self.validation_until is None):
             raise ValueError("train_until and validation_until must be supplied together")
         if (
@@ -116,10 +120,6 @@ class DatasetSplitSettings(StrictDatasetModel):
             and self.validation_until <= self.train_until
         ):
             raise ValueError("validation_until must follow train_until")
-        for field_name in ("train_until", "validation_until"):
-            value = getattr(self, field_name)
-            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
-                raise ValueError(f"{field_name} must include a timezone")
         return self
 
 

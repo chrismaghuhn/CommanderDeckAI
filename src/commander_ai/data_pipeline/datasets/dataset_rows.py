@@ -24,15 +24,50 @@ if TYPE_CHECKING:
 
 _PRIVATE_PAYLOAD_KEYS = frozenset(
     {
-        "account_handle",
+        "accountid",
+        "accounthandle",
+        "accountname",
         "discord",
+        "discordid",
+        "displayname",
+        "displayid",
         "email",
-        "player_handle",
-        "player_name",
-        "player_username",
-        "raw_player_name",
+        "emailaddress",
+        "handle",
+        "contactemail",
+        "contactphone",
+        "participantid",
+        "participantname",
+        "participantfullname",
+        "playerhandle",
+        "playerid",
+        "playerdisplayname",
+        "playername",
+        "playerfullname",
+        "playerusername",
+        "rawplayername",
+        "realname",
+        "screenname",
+        "userhandle",
+        "userid",
+        "username",
+        "phone",
+        "phonenumber",
     }
 )
+_PRIVATE_CONTAINER_KEYS = frozenset(
+    {
+        "account",
+        "accounts",
+        "participant",
+        "participants",
+        "player",
+        "players",
+        "user",
+        "users",
+    }
+)
+_PRIVATE_NESTED_KEYS = frozenset({"displayid", "displayname", "handle", "id", "name", "username"})
 
 
 def completion_rows(
@@ -176,16 +211,39 @@ def safe_payload(value: Mapping[str, object]) -> dict[str, object]:
     return result
 
 
-def _safe_value(value: object, *, key: str | None = None) -> object:
-    if key is not None and key.casefold() in _PRIVATE_PAYLOAD_KEYS:
+def _safe_value(
+    value: object,
+    *,
+    key: str | None = None,
+    private_context: bool = False,
+) -> object:
+    normalized_key = _privacy_key(key) if key is not None else None
+    if (
+        normalized_key in _PRIVATE_PAYLOAD_KEYS
+        or (
+            normalized_key in _PRIVATE_CONTAINER_KEYS
+            and not isinstance(value, (Mapping, list, tuple))
+        )
+        or (private_context and normalized_key in _PRIVATE_NESTED_KEYS)
+    ):
         return "[EXCLUDED]"
     if isinstance(value, Mapping):
+        nested_context = private_context or normalized_key in _PRIVATE_CONTAINER_KEYS
         return {
-            str(item_key): _safe_value(item, key=str(item_key)) for item_key, item in value.items()
+            str(item_key): _safe_value(
+                item,
+                key=str(item_key),
+                private_context=nested_context,
+            )
+            for item_key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
-        return [_safe_value(item) for item in value]
+        return [_safe_value(item, private_context=private_context) for item in value]
     return value
+
+
+def _privacy_key(value: str) -> str:
+    return "".join(character for character in value.casefold() if character.isalnum())
 
 
 __all__ = [

@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from commander_ai.adapters.storage import parquet_tables
 from commander_ai.adapters.storage.parquet_tables import CuratedRow, ParquetTableWriter
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
 from commander_ai.adapters.storage.snapshot_verifier import SnapshotVerifier
@@ -139,6 +140,25 @@ def test_curated_rows_require_the_explicit_curated_contract(tmp_path: Path) -> N
         row_contract=CuratedRow,
     )
     assert artifact.rows == 1
+
+
+def test_parquet_writer_removes_published_file_when_directory_fsync_fails(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    def fail_fsync(_directory: Path) -> None:
+        raise OSError("directory durability failure")
+
+    monkeypatch.setattr(parquet_tables, "fsync_directory", fail_fsync)
+
+    with pytest.raises(OSError, match="directory durability failure"):
+        ParquetTableWriter(tmp_path).write_table(
+            "curated",
+            [CuratedRow(curated_id="deck-1", values={"record_id": "deck-1"})],
+            layer="curated",
+            row_contract=CuratedRow,
+        )
+
+    assert not (tmp_path / "curated/curated.parquet").exists()
 
 
 def test_source_locators_are_verified_against_raw_index_and_logical_rows_are_unique(
