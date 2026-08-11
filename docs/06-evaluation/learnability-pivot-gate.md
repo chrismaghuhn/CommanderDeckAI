@@ -235,6 +235,8 @@ Qualitative Platzhalter wie „genug Decks“, „ausreichende Commander-Abdecku
 
 Die konkreten Zahlen werden bewusst nicht in diesem Architekturtext erfunden. Sie müssen aus dem bis dahin gemessenen Datenbestand abgeleitet und **vor** dem ersten entscheidenden M4-Validation-Lauf preregistriert werden. Sobald sie für Benchmark v1 committed sind, dürfen sie nicht anhand der beobachteten Gate-Ergebnisse nachjustiert werden.
 
+Die zulässige Ableitungsmethode und der Git-/Run-Nachweis sind im M4-Milestone-Contract festgelegt: `docs/09-roadmap/milestones/M4-benchmark-freeze.md`. Insbesondere dürfen die numerischen Mindestwerte nur aus outcome-blinden deskriptiven Bestands-/Coverage-Statistiken abgeleitet werden; das finale Freeze-Profil muss vor dem ersten entscheidenden Validation-Run in dessen Git-Ancestry liegen und über Pfad/Hash/Commit-SHA referenziert werden.
+
 Sobald diese Mindestbedingungen erfüllt sind, wird Benchmark v1 eingefroren. M4 darf dann nicht verzögert werden, nur weil eine zusätzliche Quelle, mehr historische Abdeckung oder „noch sauberere“ Infrastruktur wünschenswert wäre.
 
 Insbesondere sind TopDeck/Spicerack **keine Voraussetzung** für den Completion-Benchmark, wenn dessen preregistrierte Mindestbedingungen ohne sie erfüllt sind. Später verfügbare Daten können Benchmark v2 speisen; Benchmark v1 bleibt unverändert.
