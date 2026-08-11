@@ -6,7 +6,7 @@ import json
 import re
 from collections.abc import Mapping, Sequence
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel, ValidationError
@@ -23,20 +23,20 @@ if TYPE_CHECKING:
 
 _SECRET_ASSIGNMENT = re.compile(
     r"(?i)(api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)"
-    r"(\s*[:=]\s*)([^,\s;}]+)"
+    r"(\s*[:=]\s*)([^,\s;}&\]\)\"']+)"
 )
 _BEARER_BASIC_VALUE = re.compile(
     r"(?i)(?<![\w-])"
     r"(?P<label>(?:(?:proxy-)?authorization\s*[:=]\s*)?)"
-    r"(?P<scheme>bearer|basic)\s+(?P<value>[^,\s;}]+)"
+    r"(?P<scheme>bearer|basic)\s+(?P<value>[^,\s;}&\]\)\"']+)"
 )
 _SECRET_QUERY_PARAMETER = re.compile(
     r"(?i)([?&](?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)=)"
-    r"[^&#\s]+"
+    r"[^&#\s,;}&\]\)\"']+"
 )
-_SOURCE_SETTINGS_ENV_FIELDS = frozenset(
-    {"api_key_env", "credential_env_vars", "user_agent_env"}
-)
+_URL_USERINFO = re.compile(r"(?i)(?P<scheme>\bhttps?://)(?P<userinfo>[^/\s?#@]+)@")
+_SOURCE_SETTINGS_ENV_FIELDS = frozenset({"api_key_env", "credential_env_vars", "user_agent_env"})
+_MISSING = object()
 
 
 class _DuplicateYamlKeyError(yaml.constructor.ConstructorError):  # type: ignore[misc]
@@ -101,22 +101,94 @@ def _is_safe_source_environment_field(key: object, value: object) -> bool:
     return is_environment_name(value)
 
 
-def _redact_value(value: object, *, allow_source_environment_fields: bool = False) -> object:
-    if isinstance(value, Mapping):
-        return {
-            str(key): (
-                item
-                if allow_source_environment_fields and _is_safe_source_environment_field(key, item)
-                else "[REDACTED]"
-                if is_credential_key(key)
-                else _redact_value(item)
+def _is_environment_key(key: object) -> bool:
+    return str(key).casefold().endswith(("_env", "_env_vars"))
+
+
+def _serialized_item(serialized: object, key: object) -> object:
+    if not isinstance(serialized, Mapping):
+        return _MISSING
+    if key in serialized:
+        return serialized[key]
+    return serialized.get(str(key), _MISSING)
+
+
+def _redact_mapping(
+    value: Mapping[Any, Any],
+    *,
+    serialized: object = _MISSING,
+    allow_source_environment_fields: bool = False,
+) -> dict[str, object]:
+    redacted: dict[str, object] = {}
+    for key, item in value.items():
+        key_text = str(key)
+        serialized_value = _serialized_item(serialized, key)
+        if allow_source_environment_fields and _is_safe_source_environment_field(key, item):
+            redacted[key_text] = _redact_value(
+                item if serialized_value is _MISSING else serialized_value
             )
-            for key, item in value.items()
-        }
+        elif is_credential_key(key) or _is_environment_key(key):
+            redacted[key_text] = "[REDACTED]"
+        else:
+            redacted[key_text] = _redact_model_field(item, serialized_value)
+    return redacted
+
+
+def _redact_model_field(original: object, serialized: object) -> object:
+    if original is _MISSING:
+        return _redact_value(serialized)
+    if isinstance(original, BaseModel):
+        return _redact_value(original)
+    if isinstance(original, Mapping):
+        return _redact_mapping(original, serialized=serialized)
+    if isinstance(original, (list, tuple)):
+        serialized_items = list(serialized) if isinstance(serialized, Sequence) else []
+        return [
+            _redact_model_field(
+                item,
+                serialized_items[index] if index < len(serialized_items) else _MISSING,
+            )
+            for index, item in enumerate(original)
+        ]
+    if isinstance(original, (set, frozenset)):
+        return [_redact_value(item) for item in sorted(original, key=str)]
+    return _redact_value(serialized if serialized is not _MISSING else original)
+
+
+def _redact_model(value: BaseModel) -> dict[str, object]:
+    if isinstance(value, RuntimeConfig):
+        return _redact_mapping(value.portable_snapshot())
+    if isinstance(value, SourceSettings):
+        return _redact_mapping(
+            value.model_dump(mode="json"),
+            allow_source_environment_fields=True,
+        )
+
+    serialized = value.model_dump(mode="json")
+    return {
+        str(key): (
+            "[REDACTED]"
+            if is_credential_key(key) or _is_environment_key(key)
+            else _redact_model_field(getattr(value, key, _MISSING), item)
+        )
+        for key, item in serialized.items()
+    }
+
+
+def _redact_value(value: object, *, allow_source_environment_fields: bool = False) -> object:
+    if isinstance(value, BaseModel):
+        return _redact_model(value)
+    if isinstance(value, Mapping):
+        return _redact_mapping(
+            value,
+            allow_source_environment_fields=allow_source_environment_fields,
+        )
     if isinstance(value, (list, tuple)):
         return [_redact_value(item) for item in value]
     if isinstance(value, (set, frozenset)):
         return [_redact_value(item) for item in sorted(value, key=str)]
+    if isinstance(value, Path):
+        return redact_text(value.as_posix())
     if isinstance(value, str):
         return redact_text(value)
     return value
@@ -129,6 +201,7 @@ def redact_text(text: str, secret_values: Sequence[str] = ()) -> str:
     for secret in secret_values:
         if secret:
             redacted = redacted.replace(secret, "[REDACTED]")
+    redacted = _URL_USERINFO.sub(r"\g<scheme>[REDACTED]@", redacted)
     redacted = _BEARER_BASIC_VALUE.sub(r"\g<label>\g<scheme> [REDACTED]", redacted)
     redacted = _SECRET_QUERY_PARAMETER.sub(r"\1[REDACTED]", redacted)
     redacted = _SECRET_ASSIGNMENT.sub(r"\1[REDACTED]", redacted)
@@ -138,18 +211,9 @@ def redact_text(text: str, secret_values: Sequence[str] = ()) -> str:
 def serialize_config(config: BaseModel | Mapping[str, object]) -> dict[str, object]:
     """Return a JSON-compatible config snapshot with credential values redacted."""
 
-    if isinstance(config, BaseModel):
-        data = config.model_dump(mode="json")
-        allow_source_environment_fields = isinstance(config, SourceSettings)
-    elif isinstance(config, Mapping):
-        data = dict(config)
-        allow_source_environment_fields = False
-    else:
+    if not isinstance(config, (BaseModel, Mapping)):
         raise TypeError("config must be a Pydantic model or mapping")
-    redacted = _redact_value(
-        data,
-        allow_source_environment_fields=allow_source_environment_fields,
-    )
+    redacted = _redact_value(config)
     if not isinstance(redacted, dict):
         raise TypeError("serialized config must be a mapping")
     return redacted
@@ -181,9 +245,7 @@ def load_config[ModelT: BaseModel](path: Path | str, model: type[ModelT]) -> Mod
     try:
         raw = yaml.load(config_path.read_text(encoding="utf-8"), Loader=_StrictSafeLoader)
     except _DuplicateYamlKeyError as error:
-        raise ConfigurationError(
-            redact_text(f"{config_path}: duplicate YAML key")
-        ) from error
+        raise ConfigurationError(redact_text(f"{config_path}: duplicate YAML key")) from error
     except (OSError, yaml.YAMLError) as error:
         raise ConfigurationError(
             redact_text(f"{config_path}: unable to read configuration")

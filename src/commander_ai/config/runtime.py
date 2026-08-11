@@ -9,9 +9,17 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from commander_ai.domain.provenance import validate_portable_relative_path
 
+_REPOSITORY_ROOT_MARKER = "<repository-root>"
+_EXTERNAL_ROOT_MARKER = "<external-root>"
+
 
 class RuntimeConfig(BaseModel):
-    """Global paths anchored to the repository, not the process working directory."""
+    """Global paths anchored to the repository, not the process working directory.
+
+    Filesystem operations use resolved absolute roots. Persisted snapshots should use
+    :meth:`portable_snapshot`, which emits repository-relative POSIX roots and opaque
+    markers for roots outside the repository.
+    """
 
     model_config = ConfigDict(extra="forbid", frozen=True, hide_input_in_errors=True)
 
@@ -26,12 +34,16 @@ class RuntimeConfig(BaseModel):
 
     @model_validator(mode="after")
     def normalize_roots(self) -> RuntimeConfig:
-        repository_root = Path(__file__).resolve().parents[3]
+        repository_root = self._repository_root()
         data_root = self._resolve_root(self.data_root, repository_root)
         artifact_root = self._resolve_root(self.artifact_root, repository_root)
         object.__setattr__(self, "data_root", data_root)
         object.__setattr__(self, "artifact_root", artifact_root)
         return self
+
+    @staticmethod
+    def _repository_root() -> Path:
+        return Path(__file__).resolve().parents[3]
 
     @staticmethod
     def _resolve_root(path: Path, repository_root: Path) -> Path:
@@ -65,6 +77,34 @@ class RuntimeConfig(BaseModel):
         """Return a validated POSIX path relative to the configured data root."""
 
         return self._portable_path(path, self.data_root)
+
+    def portable_snapshot(self) -> dict[str, object]:
+        """Return the runtime config with portable, non-machine-specific root values."""
+
+        return {
+            "schema_version": self.schema_version,
+            "data_root": self.portable_root_reference(self.data_root),
+            "artifact_root": self.portable_root_reference(self.artifact_root),
+            "default_timeout_seconds": self.default_timeout_seconds,
+            "default_max_retries": self.default_max_retries,
+            "default_rate_limit_per_minute": self.default_rate_limit_per_minute,
+            "default_max_pages": self.default_max_pages,
+            "default_max_download_bytes": self.default_max_download_bytes,
+        }
+
+    @classmethod
+    def portable_root_reference(cls, path: Path | str) -> str:
+        """Represent a root relative to the repository or as an opaque external marker."""
+
+        candidate = cls._resolve_root(Path(path), cls._repository_root())
+        repository_root = cls._repository_root()
+        try:
+            relative = candidate.relative_to(repository_root)
+        except ValueError:
+            return _EXTERNAL_ROOT_MARKER
+        if relative == Path("."):
+            return _REPOSITORY_ROOT_MARKER
+        return validate_portable_relative_path(relative.as_posix())
 
     @staticmethod
     def _require_below_root(candidate: Path, root: Path) -> None:

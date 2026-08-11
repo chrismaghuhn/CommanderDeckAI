@@ -6,17 +6,24 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel, ValidationError
 
-from commander_ai.application.configuration import OperationConfig
+from commander_ai.application.configuration import OperationConfig, ResolvedConfiguration
 from commander_ai.config import load_permission_gated_catalog
 from commander_ai.config.current_use_policy import CurrentUseDecision, CurrentUsePolicy
 from commander_ai.config.dataset_settings import DatasetSettings
 from commander_ai.config.runtime import RuntimeConfig
+from commander_ai.config.source_registry import (
+    HistoricalApprovalMetadata,
+    SourceRegistry,
+    SourceRegistryEntry,
+)
 from commander_ai.config.source_settings import SourceApprovalStatus, SourceSettings
 from commander_ai.config.yaml_loader import (
     ConfigurationError,
     load_dataset_settings,
     load_source_settings,
+    redact_text,
     serialize_config,
+    serialize_config_json,
 )
 
 
@@ -104,6 +111,36 @@ def test_default_runtime_roots_are_repository_anchored_not_cwd(
     assert runtime.artifact_root == (repository_root / "portable-artifacts").resolve()
 
 
+def test_serialized_runtime_roots_are_repository_relative_or_opaque_external_markers(
+    tmp_path: Path,
+) -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    runtime = RuntimeConfig(
+        data_root=repository_root / "data" / "raw",
+        artifact_root=tmp_path / "artifacts",
+    )
+
+    serialized = serialize_config(runtime)
+    serialized_json = serialize_config_json(runtime)
+
+    assert serialized["data_root"] == "data/raw"
+    assert serialized["artifact_root"] == "<external-root>"
+    assert str(repository_root) not in serialized_json
+    assert str(tmp_path) not in serialized_json
+    assert '"data_root":"data/raw"' in serialized_json
+    assert '"artifact_root":"<external-root>"' in serialized_json
+
+
+def test_serialized_repository_root_uses_a_non_path_marker() -> None:
+    repository_root = Path(__file__).resolve().parents[3]
+    serialized = serialize_config(
+        RuntimeConfig(data_root=repository_root, artifact_root=repository_root)
+    )
+
+    assert serialized["data_root"] == "<repository-root>"
+    assert serialized["artifact_root"] == "<repository-root>"
+
+
 def test_source_ids_and_statuses_are_normalized() -> None:
     settings = SourceSettings.model_validate(minimal_source_payload())
 
@@ -170,6 +207,70 @@ def test_top_level_source_credential_environment_names_are_preserved() -> None:
     assert serialized["credential_env_vars"] == ["TOPDECK_TOKEN"]
 
 
+def test_nested_source_settings_environment_names_are_preserved_in_registry_and_application(
+    tmp_path: Path,
+) -> None:
+    settings = SourceSettings(
+        source_id="example_source",
+        approval_status=SourceApprovalStatus.PROPOSED,
+        api_key_env="EXAMPLE_API_KEY",
+        credential_env_vars=("EXAMPLE_TOKEN",),
+        user_agent_env="EXAMPLE_USER_AGENT",
+    )
+    historical = HistoricalApprovalMetadata(
+        source_id="example_source",
+        approval_status=SourceApprovalStatus.PROPOSED,
+        review_path="docs/03-data/source-reviews/example.md",
+        reviewed_at=datetime(2026, 8, 10, tzinfo=UTC),
+        effective_at=datetime(2026, 8, 10, tzinfo=UTC),
+        reason="fixture review",
+    )
+    registry = SourceRegistry(
+        entries=(
+            SourceRegistryEntry(
+                source_id="example_source",
+                settings=settings,
+                historical_approval=historical,
+            ),
+        )
+    )
+    resolved = ResolvedConfiguration(
+        runtime=RuntimeConfig(data_root=tmp_path / "data", artifact_root=tmp_path / "artifacts"),
+        operation=OperationConfig(operation="normalize", source_id="example_source"),
+        source=settings,
+    )
+
+    registry_settings = serialize_config(registry)["entries"][0]["settings"]
+    application_settings = serialize_config(resolved)["source"]
+
+    for serialized_settings in (registry_settings, application_settings):
+        assert serialized_settings["api_key_env"] == "EXAMPLE_API_KEY"
+        assert serialized_settings["credential_env_vars"] == ["EXAMPLE_TOKEN"]
+        assert serialized_settings["user_agent_env"] == "EXAMPLE_USER_AGENT"
+
+
+def test_untrusted_nested_environment_keys_are_redacted() -> None:
+    serialized = serialize_config(
+        {
+            "settings": SourceSettings(
+                source_id="example_source",
+                approval_status=SourceApprovalStatus.PROPOSED,
+                api_key_env="EXAMPLE_API_KEY",
+            ),
+            "metadata": {
+                "nested": {
+                    "user_agent_env": "not-a-valid-environment-name",
+                    "service_env": "actual-secret",
+                }
+            },
+        }
+    )
+
+    assert serialized["settings"]["api_key_env"] == "EXAMPLE_API_KEY"
+    assert serialized["metadata"]["nested"]["user_agent_env"] == "[REDACTED]"
+    assert serialized["metadata"]["nested"]["service_env"] == "[REDACTED]"
+
+
 def test_nested_serialization_redacts_bare_authorization_values() -> None:
     nested = serialize_config(
         {
@@ -184,6 +285,55 @@ def test_nested_serialization_redacts_bare_authorization_values() -> None:
     assert "bearer-secret" not in nested_text
     assert "basic-secret" not in nested_text
     assert "actual-secret" not in nested_text
+
+
+def test_redact_text_removes_url_userinfo_and_credential_bearing_forms() -> None:
+    value = (
+        "https://user:pass@example.com/data?api_key=query-secret&safe=1; "
+        "Bearer bearer-secret; Basic basic-secret; token=assignment-secret"
+    )
+
+    redacted = redact_text(value)
+
+    assert "user" not in redacted
+    assert "pass" not in redacted
+    assert "query-secret" not in redacted
+    assert "bearer-secret" not in redacted
+    assert "basic-secret" not in redacted
+    assert "assignment-secret" not in redacted
+    assert "https://[REDACTED]@example.com" in redacted
+
+
+def test_current_use_takedown_reference_is_redacted_in_direct_dumps_and_snapshots() -> None:
+    decision = CurrentUseDecision(
+        source_id="example_source",
+        status="TAKEDOWN",
+        reason="fixture takedown",
+        effective_at=datetime(2026, 8, 10, tzinfo=UTC),
+        takedown_reference=("https://user:pass@example.com/takedown?token=query-secret"),
+    )
+
+    direct_dump = decision.model_dump()
+    serialized = serialize_config(decision)
+
+    assert "user" not in str(direct_dump)
+    assert "pass" not in str(direct_dump)
+    assert "query-secret" not in str(direct_dump)
+    assert "user" not in str(serialized)
+    assert "pass" not in str(serialized)
+    assert "query-secret" not in str(serialized)
+
+
+def test_current_use_takedown_reference_dump_is_safe_after_unvalidated_model_copy() -> None:
+    decision = CurrentUseDecision(
+        source_id="example_source",
+        status="TAKEDOWN",
+        reason="fixture takedown",
+        effective_at=datetime(2026, 8, 10, tzinfo=UTC),
+    ).model_copy(update={"takedown_reference": "https://user:pass@example.com/takedown"})
+
+    assert "user" not in str(decision.model_dump())
+    assert "pass" not in str(decision.model_dump())
 
 
 def test_current_use_reason_redacts_bearer_and_other_credential_forms() -> None:

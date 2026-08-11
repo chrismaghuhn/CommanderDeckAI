@@ -8,9 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 from .source_settings import SourceApprovalStatus, normalize_source_id
 
-_PERMISSION_GATED_STATUSES = frozenset(
-    {SourceApprovalStatus.PAUSED, SourceApprovalStatus.PROPOSED}
-)
+_PERMISSION_GATED_STATUSES = frozenset({SourceApprovalStatus.PAUSED, SourceApprovalStatus.PROPOSED})
 
 
 class PermissionGatedSource(BaseModel):

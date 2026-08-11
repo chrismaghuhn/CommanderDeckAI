@@ -1,3 +1,5 @@
 # Config
 
 Typisierte Loader für kleine YAML-Dateien. Runtime-, Source-, Dataset- und Operation-Konfigurationen sind getrennt und lehnen unbekannte Felder ab. Secrets kommen aus Environment/Secret Store; persistiert werden nur Env-Namen und redigierte, aufgelöste Snapshots. Source-Registry und current-use policy halten historische Approval-Metadaten von späteren Takedown-/Nutzungsentscheidungen getrennt.
+
+Aufgelöste Config-Snapshots serialisieren `RuntimeConfig.data_root` und `artifact_root` als POSIX-Pfade relativ zum Repository-Root (`data`, `artifacts`, `data/raw` usw.). Der Repository-Root selbst wird als `<repository-root>` dargestellt. Ein Root, der außerhalb des Repository-Roots liegt, wird ausschließlich als der feste Marker `<external-root>` gespeichert; dieser Marker bewahrt die Information über einen externen Root, leakt aber keinen maschinenabhängigen absoluten Pfad und ist kein Reload-Pfad. Intern bleiben beide Felder absolute `Path`-Werte, und die Root-Containment-Prüfungen für Dateioperationen bleiben unverändert.

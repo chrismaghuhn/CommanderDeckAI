@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
 from .source_settings import SourceApprovalStatus, normalize_source_id
 from .yaml_loader import redact_text
@@ -80,10 +80,14 @@ class CurrentUseDecision(BaseModel):
     decision_id: str = Field(default="current-use.v1", min_length=1)
     takedown_reference: str | None = Field(default=None, min_length=1)
 
-    @field_validator("reason")
+    @field_validator("reason", "takedown_reference")
     @classmethod
-    def redact_reason(cls, value: str) -> str:
+    def redact_sensitive_text(cls, value: str) -> str:
         return redact_text(value)
+
+    @field_serializer("takedown_reference")
+    def serialize_takedown_reference(self, value: str | None) -> str | None:
+        return None if value is None else redact_text(value)
 
     @field_validator("source_id")
     @classmethod
