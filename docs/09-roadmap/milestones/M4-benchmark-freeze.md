@@ -36,6 +36,36 @@ Qualitative Platzhalter wie „genug Decks“, „ausreichende Coverage“ oder 
 
 Die konkreten Zahlen werden nicht in diesem Milestone-Dokument geraten. Sie werden aus den bis dahin gemessenen Daten abgeleitet und vor dem ersten entscheidenden M4-Validation-Lauf preregistriert. Danach dürfen sie für Benchmark v1 nicht anhand der beobachteten Gate-Ergebnisse verändert werden.
 
+### Ableitungsregel für numerische Mindestwerte
+
+Die Ableitung darf ausschließlich auf **deskriptiven Datenbestands- und Coverage-Statistiken** beruhen, die vor dem ersten entscheidenden M4-Validation-Lauf erzeugt wurden. Zulässige Inputs sind zum Beispiel Deck-/Command-Zone-Counts, Zeitabdeckung, Splitgrößen, Missingness und Segmentgrößen. B0–B6-, DeepSets-, Gate- oder Testmetriken dürfen nicht in die Ableitung der Mindestwerte einfließen.
+
+Für jeden numerischen Mindestwert wird im Freeze-Profil oder einem referenzierten Ableitungsreport festgehalten:
+
+- welche deskriptive Eingangsmetrik verwendet wurde;
+- aus welchem Dataset-/Snapshot-Manifest und Hash sie stammt;
+- welche deterministische Ableitungsmethode verwendet wurde, zum Beispiel absolute operationale Untergrenze oder explizit definierte Quantil-/Verteilungsregel;
+- alle Parameter der Ableitungsmethode;
+- Rundungs- und Tie-Break-Regeln;
+- der daraus resultierende konkrete Mindestwert.
+
+Eine Formulierung wie „nach Sichtung der Daten festgelegt“ reicht nicht. Die Methode muss so beschrieben sein, dass eine zweite Person aus denselben deskriptiven Inputs denselben Wert berechnen kann. Manuelles Nachjustieren anhand später sichtbarer Baseline-, Validation-, Gate- oder Testresultate ist für Benchmark v1 unzulässig.
+
+Falls sich aus den deskriptiven Daten keine belastbare numerische Mindestbedingung ableiten lässt, wird das als offene Benchmark-Designentscheidung dokumentiert und vor M4 gelöst; es darf nicht während oder nach dem ersten entscheidenden Validation-Lauf improvisiert werden.
+
+### Git-Provenienz des Freeze-Profils
+
+Das Freeze-Profil und sein Ableitungsreport müssen in Git committed sein, **bevor** der erste entscheidende M4-Validation-Lauf gestartet wird.
+
+Der Nachweis basiert nicht nur auf einem Commit-Zeitstempel. Der Commit, der das finale Benchmark-v1-Freeze-Profil enthält, muss ein Ancestor des `git_commit` des ersten entscheidenden Validation-Runs sein. Der Run referenziert zusätzlich mindestens:
+
+- `freeze_profile_commit_sha`;
+- Pfad und SHA-256 des Freeze-Profils;
+- Pfad und SHA-256 des Ableitungsreports, falls separat;
+- die gebundenen Dataset-/Snapshot-Manifest-IDs und -Hashes.
+
+Damit ist im Git-/Run-Verlauf nachweisbar, dass die Schwellen vor dem Ergebnis existierten. Ein späterer Commit darf die Benchmark-v1-Werte nicht rückwirkend ändern; Änderungen erzeugen eine neue Benchmark-/Gate-Version. Ein signierter Tag oder eine zusätzliche Attestation kann später ergänzt werden, ist für v1 aber nicht erforderlich, solange Commit-Ancestry und Run-Provenienz eindeutig sind.
+
 G2 wird erst in M5 ausgeführt, seine Vergleichsregel wird aber bereits mit Benchmark v1 preregistriert. Dadurch kann die Schwelle nicht nach Sichtung der Matrix-Factorization-Ergebnisse verschoben werden.
 
 Sobald diese Mindestbedingungen erfüllt sind, wird Benchmark v1 eingefroren. Zusätzliche Quellen, schönere Reports, größere historische Coverage oder weitere Plattform-Infrastruktur dürfen den Freeze dann nicht verschieben.
@@ -68,6 +98,8 @@ Die Gate-Entscheidung ist mechanisch. Ein knapp verfehlter preregistrierter Marg
 - Baselines auf identischen Pools;
 - Testset nicht für Tuning verwendet;
 - Freeze-Profil enthält konkrete numerische Mindestwerte statt qualitativer Platzhalter;
+- numerische Mindestwerte sind über eine reproduzierbare, outcome-blinde Ableitungsregel dokumentiert;
+- Freeze-Profil-Commit ist Ancestor des ersten entscheidenden Validation-Run-Commits und wird im Run referenziert;
 - Freeze-Profil und G0/G1/G2-Margins vor entscheidenden Validation-Ergebnissen committed;
 - B0–B5 gegen die eingefrorene Learnability-Leiter ausgewertet;
 - High-/Low-Data-/Cold-Commander- und weitere geschützte Segmente gemäß Freeze-Profil berichtet;
