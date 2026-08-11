@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-import re
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import BaseModel, ConfigDict, Field, ValidationInfo, field_validator, model_validator
 
 from commander_ai.config.source_settings import SourceSettings
 
@@ -17,7 +16,8 @@ class MTGJSONProduct(StrEnum):
     ALL_DECK_FILES = "AllDeckFiles"
 
 
-_SUFFIX = re.compile(r"^\.[A-Za-z0-9]+(?:\.[A-Za-z0-9]+)*$")
+OFFICIAL_ARCHIVE_EXTENSION = ".json.zip"
+OFFICIAL_CHECKSUM_SUFFIX = ".sha256"
 
 
 class MTGJSONSettings(BaseModel):
@@ -27,8 +27,9 @@ class MTGJSONSettings(BaseModel):
 
     source: SourceSettings
     products: tuple[MTGJSONProduct, ...]
-    archive_extension: str = Field(default=".json.zip", min_length=2)
-    checksum_suffix: str | None = Field(default=".sha256", min_length=2)
+    archive_extension: str = Field(default=OFFICIAL_ARCHIVE_EXTENSION, min_length=2)
+    checksum_suffix: str = Field(default=OFFICIAL_CHECKSUM_SUFFIX, min_length=2)
+    checksum_required: bool = True
     checksum_max_bytes: int = Field(default=4096, ge=1, le=1_000_000)
     adapter_version: str = Field(default="mtgjson-v1", min_length=1)
 
@@ -48,11 +49,21 @@ class MTGJSONSettings(BaseModel):
 
     @field_validator("archive_extension", "checksum_suffix")
     @classmethod
-    def validate_suffix(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if _SUFFIX.fullmatch(value) is None:
-            raise ValueError("MTGJSON file suffix must be a portable dotted suffix")
+    def validate_suffix(cls, value: str, info: ValidationInfo) -> str:
+        expected = (
+            OFFICIAL_ARCHIVE_EXTENSION
+            if info.field_name == "archive_extension"
+            else OFFICIAL_CHECKSUM_SUFFIX
+        )
+        if value != expected:
+            raise ValueError(f"MTGJSON files must use the documented {expected} suffix")
+        return value
+
+    @field_validator("checksum_required")
+    @classmethod
+    def require_checksum_sidecar(cls, value: bool) -> bool:
+        if value is not True:
+            raise ValueError("MTGJSON acquisition requires a checksum sidecar")
         return value
 
     @model_validator(mode="after")
@@ -78,6 +89,7 @@ class MTGJSONSettings(BaseModel):
         allowed_filters = {
             "archive_extension",
             "checksum_suffix",
+            "checksum_required",
             "checksum_max_bytes",
             "files",
         }
@@ -98,8 +110,9 @@ class MTGJSONSettings(BaseModel):
         return cls(
             source=source,
             products=products,
-            archive_extension=filters.get("archive_extension", ".json.zip"),
-            checksum_suffix=filters.get("checksum_suffix", ".sha256"),
+            archive_extension=filters.get("archive_extension", OFFICIAL_ARCHIVE_EXTENSION),
+            checksum_suffix=filters.get("checksum_suffix", OFFICIAL_CHECKSUM_SUFFIX),
+            checksum_required=filters.get("checksum_required", True),
             checksum_max_bytes=filters.get("checksum_max_bytes", 4096),
             adapter_version=adapter_version,
         )
@@ -111,9 +124,7 @@ class MTGJSONSettings(BaseModel):
     def archive_url(self, product: MTGJSONProduct | str) -> str:
         return f"{self.source.endpoints[0].rstrip('/')}/{self.archive_filename(product)}"
 
-    def checksum_url(self, product: MTGJSONProduct | str) -> str | None:
-        if self.checksum_suffix is None:
-            return None
+    def checksum_url(self, product: MTGJSONProduct | str) -> str:
         return f"{self.archive_url(product)}{self.checksum_suffix}"
 
     def _require_product(self, product: MTGJSONProduct | str) -> MTGJSONProduct:
@@ -141,4 +152,9 @@ def _configured_products(value: object) -> tuple[MTGJSONProduct, ...] | None:
     return products
 
 
-__all__ = ["MTGJSONProduct", "MTGJSONSettings"]
+__all__ = [
+    "OFFICIAL_ARCHIVE_EXTENSION",
+    "OFFICIAL_CHECKSUM_SUFFIX",
+    "MTGJSONProduct",
+    "MTGJSONSettings",
+]

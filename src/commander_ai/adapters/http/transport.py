@@ -23,6 +23,7 @@ from .redaction import (
     sanitize_request_metadata,
 )
 from .redirect_policy import RedirectPolicy, RedirectPolicyError
+from .response_history import validate_response_history
 
 HttpQueryValue = str | int | float | bool | None | list[str | int | float | bool | None]
 MAX_RATE_LIMIT_PER_MINUTE = 1_000_000
@@ -212,11 +213,8 @@ class HttpTransport:
         normalized_method = method.strip().upper()
         if not normalized_method:
             raise HttpTransportError("HTTP_METHOD_INVALID")
-        current_url = url
-        current_parameters = parameters
-        current_method = normalized_method
-        redirects_followed = 0
-        strip_sensitive_headers = False
+        current_url, current_parameters, current_method = url, parameters, normalized_method
+        redirects_followed, strip_sensitive_headers = 0, False
         while True:
             response = self._request_with_retries(
                 current_method,
@@ -225,6 +223,10 @@ class HttpTransport:
                 headers=headers,
                 strip_sensitive_headers=strip_sensitive_headers,
             )
+            history_error = validate_response_history(response, self._policy)
+            if history_error is not None:
+                response.close()
+                raise HttpTransportError(history_error)
             if response.status_code not in {301, 302, 303, 307, 308}:
                 if response.status_code >= 400:
                     response.close()
@@ -246,10 +248,14 @@ class HttpTransport:
                 raise HttpTransportError(error.code) from None
             if not same_origin(str(response.url), next_url):
                 strip_sensitive_headers = True
-            current_method = _redirect_method(current_method, response.status_code)
+            current_method = (
+                "GET"
+                if response.status_code == 303
+                or (response.status_code in {301, 302} and current_method not in {"GET", "HEAD"})
+                else current_method
+            )
             current_url = next_url
-            current_parameters = None
-            redirects_followed += 1
+            current_parameters, redirects_followed = None, redirects_followed + 1
 
     @detached_error_boundary(HttpTransportError)
     def request_metadata(
@@ -353,12 +359,6 @@ class HttpTransport:
                 return min(parsed, self._max_retry_delay)
         delay = self._backoff_seconds * float(2**attempt)
         return min(delay, self._max_retry_delay)
-
-
-def _redirect_method(method: str, status_code: int) -> str:
-    if status_code == 303 or (status_code in {301, 302} and method not in {"GET", "HEAD"}):
-        return "GET"
-    return method
 
 
 def _query_parameters(

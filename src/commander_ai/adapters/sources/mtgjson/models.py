@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
+from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -39,6 +42,11 @@ class MTGJSONParsedRecord(DomainModel):
     dto: object | None = None
     finding_codes: tuple[str, ...] = Field(default_factory=tuple)
     findings: tuple[MTGJSONFinding, ...] = Field(default_factory=tuple)
+
+    @field_validator("source_values", mode="before")
+    @classmethod
+    def encode_non_text_source_values(cls, value: object) -> object:
+        return _json_safe_source_value(value)
 
     @field_validator("finding_codes")
     @classmethod
@@ -85,6 +93,24 @@ def finding_record(
 ) -> MTGJSONParsedRecord:
     finding = MTGJSONFinding(code=code, message=message, raw_locator=locator)
     return record_with_findings(record_type, locator, source_values, None, [finding])
+
+
+def _json_safe_source_value(value: object) -> object:
+    if isinstance(value, (bytes, bytearray, memoryview)):
+        raw = bytes(value)
+        return {
+            "encoding": "base64",
+            "data": base64.b64encode(raw).decode("ascii"),
+            "byte_length": len(raw),
+            "sha256": hashlib.sha256(raw).hexdigest(),
+        }
+    if isinstance(value, Mapping):
+        return {str(key): _json_safe_source_value(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_json_safe_source_value(item) for item in value]
+    if isinstance(value, (set, frozenset)):
+        return [_json_safe_source_value(item) for item in sorted(value, key=str)]
+    return value
 
 
 __all__ = [

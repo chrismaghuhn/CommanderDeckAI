@@ -33,6 +33,17 @@ werden verworfen. Ein Locator aus einem anderen Source-Snapshot oder mit einer
 anderen `source_id` ist ungültig. Extrahierte Dateien sind nur eine abgeleitete
 Ansicht und keine neue Raw-Identität.
 
+Vor der Persistenz wird ein Locator gegen das verifizierte Archiv und das
+abgeleitete Dokument aufgelöst: der Archivmember muss existieren, ein
+JSON-Pointer muss vorhanden sein und ein Record-Index muss im verifizierten
+Dokument liegen. Der deklarierte Produktname des Raw-Objekts und der
+Archivdateiname werden ebenfalls gegen den Parser-Produktkontext gebunden.
+Normale Karten und Kartenfaces behalten unterschiedliche exakte Pointer und
+Staging-Identitäten, damit Double-Faced- und Split-Fälle keine Locator-
+Kollision erzeugen. Nicht decodierbare Quellbytes bleiben als Audit-/Staging-
+Fehler erhalten und werden mit expliziter Base64-Kodierung, Byte-Länge und
+Digest JSON-sicher dargestellt.
+
 ## Operation runs and normalized snapshots
 
 `run-manifest.v1` is reused for `source_sync`, `normalize`, `validate`, `report`, and

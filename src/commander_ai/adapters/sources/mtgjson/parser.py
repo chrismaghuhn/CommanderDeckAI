@@ -7,6 +7,7 @@ import json
 import tarfile
 import zipfile
 from pathlib import Path
+from urllib.parse import urlsplit
 
 from commander_ai.adapters.storage.archive_safety import (
     ArchiveLimits,
@@ -54,6 +55,9 @@ class MTGJSONParser:
         product: MTGJSONProduct,
     ) -> MTGJSONParseResult:
         self._require_mtgjson_snapshot(verified_snapshot)
+        normalized_product = self._require_product_identity(
+            verified_snapshot, raw_object_id, product
+        )
         raw_path = verified_snapshot.object_paths.get(raw_object_id)
         if raw_path is None or raw_object_id not in verified_snapshot.object_index:
             raise MTGJSONParseError("INTEGRITY_OBJECT_MISSING")
@@ -76,7 +80,7 @@ class MTGJSONParser:
                     raw_object_id=raw_object_id,
                     archive_member=member_name,
                     member_bytes=member_path.read_bytes(),
-                    product=product,
+                    product=normalized_product,
                 )
             )
         return MTGJSONParseResult(tuple(records), extracted.root)
@@ -90,6 +94,10 @@ class MTGJSONParser:
         member_bytes: bytes | None = None,
         product: MTGJSONProduct,
     ) -> tuple[MTGJSONParsedRecord, ...]:
+        self._require_mtgjson_snapshot(verified_snapshot)
+        normalized_product = self._require_product_identity(
+            verified_snapshot, raw_object_id, product
+        )
         verified_member_bytes = self._read_verified_member(
             verified_snapshot, raw_object_id, archive_member
         )
@@ -125,7 +133,7 @@ class MTGJSONParser:
         member_parser = MTGJSONMemberParser(
             lambda pointer: self._locator(verified_snapshot, raw_object_id, archive_member, pointer)
         )
-        return member_parser.parse(payload, product)
+        return member_parser.parse(payload, normalized_product)
 
     @staticmethod
     def _locator(
@@ -154,6 +162,40 @@ class MTGJSONParser:
             raise MTGJSONParseError("INTEGRITY_SNAPSHOT_INVALID") from None
         if verified_snapshot.manifest.source_id != "mtgjson":
             raise MTGJSONParseError("INTEGRITY_SOURCE_MISMATCH")
+
+    @staticmethod
+    def _require_product_identity(
+        verified_snapshot: VerifiedSourceSnapshot,
+        raw_object_id: str,
+        product: MTGJSONProduct,
+    ) -> MTGJSONProduct:
+        try:
+            normalized_product = MTGJSONProduct(product)
+        except (TypeError, ValueError):
+            raise MTGJSONParseError("INTEGRITY_PRODUCT_MISMATCH") from None
+        reference = verified_snapshot.object_index.get(raw_object_id)
+        if reference is None:
+            raise MTGJSONParseError("INTEGRITY_OBJECT_MISSING")
+        expected_object_id = f"{normalized_product.value}.json.zip"
+        if (
+            raw_object_id != expected_object_id
+            or reference.source_object_id != normalized_product.value
+        ):
+            raise MTGJSONParseError("INTEGRITY_PRODUCT_MISMATCH")
+        request = next(
+            (
+                item
+                for item in verified_snapshot.manifest.requests
+                if item.request_id == reference.request_id
+            ),
+            None,
+        )
+        if request is None:
+            raise MTGJSONParseError("INTEGRITY_PRODUCT_MISMATCH")
+        endpoint_name = urlsplit(request.sanitized_endpoint).path.rstrip("/").rsplit("/", 1)[-1]
+        if endpoint_name != expected_object_id:
+            raise MTGJSONParseError("INTEGRITY_PRODUCT_MISMATCH")
+        return normalized_product
 
     def _read_verified_member(
         self,

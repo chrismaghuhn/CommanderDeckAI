@@ -38,6 +38,9 @@ def _archive_bytes() -> bytes:
 
 
 def _registry(status: SourceApprovalStatus, *, current_status: str = "ALLOWED") -> SourceRegistry:
+    redistribution = (
+        "approved" if status is SourceApprovalStatus.APPROVED_REDISTRIBUTION else "review_required"
+    )
     settings = SourceSettings(
         source_id="mtgjson",
         approval_status=status,
@@ -50,7 +53,7 @@ def _registry(status: SourceApprovalStatus, *, current_status: str = "ALLOWED") 
         max_download_bytes=1_000_000,
         attribution_required=True,
         raw_storage="allowed_local",
-        redistribution="review_required",
+        redistribution=redistribution,
         filters={},
     )
     historical = HistoricalApprovalMetadata(
@@ -63,7 +66,8 @@ def _registry(status: SourceApprovalStatus, *, current_status: str = "ALLOWED") 
         terms_reference="https://terms.fixture.invalid/mtgjson",
         attribution_required=True,
         raw_local_storage="allowed_local",
-        redistribution_derived="review_required",
+        redistribution_raw=redistribution,
+        redistribution_derived=redistribution,
     )
     current = CurrentUseDecision(
         source_id="mtgjson",
@@ -96,9 +100,11 @@ def _downloader(
     if filters is not None:
         entry = registry.lookup("mtgjson")
         registry = SourceRegistry(
-            entries=(entry.model_copy(update={
-                "settings": entry.settings.model_copy(update={"filters": filters})
-            }),)
+            entries=(
+                entry.model_copy(
+                    update={"settings": entry.settings.model_copy(update={"filters": filters})}
+                ),
+            )
         )
     source = registry.lookup("mtgjson").settings
     settings = MTGJSONSettings.from_source_settings(source)
@@ -149,8 +155,15 @@ def test_downloader_uses_shared_snapshot_store_and_keeps_upstream_checksum_separ
     assert archive_object.sha256 == local_sha256
     assert archive_object.upstream_sha256 == upstream_sha256
     assert archive_object.checksum_verification_status == "verified"
+    checksum_object = next(
+        item for item in manifest.objects if item.raw_object_id == "AllPrintings.json.zip.sha256"
+    )
+    assert checksum_object.source_object_id == "AllPrintings.json.zip.sha256"
     assert manifest.terms_reference == "https://terms.fixture.invalid/mtgjson"
     assert manifest.attribution_required is True
+    assert manifest.redistribution_status == (
+        "approved" if status is SourceApprovalStatus.APPROVED_REDISTRIBUTION else "not_approved"
+    )
 
 
 def test_downloader_rejects_checksum_mismatch_without_replacing_authoritative_bytes(
@@ -181,6 +194,27 @@ def test_downloader_rejects_checksum_mismatch_without_replacing_authoritative_by
     )
     assert archive_object.sha256 == hashlib.sha256(archive).hexdigest()
     assert archive_object.sha256 != archive_object.upstream_sha256
+
+
+def test_downloader_rejects_a_missing_checksum_sidecar_before_archive_persistence(
+    tmp_path: Path,
+) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        if request.url.path.endswith(".sha256"):
+            return httpx.Response(404, request=request)
+        return httpx.Response(200, content=_archive_bytes(), request=request)
+
+    adapter, transport = _downloader(tmp_path, handler)
+    try:
+        with pytest.raises(HttpTransportError) as error:
+            adapter.download(snapshot_id="mtgjson-missing-checksum")
+    finally:
+        transport.close()
+
+    manifest = RawSnapshotStore(tmp_path).load_manifest("mtgjson", "mtgjson-missing-checksum")
+    assert error.value.code == "HTTP_STATUS_ERROR"
+    assert manifest.status == "FAILED"
+    assert not any(item.raw_object_id == "AllPrintings.json.zip" for item in manifest.objects)
 
 
 def test_partial_archive_download_is_bounded_and_leaves_no_partial_archive_object(
@@ -288,9 +322,7 @@ def test_mtgjson_settings_reject_unknown_products_filters_and_conflicting_locati
         )
 
     with pytest.raises(ValueError):
-        MTGJSONSettings.from_source_settings(
-            source.model_copy(update={"files": ("AtomicCards",)})
-        )
+        MTGJSONSettings.from_source_settings(source.model_copy(update={"files": ("AtomicCards",)}))
 
     with pytest.raises(ValueError, match="conflicting"):
         MTGJSONSettings.from_source_settings(
@@ -301,6 +333,82 @@ def test_mtgjson_settings_reject_unknown_products_filters_and_conflicting_locati
                 }
             )
         )
+
+
+@pytest.mark.parametrize("field_name", ["archive_extension", "checksum_suffix"])
+@pytest.mark.parametrize("value", [".zip", ".json", ".tar.gz", None])
+def test_mtgjson_settings_reject_non_official_file_suffixes(field_name: str, value: object) -> None:
+    source = _registry(SourceApprovalStatus.APPROVED_LOCAL).lookup("mtgjson").settings
+
+    with pytest.raises(ValueError):
+        MTGJSONSettings.from_source_settings(
+            source.model_copy(update={"filters": {field_name: value}})
+        )
+
+
+def test_mtgjson_settings_rejects_disabled_checksum_sidecars() -> None:
+    source = _registry(SourceApprovalStatus.APPROVED_LOCAL).lookup("mtgjson").settings
+
+    with pytest.raises(ValueError, match="checksum sidecar"):
+        MTGJSONSettings.from_source_settings(
+            source.model_copy(update={"filters": {"checksum_required": False}})
+        )
+
+
+def test_mtgjson_downloader_rejects_client_bound_to_another_endpoint() -> None:
+    registry = _registry(SourceApprovalStatus.APPROVED_LOCAL)
+    settings = MTGJSONSettings.from_source_settings(registry.lookup("mtgjson").settings)
+    foreign_source = settings.source.model_copy(
+        update={
+            "endpoints": ("https://other.invalid/api/v5/",),
+            "host_allowlist": ("other.invalid",),
+        }
+    )
+    foreign_settings = MTGJSONSettings.from_source_settings(foreign_source)
+    foreign_client = MTGJSONClient(
+        foreign_settings,
+        http_client=httpx.Client(
+            transport=httpx.MockTransport(lambda request: httpx.Response(500))
+        ),
+    )
+    try:
+        with pytest.raises(MTGJSONDownloadError, match="MTGJSON_CLIENT_CONFIGURATION_MISMATCH"):
+            MTGJSONDownloader(
+                settings=settings,
+                policy=SourcePolicy(registry),
+                store=RawSnapshotStore(".", max_object_bytes=settings.source.max_download_bytes),
+                client=foreign_client,
+            )
+    finally:
+        foreign_client.close()
+
+
+def test_mtgjson_client_rejects_disallowed_redirect_in_injected_response_history() -> None:
+    source = _registry(SourceApprovalStatus.APPROVED_LOCAL).lookup("mtgjson").settings
+    settings = MTGJSONSettings.from_source_settings(source)
+
+    class HistoryInjectingClient(httpx.Client):
+        def send(self, request: httpx.Request, *args: object, **kwargs: object) -> httpx.Response:
+            response = httpx.Response(200, content=b"allowed-final", request=request)
+            response.history = [
+                httpx.Response(
+                    302,
+                    headers={"location": "https://evil.invalid/redirected"},
+                    request=request,
+                )
+            ]
+            return response
+
+    http_client = HistoryInjectingClient(follow_redirects=False)
+    client = MTGJSONClient(settings, http_client=http_client)
+    try:
+        with pytest.raises(HttpTransportError) as error:
+            client.fetch_archive(MTGJSONProduct.ALL_PRINTINGS)
+    finally:
+        client.close()
+        http_client.close()
+
+    assert error.value.code == "SECURITY_REDIRECT_HOST"
 
 
 def test_mtgjson_checksum_limit_is_dedicated_to_small_sidecars() -> None:
@@ -379,9 +487,7 @@ def test_oversized_checksum_sidecar_fails_before_archive_object_is_written(tmp_p
     finally:
         client.close()
 
-    manifest = RawSnapshotStore(tmp_path).load_manifest(
-        "mtgjson", "mtgjson-checksum-limit"
-    )
+    manifest = RawSnapshotStore(tmp_path).load_manifest("mtgjson", "mtgjson-checksum-limit")
     assert error.value.code == "MTGJSON_CHECKSUM_TOO_LARGE"
     assert manifest.status == "FAILED"
     assert not any(item.raw_object_id == "AllPrintings.json.zip" for item in manifest.objects)

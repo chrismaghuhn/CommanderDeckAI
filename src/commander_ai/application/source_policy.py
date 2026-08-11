@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Protocol, runtime_checkable
+from typing import Literal, Protocol, runtime_checkable
 
 from commander_ai.config.current_use_policy import (
     CurrentUsePolicy,
@@ -21,6 +21,8 @@ from commander_ai.config.source_settings import (
     SourceSettings,
     normalize_source_id,
 )
+
+from .source_metadata import SourceMetadataError, validate_reviewed_source_metadata
 
 
 @dataclass(frozen=True, slots=True)
@@ -42,6 +44,10 @@ class SourceAdapterConfiguration:
 
     source: SourceSettings
     historical_approval: HistoricalApprovalMetadata
+    attribution_required: bool
+    raw_local_storage: str
+    terms_reference: str
+    redistribution_status: Literal["not_approved", "derived_only", "approved"]
 
 
 class SourcePolicyError(ValueError):
@@ -96,6 +102,10 @@ class SourcePolicy:
         )
         if not current.allowed:
             return self._from_current(current)
+        try:
+            validate_reviewed_source_metadata(entry)
+        except SourceMetadataError as error:
+            return self._metadata_failure(entry, PolicyOperation.SOURCE_SYNC, error, current)
         return SourcePolicyDecision(
             source_id=normalized,
             operation=PolicyOperation.SOURCE_SYNC,
@@ -136,6 +146,10 @@ class SourcePolicy:
         )
         if not current.allowed:
             return self._from_current(current)
+        try:
+            validate_reviewed_source_metadata(entry)
+        except SourceMetadataError as error:
+            return self._metadata_failure(entry, normalized_operation, error, current)
         if (
             normalized_operation is PolicyOperation.PUBLIC_EXPORT
             and historical_status not in self.PUBLIC_EXPORT_ALLOWLIST
@@ -202,31 +216,46 @@ class SourcePolicy:
             )
             raise SourcePolicyError(decision)
         historical = entry.historical_approval
-        reviewed_redistribution = (
-            historical.redistribution_derived
-            or historical.redistribution_raw
-            or "not_approved"
-        )
-        metadata_pairs = (
-            ("attribution", entry.settings.attribution_required, historical.attribution_required),
-            ("raw_storage", entry.settings.raw_storage, historical.raw_local_storage or "unknown"),
-            ("redistribution", entry.settings.redistribution, reviewed_redistribution),
-        )
-        for field_name, configured, reviewed in metadata_pairs:
-            if configured != reviewed:
-                decision = SourcePolicyDecision(
+        try:
+            reviewed = validate_reviewed_source_metadata(entry)
+        except SourceMetadataError as error:
+            raise SourcePolicyError(
+                SourcePolicyDecision(
                     source_id=normalized,
                     operation=PolicyOperation.SOURCE_SYNC,
                     allowed=False,
-                    code="POLICY_SOURCE_METADATA_MISMATCH",
-                    reason=f"source {field_name} metadata is not equal to reviewed policy",
+                    code=error.code,
+                    reason=error.reason,
                     historical_status=historical.approval_status,
                     current_status=entry.current_use.status if entry.current_use else None,
                 )
-                raise SourcePolicyError(decision)
+            ) from None
         return SourceAdapterConfiguration(
             source=entry.settings,
             historical_approval=historical,
+            attribution_required=reviewed.attribution_required,
+            raw_local_storage=reviewed.raw_local_storage,
+            terms_reference=reviewed.terms_reference,
+            redistribution_status=reviewed.redistribution_status,
+        )
+
+    @staticmethod
+    def _metadata_failure(
+        entry: SourceRegistryEntry,
+        operation: PolicyOperation,
+        error: SourceMetadataError,
+        current: CurrentUseResult,
+    ) -> SourcePolicyDecision:
+        return SourcePolicyDecision(
+            source_id=entry.source_id,
+            operation=operation,
+            allowed=False,
+            code=error.code,
+            reason=error.reason,
+            historical_status=entry.historical_approval.approval_status,
+            current_status=current.current_status,
+            decision_reference=current.decision_reference,
+            decision_sha256=current.decision_sha256,
         )
 
     @staticmethod

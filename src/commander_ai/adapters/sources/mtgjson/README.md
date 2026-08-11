@@ -30,3 +30,26 @@ The reviewed documentation is the [MTGJSON all-files page](https://www.mtgjson.c
 and the [MTGJSON FAQ checksum guidance](https://www.mtgjson.com/faq/). The
 adapter does not infer undocumented endpoints, collapse printings or faces,
 or create canonical cards/resolution records.
+
+The supported acquisition contract is closed over the documented names:
+`AllPrintings.json.zip`, `AllPrintings.json.zip.sha256`, `AllDeckFiles.json.zip`,
+and `AllDeckFiles.json.zip.sha256`. The `.json.zip` and `.sha256` suffixes are
+not configurable alternatives, and a disabled or missing checksum sidecar is a
+failed acquisition. The checksum sidecar is bounded and retained as its own
+raw object; its upstream digest is distinct from the locally computed digest
+of the exact compressed archive bytes.
+
+The downloader owns the validated endpoint and host allowlist. An injected
+client is accepted only when its immutable settings match those downloader
+settings, and archive plus checksum requests use that same policy. Every
+redirect response and every recorded response-history hop is checked before
+body persistence, including responses supplied by tests or low-level mocks.
+
+Acquisition also requires complete reviewed registry metadata for terms,
+attribution, local raw storage, and raw/derived redistribution. Approval status
+does not grant redistribution permission. A product parser binds the caller's
+product to the verified raw object's declared product/file identity and
+validates archive-member existence and locators against the verified bytes.
+Normal cards and card faces use different exact JSON-pointer staging locators;
+malformed source bytes remain in staging/audit as explicit base64 records with
+byte length and digest metadata rather than being discarded.

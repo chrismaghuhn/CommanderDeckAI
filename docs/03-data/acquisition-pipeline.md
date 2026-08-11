@@ -38,7 +38,8 @@ where supported. Windows and explicitly unsupported directory fsync operations u
 safe atomic fallback after file fsync; unexpected fsync errors fail the snapshot before
 its `COMPLETE` state becomes consumable.
 
-Every redirect hop must satisfy the configured source host allowlist. Timeouts,
+Every redirect hop and every redirect recorded in an injected response history
+must satisfy the configured source host allowlist before persistence. Timeouts,
 connection failures, `429`, and retryable server responses use bounded retries and
 `Retry-After`; there is no unbounded retry loop. The identifiable user-agent and serial
 request pacing are part of the shared transport, not source adapters.

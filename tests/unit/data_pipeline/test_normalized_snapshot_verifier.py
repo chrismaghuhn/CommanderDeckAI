@@ -53,7 +53,7 @@ def test_normalized_snapshot_read_verifies_manifest_run_source_and_parquet_bytes
             format="json",
         )
     )
-    raw_writer.write_object(raw_object_id="object-1", request_id="request-1", chunks=[b"{}"])
+    raw_writer.write_object(raw_object_id="object-1", request_id="request-1", chunks=[b"[{}]"])
     raw_writer.finalize()
     verified = SnapshotVerifier(tmp_path).verify_complete_snapshot("fixture", "snapshot-1")
 
@@ -203,7 +203,7 @@ def test_normalized_snapshot_read_verifies_manifest_run_source_and_parquet_bytes
             "normalized/fixture/snapshot-1/manifest.json",
             producing_run_path="runs/normalize-run-1/manifest.json",
         )
-    raw_object.write_bytes(b"{}")
+    raw_object.write_bytes(b"[{}]")
 
     manifest_file = tmp_path / "normalized/fixture/snapshot-1/manifest.json"
     original_manifest_bytes = manifest_file.read_bytes()

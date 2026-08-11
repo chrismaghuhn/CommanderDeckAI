@@ -110,14 +110,16 @@ class MTGJSONMemberParser:
             findings.append(_shape_finding("card", locator))
         records = [record_with_findings("card", locator, value, dto, findings)]
         if "faceName" in value or "side" in value:
-            face_findings = _required_findings(value, ("name",), locator)
+            face_pointer = f"{pointer}/faceName" if "faceName" in value else f"{pointer}/side"
+            face_locator = self._locator(face_pointer)
+            face_findings = _required_findings(value, ("name",), face_locator)
             try:
                 face_dto = MTGJSONCardFace.model_validate(value)
             except ValueError:
                 face_dto = None
-                face_findings.append(_shape_finding("card face", locator))
+                face_findings.append(_shape_finding("card face", face_locator))
             records.append(
-                record_with_findings("card_face", locator, value, face_dto, face_findings)
+                record_with_findings("card_face", face_locator, value, face_dto, face_findings)
             )
         return tuple(records)
 

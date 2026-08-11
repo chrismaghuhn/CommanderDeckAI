@@ -8,7 +8,7 @@ import httpx
 
 from commander_ai.adapters.http.redaction import sanitize_endpoint
 from commander_ai.adapters.http.redirect_policy import RedirectPolicy, RedirectPolicyError
-from commander_ai.adapters.http.transport import HttpTransport, SafeHttpResponse
+from commander_ai.adapters.http.transport import HttpTransport, HttpTransportError, SafeHttpResponse
 
 from .settings import MTGJSONProduct, MTGJSONSettings
 
@@ -27,7 +27,7 @@ class MTGJSONClient:
     def __init__(
         self, settings: MTGJSONSettings, *, http_client: httpx.Client | None = None
     ) -> None:
-        self.settings = settings
+        self._settings = settings
         self._policy = RedirectPolicy(settings.source.host_allowlist)
         self._transport = HttpTransport(
             allowed_hosts=set(settings.source.host_allowlist),
@@ -37,6 +37,19 @@ class MTGJSONClient:
             respect_retry_after=settings.source.respect_retry_after,
             rate_limit_per_minute=settings.source.rate_limit_per_minute,
             client=http_client,
+        )
+
+    @property
+    def settings(self) -> MTGJSONSettings:
+        """Return the immutable settings that own every request URL."""
+
+        return self._settings
+
+    def matches_settings(self, settings: MTGJSONSettings) -> bool:
+        """Return whether this client is bound to the downloader's source policy."""
+
+        return self._settings == settings and self._policy.allowed_hosts == frozenset(
+            settings.source.host_allowlist
         )
 
     def request_metadata(
@@ -59,8 +72,6 @@ class MTGJSONClient:
         return self._fetch(product, kind="archive")
 
     def fetch_checksum(self, product: MTGJSONProduct) -> SafeHttpResponse:
-        if self.settings.checksum_url(product) is None:
-            raise MTGJSONClientError("MTGJSON_CHECKSUM_NOT_CONFIGURED")
         return self._fetch(product, kind="checksum")
 
     def close(self) -> None:
@@ -70,10 +81,7 @@ class MTGJSONClient:
         if kind == "archive":
             url = self.settings.archive_url(product)
         else:
-            checksum_url = self.settings.checksum_url(product)
-            if checksum_url is None:
-                raise MTGJSONClientError("MTGJSON_CHECKSUM_NOT_CONFIGURED")
-            url = checksum_url
+            url = self.settings.checksum_url(product)
         try:
             self._policy.validate(url)
         except (RedirectPolicyError, TypeError):
@@ -83,11 +91,16 @@ class MTGJSONClient:
     def _fetch(
         self, product: MTGJSONProduct, *, kind: Literal["archive", "checksum"]
     ) -> SafeHttpResponse:
-        response = self._transport.request(
-            "GET",
-            self._url(product, kind),
-            format="binary" if kind == "archive" else "text",
-        )
+        try:
+            response = self._transport.request(
+                "GET",
+                self._url(product, kind),
+                format="binary" if kind == "archive" else "text",
+            )
+        except HttpTransportError as error:
+            if error.code == "SECURITY_RESPONSE_HOST":
+                raise MTGJSONClientError("MTGJSON_RESPONSE_HOST_NOT_ALLOWLISTED") from None
+            raise
         try:
             self._policy.validate(response.sanitized_endpoint)
         except (RedirectPolicyError, TypeError):

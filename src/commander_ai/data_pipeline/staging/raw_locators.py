@@ -124,37 +124,14 @@ def validate_raw_locator_against_snapshot(
 ) -> None:
     """Fail closed unless locator identity agrees with nominal raw evidence."""
 
-    from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
+    from .locator_validation import validate_raw_locator_against_snapshot as validate
 
-    if not isinstance(verified_snapshot, VerifiedSourceSnapshot):
-        raise ValueError("verified raw snapshot evidence is required for raw locators")
-    verified_snapshot.assert_consistent()
-    manifest = verified_snapshot.manifest
-    if locator.source_id != manifest.source_id:
-        raise ValueError("raw locator source_id does not match verified snapshot")
-    if source_id is not None and source_id != manifest.source_id:
-        raise ValueError("raw locator source_id does not match verified snapshot")
-    if locator.source_snapshot_id != manifest.source_snapshot_id:
-        raise ValueError("raw locator source_snapshot_id does not match verified snapshot")
-    reference = verified_snapshot.object_index.get(locator.raw_object_id)
-    if reference is None:
-        raise ValueError("raw locator raw_object_id is absent from verified snapshot")
-    if locator.raw_object_path != reference.path:
-        raise ValueError("raw locator path does not match verified source object")
-    if raw_sha256 is not None and raw_sha256 != reference.sha256:
-        raise ValueError("raw locator sha256 does not match verified source object")
-    if (
-        isinstance(locator.location, RecordIndexLocator)
-        and reference.logical_record_count is not None
-        and locator.location.index >= reference.logical_record_count
-    ):
-        raise ValueError("raw record index is outside the verified object record count")
-    if (
-        isinstance(locator.location, ByteRangeLocator)
-        and locator.archive_member is None
-        and locator.location.end > reference.bytes
-    ):
-        raise ValueError("raw byte range is outside the verified object")
+    validate(
+        locator,
+        verified_snapshot=verified_snapshot,
+        source_id=source_id,
+        raw_sha256=raw_sha256,
+    )
 
 
 RawObjectLocator = RawLocator

@@ -35,12 +35,21 @@
 
 Die konfigurierte MTGJSON-v5-Basis ist `https://mtgjson.com/api/v5/`.
 Verwendet werden ausschließlich die veröffentlichten Dateinamen
-`AllPrintings.json.zip` und `AllPrintings.json.zip.sha256` sowie die analogen
-`AllDeckFiles`-Dateien. Andere Dateinamen oder Endpunkte sind nicht Teil dieses
-Reviews. Die Checksum-Seitendatei wird als eigener Raw-Download unter einem
-dedizierten Limit von 4096 Bytes gespeichert; sie ersetzt weder die exakten
-Archivbytes noch deren lokal berechneten Digest.
+`AllPrintings.json.zip` und `AllPrintings.json.zip.sha256` sowie
+`AllDeckFiles.json.zip` und `AllDeckFiles.json.zip.sha256`. Andere Dateinamen,
+Suffixe oder Endpunkte sind nicht Teil dieses Reviews. Die Checksum-Seitendatei
+wird als eigener Raw-Download unter einem dedizierten Limit von 4096 Bytes
+gespeichert; eine fehlende oder deaktivierte Seitendatei blockiert den
+unterstützten Erwerb. Sie ersetzt weder die exakten Archivbytes noch deren
+lokal berechneten Digest.
 
 ## Hinweis
 
 Die MIT-Lizenz des MTGJSON-Projekts wird getrennt von Rechten an zugrunde liegenden Magic-Inhalten behandelt. Attribution und aktuelle Lizenz-/Termsseiten werden im Source-Manifest referenziert. Dies ist keine rechtliche Freigabe.
+
+Der Registry-Eintrag ist die alleinige Quelle für Terms-, Attribution-, lokale
+Raw-Speicher- und Redistribution-Metadaten. `APPROVED_REDISTRIBUTION` wird nie
+in eine Freigabe umgedeutet, wenn die expliziten Raw-/Derived-Felder
+`review_required`, `false` oder `not_approved` enthalten. Fehlende oder
+widersprüchliche Metadaten blockieren den Erwerb; der aktuelle Eintrag bleibt
+für diesen Checkout `APPROVED_LOCAL` mit `redistribution: review_required`.

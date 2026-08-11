@@ -33,7 +33,7 @@ def verified_snapshot(tmp_path: Path):
             format="json",
         )
     )
-    writer.write_object(raw_object_id="object-1", request_id="request-1", chunks=[b"{}"])
+    writer.write_object(raw_object_id="object-1", request_id="request-1", chunks=[b"[{}]"])
     writer.finalize()
     return SnapshotVerifier(tmp_path).verify_complete_snapshot("fixture", "snapshot-1")
 

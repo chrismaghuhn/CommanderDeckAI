@@ -26,7 +26,7 @@ class HistoricalApprovalMetadata(BaseModel):
     reason: str = Field(min_length=1)
     official_docs: tuple[str, ...] = Field(default_factory=tuple)
     terms_reference: str | None = Field(default=None, min_length=1)
-    attribution_required: bool = False
+    attribution_required: bool | None = None
     raw_local_storage: str | None = Field(default=None, min_length=1)
     normalized_local_storage: str | None = Field(default=None, min_length=1)
     redistribution_raw: str | None = Field(default=None, min_length=1)

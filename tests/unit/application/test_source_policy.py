@@ -22,12 +22,20 @@ def registry_for(
     current_status: str = "ALLOWED",
     current_approval_status: SourceApprovalStatus | None = None,
 ) -> SourceRegistry:
+    redistribution = (
+        "approved"
+        if approval_status is SourceApprovalStatus.APPROVED_REDISTRIBUTION
+        else "review_required"
+    )
     settings = SourceSettings(
         source_id="Example-Source",
         approval_status=approval_status,
         review_path="docs/03-data/source-reviews/example.md",
         endpoints=("https://example.com/api",),
         host_allowlist=("example.com",),
+        attribution_required=True,
+        raw_storage="allowed_local",
+        redistribution=redistribution,
     )
     historical = HistoricalApprovalMetadata(
         source_id="example_source",
@@ -36,6 +44,11 @@ def registry_for(
         reviewed_at=EFFECTIVE_AT,
         effective_at=EFFECTIVE_AT,
         reason="fixture review record",
+        terms_reference="https://terms.example.com/source",
+        attribution_required=True,
+        raw_local_storage="allowed_local",
+        redistribution_raw=redistribution,
+        redistribution_derived=redistribution,
     )
     current = CurrentUseDecision(
         source_id="example_source",
@@ -171,8 +184,8 @@ def test_source_adapter_configuration_is_gated_by_explicit_review_record() -> No
 @pytest.mark.parametrize(
     ("settings_update", "historical_update"),
     [
-        ({"attribution_required": True}, {}),
-        ({"raw_storage": "allowed_local"}, {}),
+        ({"attribution_required": False}, {}),
+        ({"raw_storage": "unknown"}, {}),
         ({"redistribution": "review_required"}, {"redistribution_derived": "approved"}),
     ],
 )
@@ -218,6 +231,53 @@ def test_source_adapter_configuration_rejects_review_path_mismatch() -> None:
         SourcePolicy(registry).adapter_configuration("example_source")
 
     assert error.value.code == "POLICY_SOURCE_REVIEW_MISMATCH"
+
+
+def test_source_adapter_configuration_rejects_missing_reviewed_metadata() -> None:
+    entry = registry_for(SourceApprovalStatus.APPROVED_LOCAL).lookup("example_source")
+    incomplete = entry.historical_approval.model_copy(
+        update={
+            "terms_reference": None,
+            "attribution_required": None,
+            "raw_local_storage": None,
+            "redistribution_raw": None,
+            "redistribution_derived": None,
+        }
+    )
+    registry = SourceRegistry(
+        entries=(entry.model_copy(update={"historical_approval": incomplete}),)
+    )
+
+    with pytest.raises(SourcePolicyError) as error:
+        SourcePolicy(registry).adapter_configuration("example_source")
+
+    assert error.value.code == "POLICY_SOURCE_METADATA_MISSING"
+
+
+@pytest.mark.parametrize("redistribution", ["review_required", "false", "not_approved"])
+def test_approved_redistribution_requires_explicit_reviewed_redistribution_approval(
+    redistribution: str,
+) -> None:
+    entry = registry_for(
+        SourceApprovalStatus.APPROVED_REDISTRIBUTION,
+    ).lookup("example_source")
+    settings = entry.settings.model_copy(update={"redistribution": redistribution})
+    historical = entry.historical_approval.model_copy(
+        update={
+            "redistribution_raw": redistribution,
+            "redistribution_derived": redistribution,
+        }
+    )
+    registry = SourceRegistry(
+        entries=(
+            entry.model_copy(update={"settings": settings, "historical_approval": historical}),
+        )
+    )
+
+    with pytest.raises(SourcePolicyError) as error:
+        SourcePolicy(registry).adapter_configuration("example_source")
+
+    assert error.value.code == "POLICY_SOURCE_METADATA_CONTRADICTORY"
 
 
 @pytest.mark.parametrize(

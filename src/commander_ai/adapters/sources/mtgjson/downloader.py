@@ -6,6 +6,8 @@ import re
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+import httpx
+
 from commander_ai.adapters.http.transport import HttpTransportError
 from commander_ai.adapters.storage.raw_snapshot_errors import RawSnapshotError
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
@@ -43,14 +45,22 @@ class MTGJSONDownloader:
         settings: MTGJSONSettings,
         policy: SourcePolicy,
         store: RawSnapshotStore,
-        client: MTGJSONClient,
+        client: MTGJSONClient | None = None,
+        http_client: httpx.Client | None = None,
     ) -> None:
+        if client is not None and http_client is not None:
+            raise MTGJSONDownloadError("MTGJSON_CLIENT_CONFIGURATION_MISMATCH")
         self.settings = settings
         self.policy = policy
         self.store = store
-        self.client = client
+        self.client = client or MTGJSONClient(settings, http_client=http_client)
+        if not self.client.matches_settings(settings):
+            self.client.close()
+            raise MTGJSONDownloadError("MTGJSON_CLIENT_CONFIGURATION_MISMATCH")
 
     def download(self, *, snapshot_id: str | None = None) -> MTGJSONDownloadResult:
+        if not self.client.matches_settings(self.settings):
+            raise MTGJSONDownloadError("MTGJSON_CLIENT_CONFIGURATION_MISMATCH")
         configuration = self.policy.adapter_configuration(self.settings.source.source_id)
         if configuration.source != self.settings.source:
             raise MTGJSONDownloadError("POLICY_CONFIGURATION_MISMATCH")
@@ -65,13 +75,9 @@ class MTGJSONDownloader:
             approval_status=historical.approval_status.value,
             adapter_version=self.settings.adapter_version,
             usage_status=decision.code,
-            attribution_required=historical.attribution_required,
-            redistribution_status=(
-                "approved"
-                if historical.approval_status.value == "APPROVED_REDISTRIBUTION"
-                else "derived_only"
-            ),
-            terms_reference=historical.terms_reference,
+            attribution_required=configuration.attribution_required,
+            redistribution_status=configuration.redistribution_status,
+            terms_reference=configuration.terms_reference,
             pagination_state={"products": [product.value for product in self.settings.products]},
             max_object_bytes=self.settings.source.max_download_bytes,
         )
@@ -126,15 +132,9 @@ class MTGJSONDownloader:
         writer: RawSnapshotWriter,
         product: MTGJSONProduct,
         checksum_ids: list[str],
-    ) -> str | None:
-        checksum_url = self.settings.checksum_url(product)
-        if checksum_url is None:
-            return None
+    ) -> str:
         request_id = f"mtgjson-{product.value}-checksum"
-        checksum_suffix = self.settings.checksum_suffix
-        if checksum_suffix is None:
-            return None
-        raw_object_id = f"{self.settings.archive_filename(product)}{checksum_suffix}"
+        raw_object_id = self.settings.checksum_url(product).rsplit("/", maxsplit=1)[-1]
         writer.add_request(
             {
                 "request_id": request_id,
@@ -152,7 +152,7 @@ class MTGJSONDownloader:
             request_id=request_id,
             chunks=[body],
             content_type=content_type,
-            source_object_id=f"{product.value}.sha256",
+            source_object_id=raw_object_id,
             checksum_verification_status="not_applicable",
         )
         checksum_ids.append(raw_object_id)
