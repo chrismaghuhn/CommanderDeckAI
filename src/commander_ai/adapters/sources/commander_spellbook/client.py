@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import httpx
+from pydantic import ValidationError
 
 from commander_ai.adapters.http.redaction import sanitize_endpoint
 from commander_ai.adapters.http.redirect_policy import RedirectPolicy, RedirectPolicyError
@@ -21,15 +22,19 @@ class CommanderSpellbookClient:
         *,
         http_client: httpx.Client | None = None,
     ) -> None:
-        self._settings = settings
-        self._policy = RedirectPolicy(settings.source.host_allowlist)
+        try:
+            validated_settings = CommanderSpellbookSettings.model_validate(settings.model_dump())
+        except (AttributeError, TypeError, ValueError, ValidationError):
+            raise CommanderSpellbookClientError("SPELLBOOK_SETTINGS_INVALID") from None
+        self._settings = validated_settings
+        self._policy = RedirectPolicy(validated_settings.source.host_allowlist)
         self._transport = HttpTransport(
-            allowed_hosts=set(settings.source.host_allowlist),
-            timeout_seconds=settings.source.timeout_seconds,
-            max_retries=settings.source.max_retries,
-            max_response_bytes=settings.max_response_bytes,
-            respect_retry_after=settings.source.respect_retry_after,
-            rate_limit_per_minute=settings.source.rate_limit_per_minute,
+            allowed_hosts=set(validated_settings.source.host_allowlist),
+            timeout_seconds=validated_settings.source.timeout_seconds,
+            max_retries=validated_settings.source.max_retries,
+            max_response_bytes=validated_settings.max_response_bytes,
+            respect_retry_after=validated_settings.source.respect_retry_after,
+            rate_limit_per_minute=validated_settings.source.rate_limit_per_minute,
             client=http_client,
         )
 
@@ -38,6 +43,11 @@ class CommanderSpellbookClient:
         return self._settings
 
     def matches_settings(self, settings: CommanderSpellbookSettings) -> bool:
+        try:
+            CommanderSpellbookSettings.model_validate(self._settings.model_dump())
+            CommanderSpellbookSettings.model_validate(settings.model_dump())
+        except (TypeError, ValueError, ValidationError):
+            return False
         return self._settings == settings and self._policy.allowed_hosts == frozenset(
             settings.source.host_allowlist
         )
@@ -45,6 +55,7 @@ class CommanderSpellbookClient:
     def request_metadata(
         self, contract: SpellbookContract | str, *, page: int
     ) -> dict[str, object]:
+        self._validate_page(page)
         url = self._url(contract)
         metadata = self._transport.request_metadata(
             "GET",
@@ -57,12 +68,12 @@ class CommanderSpellbookClient:
         return metadata
 
     def fetch(self, contract: SpellbookContract | str, *, page: int) -> SafeHttpResponse:
-        if not isinstance(page, int) or isinstance(page, bool) or page < 1:
-            raise CommanderSpellbookClientError("SPELLBOOK_PAGE_INVALID")
+        self._validate_page(page)
+        url = self._url(contract)
         try:
             response = self._transport.request(
                 "GET",
-                self._url(contract),
+                url,
                 parameters={"page": page},
                 format="json",
             )
@@ -77,6 +88,9 @@ class CommanderSpellbookClient:
         except (RedirectPolicyError, TypeError):
             response.close()
             raise CommanderSpellbookClientError("SPELLBOOK_RESPONSE_HOST_NOT_ALLOWLISTED") from None
+        if response.sanitized_endpoint != sanitize_endpoint(url):
+            response.close()
+            raise CommanderSpellbookClientError("SPELLBOOK_RESPONSE_ENDPOINT_MISMATCH")
         return response
 
     def close(self) -> None:
@@ -89,6 +103,15 @@ class CommanderSpellbookClient:
         except (RedirectPolicyError, TypeError, ValueError):
             raise CommanderSpellbookClientError("SPELLBOOK_ENDPOINT_NOT_ALLOWLISTED") from None
         return url
+
+    def _validate_page(self, page: int) -> None:
+        if (
+            not isinstance(page, int)
+            or isinstance(page, bool)
+            or page < 1
+            or page > self._settings.max_pages
+        ):
+            raise CommanderSpellbookClientError("SPELLBOOK_PAGE_INVALID")
 
 
 __all__ = ["CommanderSpellbookClient", "CommanderSpellbookClientError"]

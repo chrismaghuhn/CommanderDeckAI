@@ -8,7 +8,15 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from pydantic import ConfigDict, Field, field_validator
+from pydantic import (
+    ConfigDict,
+    Field,
+    StrictBool,
+    StrictFloat,
+    StrictInt,
+    StrictStr,
+    field_validator,
+)
 
 from commander_ai.data_pipeline.quality.finding_codes import validate_finding_code
 from commander_ai.data_pipeline.staging.raw_locators import RawLocator
@@ -40,47 +48,47 @@ class _SpellbookModel(DomainModel):
 class SpellbookCard(_SpellbookModel):
     """Documented card DTO; it is not a canonical card entity."""
 
-    id: int | str
-    name: str
-    oracle_id: str | None = Field(default=None, alias="oracleId")
-    color_identity: tuple[str, ...] | None = Field(default=None, alias="colorIdentity")
-    type_line: str | None = Field(default=None, alias="typeLine")
-    status: str | None = None
+    id: StrictInt | StrictStr
+    name: StrictStr
+    oracle_id: StrictStr | None = Field(default=None, alias="oracleId")
+    color_identity: tuple[StrictStr, ...] | None = Field(default=None, alias="colorIdentity")
+    type_line: StrictStr | None = Field(default=None, alias="typeLine")
+    status: StrictStr | None = None
 
 
 class SpellbookComboReference(_SpellbookModel):
     """Source combo reference retained on a variant."""
 
-    id: int | str
+    id: StrictInt | StrictStr
 
 
 class SpellbookTemplate(_SpellbookModel):
     """Source requirement template DTO."""
 
-    id: int | str
-    name: str | None = None
+    id: StrictInt | StrictStr
+    name: StrictStr | None = None
 
 
 class SpellbookFeature(_SpellbookModel):
     """Source result/feature DTO."""
 
-    id: int | str
-    name: str | None = None
-    status: str | None = None
+    id: StrictInt | StrictStr
+    name: StrictStr | None = None
+    status: StrictStr | None = None
 
 
 class SpellbookVariantUse(_SpellbookModel):
     """Card involvement with source ordering, role, and condition fields."""
 
     card: SpellbookCard | None = None
-    quantity: int | float | None = None
-    zone_locations: tuple[str, ...] | None = Field(default=None, alias="zoneLocations")
+    quantity: StrictInt | StrictFloat | None = None
+    zone_locations: tuple[StrictStr, ...] | None = Field(default=None, alias="zoneLocations")
     battlefield_card_state: object | None = Field(default=None, alias="battlefieldCardState")
     exile_card_state: object | None = Field(default=None, alias="exileCardState")
     library_card_state: object | None = Field(default=None, alias="libraryCardState")
     graveyard_card_state: object | None = Field(default=None, alias="graveyardCardState")
-    must_be_commander: bool | None = Field(default=None, alias="mustBeCommander")
-    used_face: str | None = Field(default=None, alias="usedFace")
+    must_be_commander: StrictBool | None = Field(default=None, alias="mustBeCommander")
+    used_face: StrictStr | None = Field(default=None, alias="usedFace")
 
 
 class SpellbookVariantRequirement(_SpellbookModel):
@@ -88,41 +96,41 @@ class SpellbookVariantRequirement(_SpellbookModel):
 
     card: SpellbookCard | None = None
     template: SpellbookTemplate | None = None
-    quantity: int | float | None = None
-    zone_locations: tuple[str, ...] | None = Field(default=None, alias="zoneLocations")
+    quantity: StrictInt | StrictFloat | None = None
+    zone_locations: tuple[StrictStr, ...] | None = Field(default=None, alias="zoneLocations")
     battlefield_card_state: object | None = Field(default=None, alias="battlefieldCardState")
     exile_card_state: object | None = Field(default=None, alias="exileCardState")
     library_card_state: object | None = Field(default=None, alias="libraryCardState")
     graveyard_card_state: object | None = Field(default=None, alias="graveyardCardState")
-    must_be_commander: bool | None = Field(default=None, alias="mustBeCommander")
-    used_face: str | None = Field(default=None, alias="usedFace")
+    must_be_commander: StrictBool | None = Field(default=None, alias="mustBeCommander")
+    used_face: StrictStr | None = Field(default=None, alias="usedFace")
 
 
 class SpellbookVariantResult(_SpellbookModel):
     """Result/effect feature DTO."""
 
     feature: SpellbookFeature | None = None
-    quantity: int | float | None = None
+    quantity: StrictInt | StrictFloat | None = None
 
 
 class SpellbookVariant(_SpellbookModel):
     """Documented variant DTO with combo relationships kept source-shaped."""
 
-    id: int | str
+    id: StrictInt | StrictStr
     uses: tuple[SpellbookVariantUse, ...] = Field(default_factory=tuple)
     requires: tuple[SpellbookVariantRequirement, ...] = Field(default_factory=tuple)
     produces: tuple[SpellbookVariantResult, ...] = Field(default_factory=tuple)
     of: tuple[SpellbookComboReference, ...] = Field(default_factory=tuple)
     includes: tuple[SpellbookComboReference, ...] = Field(default_factory=tuple)
-    color_identity: tuple[str, ...] | None = Field(default=None, alias="colorIdentity")
-    commander_compatible: bool | None = Field(default=None, alias="commanderCompatible")
+    color_identity: tuple[StrictStr, ...] | None = Field(default=None, alias="colorIdentity")
+    commander_compatible: StrictBool | None = Field(default=None, alias="commanderCompatible")
     easy_prerequisites: object | None = Field(default=None, alias="easyPrerequisites")
     notable_prerequisites: object | None = Field(default=None, alias="notablePrerequisites")
     mana_needed: object | None = Field(default=None, alias="manaNeeded")
     mana_value_needed: object | None = Field(default=None, alias="manaValueNeeded")
-    description: str | None = None
-    notes: str | None = None
-    status: str | None = None
+    description: StrictStr | None = None
+    notes: StrictStr | None = None
+    status: StrictStr | None = None
     legalities: Mapping[str, object] | None = None
     prices: Mapping[str, object] | None = None
 

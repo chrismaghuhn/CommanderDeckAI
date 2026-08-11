@@ -23,9 +23,18 @@ class CommanderSpellbookDownloadError(CommanderSpellbookError):
     """Raw acquisition could not reach a complete snapshot."""
 
 
+class CommanderSpellbookStagingError(TypeError):
+    """Staging was called without verifier-bound parser evidence."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
 __all__ = [
     "CommanderSpellbookClientError",
     "CommanderSpellbookConfigurationError",
     "CommanderSpellbookDownloadError",
     "CommanderSpellbookError",
+    "CommanderSpellbookStagingError",
 ]
