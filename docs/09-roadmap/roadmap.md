@@ -11,7 +11,12 @@ M3 Approved Commander/Tournament Sources
   ↓
 M4 Frozen Completion Benchmark
   ↓
-M5 Matrix Factorization + DeepSets Ranker
+Learnability Gate: G0/G1/G3
+  ├── GREEN ──→ M5 Matrix Factorization + gated DeepSets
+  ├── YELLOW ─→ bounded diagnosis ─→ GREEN or RED
+  └── RED ────→ reformulate / Benchmark v2
+                  
+M5 GREEN path
   ↓
 M6 Deterministic Deck Optimizer
   ├── primary roadmap ──→ M7 cEDH Outcome Reranker
@@ -26,7 +31,13 @@ M6 Deterministic Deck Optimizer
 
 ## Grundregel
 
-Ein späterer Milestone darf nicht die Exit-Kriterien eines früheren Milestones umgehen. Besonders M5 beginnt erst nach eingefrorenem M4-Benchmark, und M8 beginnt nicht als Ersatz für fehlende Offline-Qualität.
+Ein späterer Milestone darf nicht die Exit-Kriterien eines früheren Milestones umgehen. Besonders M5 beginnt erst nach eingefrorenem M4-Benchmark und positivem Learnability-Gate, und M8 beginnt nicht als Ersatz für fehlende Offline-Qualität.
+
+M4 besitzt einen versionierten Minimum-Viable-Benchmark-Trigger. Sobald der definierte Mindestzustand erfüllt ist, wird Benchmark v1 eingefroren; optionale oder approval-gated Quellen dürfen den Freeze nicht unbegrenzt aufschieben. Zusätzliche Daten landen in einer späteren Benchmark-Version.
+
+Vor Ergebnisinterpretation werden materielle Erfolgsmargins, Segmenttoleranzen, Tuning-Budgets und Diagnosebudget eingefroren. YELLOW erlaubt nur begrenzte Diagnose; RED blockiert zusätzliche Modellkomplexität bis zu einer reviewten Neuformulierung/Benchmark-Version.
+
+Details: `docs/04-ml/learnability-pivot-gate.md`.
 
 Der optionale Joint-Consistency-/Repair-Gate nach M6 ist kein eigener Pflicht-Milestone und blockiert M7 nicht. Er wird nur aktiviert, wenn der one-shot Ranker+CP-SAT-Pfad einen messbaren Kontextfehler zeigt und ein iteratives Verfahren diesen auf eingefrorenen Benchmarks besser löst. Zusätzliche Komplexität muss sich durch Ablation, Stabilität und Laufzeitmessung verdienen.
 
@@ -43,7 +54,8 @@ Diese Stufen sind nicht austauschbar. Insbesondere ist eine bessere Completion-N
 ## Nutzbarer Wert entlang der Roadmap
 
 - M2 liefert bereits einen echten, nicht-LLM-basierten Recommendation-Baseline;
-- M4 liefert einen publizierbaren Benchmark;
+- M4 liefert einen publizierbaren Benchmark plus vorregistrierte Learnability-/Pivot-Regeln;
+- M5 testet Modellkapazität nur nach positivem Context-Signal;
 - M6 liefert vollständige legale Decks;
 - M7/M8 ergänzen Performance-Evidenz;
 - M9 macht Casual-Ziele produktreif, ohne sie in cEDH-Winrate zu pressen.
