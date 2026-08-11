@@ -20,6 +20,7 @@ from commander_ai.domain.provenance import (
     SourceSnapshotManifest,
     detached_manifest_sha256,
 )
+from commander_ai.domain.rulesets import RulesetSnapshot
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 
@@ -202,6 +203,7 @@ def test_source_snapshot_v2_rejects_unknown_object_request_and_non_derived_summa
         ("dataset-manifest.v2", DatasetManifest),
         ("source-snapshot-manifest.v2", SourceSnapshotManifest),
         ("normalized-snapshot-manifest.v1", NormalizedSnapshotManifest),
+        ("ruleset.v1", RulesetSnapshot),
         ("canonical-deck.v1", CanonicalDeck),
         ("deck-legality-evaluation.v1", DeckLegalityEvaluation),
         ("deck-quality-evaluation.v1", DeckQualityEvaluation),
@@ -263,6 +265,7 @@ def test_persisted_domain_models_dump_json_that_matches_their_schema() -> None:
         ("dataset-manifest.v2", DatasetManifest),
         ("source-snapshot-manifest.v2", SourceSnapshotManifest),
         ("normalized-snapshot-manifest.v1", NormalizedSnapshotManifest),
+        ("ruleset.v1", RulesetSnapshot),
         ("canonical-deck.v1", CanonicalDeck),
         ("deck-legality-evaluation.v1", DeckLegalityEvaluation),
         ("deck-quality-evaluation.v1", DeckQualityEvaluation),

@@ -25,3 +25,17 @@ Alle Deckrevisionen, exakten Duplikate und Near-Duplicate-Cluster werden gemeins
 - Eventrunden desselben Events über Train/Test verteilen;
 - Features verwenden, die nach dem Beobachtungszeitpunkt entstanden sind;
 - aktuelles EDHREC-/Meta-Feature an historische Samples hängen.
+
+## Forward-only-Gruppenpromotion
+
+Bei Completion-Datasets werden zunächst zeitbasierte Provisional-Splits vergeben.
+Danach werden exakte Fingerprints, Source-Revisionen und die versionierten
+Near-Duplicate-Cluster gebildet. Eine Gruppe wird in den spätesten Provisional-Split
+verschoben, den eines ihrer Mitglieder erreicht; sie wird nie in einen älteren Split
+zurückverschoben. Ein Cluster mit `TRAIN`, `TRAIN`, `TEST` wird deshalb vollständig
+`TEST`. Algorithmus, Version, Schwelle und Promotion-Regel gehören in das
+Dataset-Manifest.
+
+Outcome-Datasets gruppieren vollständige Events statt wiederholte CanonicalDecks
+global zu sperren. Strenge Zusatzbenchmarks können kalte Fingerprints, Command-Zone-
+Kombinationen und Low-Data-Commander separat ausweisen.

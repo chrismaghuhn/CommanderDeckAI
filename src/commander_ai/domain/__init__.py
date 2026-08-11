@@ -35,6 +35,7 @@ from .provenance import (
     detached_manifest_sha256,
     validate_portable_relative_path,
 )
+from .rulesets import CommandZonePolicy, RulesetSnapshot
 
 __all__ = [
     "CanonicalCard",
@@ -48,6 +49,7 @@ __all__ = [
     "Combo",
     "ComboCard",
     "CommandZoneEntry",
+    "CommandZonePolicy",
     "CommandZoneRelationship",
     "DatasetExclusion",
     "DatasetInputReference",
@@ -64,6 +66,7 @@ __all__ = [
     "QuarantineReference",
     "RawObjectReference",
     "RequestParametersSummary",
+    "RulesetSnapshot",
     "SourceSnapshotManifest",
     "SourceSnapshotRequest",
     "compute_structural_fingerprint",

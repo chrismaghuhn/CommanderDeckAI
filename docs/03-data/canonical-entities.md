@@ -14,15 +14,25 @@ Spielsemantische Identität über `oracle_id`; Printings werden separat referenz
 - Command-Zone-Regeln;
 - Quellen/Hashes.
 
+Historische Evaluation wählt den Snapshot ausschließlich über `effective_from` und
+`effective_until`. Wenn kein eindeutiger Snapshot anwendbar ist, bleibt der
+Legalitätsstatus `unknown`; die aktuelle Banlist wird nicht ersatzweise verwendet.
+
 ## Deck
 
 - Command Zone als **Set/Liste mehrerer Karten**, nicht einzelnes `commander`-Feld;
 - Mainboard als Multiset;
 - optional Companion/weitere Zonen;
-- Ruleset-Version;
 - Source/Provenienz;
-- Legalitätsbefund;
 - Deckfingerprint.
+
+Legalitäts- und Qualitätsbefunde werden als separate, ruleset-/policy-spezifische
+Evaluationen gespeichert und verändern die strukturelle Deckidentität nicht.
+
+`canonical_deck_id` ist der deterministische Struktur-Fingerprint der Formatfamilie
+`commander`. Ruleset-Version, Quelle, Spieler, Event, Zeitpunkt und Evaluationen sind
+keine Bestandteile dieser Identität. Partner-/Background-Rollen werden als
+Source-Evidenz bewahrt; die Ruleset-Validierung bleibt für ihre Legalität autoritativ.
 
 ## Event und Pod
 
