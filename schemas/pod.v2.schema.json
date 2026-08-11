@@ -1,0 +1,300 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/pod.v2.schema.json",
+  "title": "Tournament Pod v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "pod_id",
+    "event_id",
+    "round_number",
+    "occurred_at",
+    "status",
+    "entries",
+    "raw_locator",
+    "provenance",
+    "finding_codes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "pod.v2"
+    },
+    "pod_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "event_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "round_number": {
+      "type": "integer",
+      "minimum": 1
+    },
+    "occurred_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "status": {
+      "enum": [
+        "complete",
+        "incomplete",
+        "cancelled",
+        "unknown"
+      ]
+    },
+    "entries": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "$ref": "#/$defs/pod_entry"
+      }
+    },
+    "raw_locator": {
+      "type": "string",
+      "minLength": 1
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/provenance_reference"
+      }
+    },
+    "finding_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^quality\\.[a-z0-9_]+$"
+      },
+      "uniqueItems": true
+    }
+  },
+  "$defs": {
+    "pod_entry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "seat",
+        "canonical_deck_id",
+        "result",
+        "points",
+        "placement",
+        "participant_reference"
+      ],
+      "properties": {
+        "seat": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "canonical_deck_id": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "result": {
+          "enum": [
+            "win",
+            "loss",
+            "draw",
+            "bye",
+            "unknown"
+          ]
+        },
+        "points": {
+          "type": [
+            "number",
+            "null"
+          ]
+        },
+        "placement": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "minimum": 1
+        },
+        "participant_reference": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/participant_reference"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      }
+    },
+    "participant_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version",
+        "reference_id",
+        "scope"
+      ],
+      "properties": {
+        "schema_version": {
+          "const": "participant-reference.v1"
+        },
+        "reference_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "scope": {
+          "enum": [
+            "source",
+            "event",
+            "snapshot_object"
+          ]
+        },
+        "source_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "event_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "source_snapshot_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      },
+      "oneOf": [
+        {
+          "properties": {
+            "scope": {
+              "const": "source"
+            },
+            "source_id": {
+              "type": "string"
+            },
+            "event_id": {
+              "type": "null"
+            },
+            "source_snapshot_id": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "source_id",
+            "event_id",
+            "source_snapshot_id"
+          ]
+        },
+        {
+          "properties": {
+            "scope": {
+              "const": "event"
+            },
+            "source_id": {
+              "type": "null"
+            },
+            "event_id": {
+              "type": "string"
+            },
+            "source_snapshot_id": {
+              "type": "null"
+            }
+          },
+          "required": [
+            "source_id",
+            "event_id",
+            "source_snapshot_id"
+          ]
+        },
+        {
+          "properties": {
+            "scope": {
+              "const": "snapshot_object"
+            },
+            "event_id": {
+              "type": "null"
+            },
+            "source_snapshot_id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "event_id",
+            "source_snapshot_id"
+          ]
+        }
+      ]
+    },
+    "provenance_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "source_object_id",
+        "raw_sha256"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "retrieved_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "adapter_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "mapper_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "approval_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "APPROVED_LOCAL",
+            "APPROVED_REDISTRIBUTION",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

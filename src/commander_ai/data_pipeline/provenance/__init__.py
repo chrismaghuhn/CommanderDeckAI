@@ -1,5 +1,6 @@
 """Operation provenance, normalized manifests, and retained audit rows."""
 
+from .evidence import SourceEvidence, source_scoped_id
 from .normalized_snapshot_manifests import (
     NormalizedSnapshotBuild,
     NormalizedSnapshotManifestV2,
@@ -36,6 +37,7 @@ __all__ = [
     "RunArtifactReference",
     "RunInputReference",
     "RunManifest",
+    "SourceEvidence",
     "VerifiedNormalizedSnapshot",
     "build_normalized_snapshot_manifest",
     "build_run_manifest",
@@ -44,6 +46,7 @@ __all__ = [
     "read_normalized_snapshot_manifest",
     "serialize_normalized_snapshot_manifest",
     "serialize_run_manifest",
+    "source_scoped_id",
     "validate_normalized_snapshot_manifest",
     "verify_normalized_snapshot_manifest",
     "verify_run_manifest",

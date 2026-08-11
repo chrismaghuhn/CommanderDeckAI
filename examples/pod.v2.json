@@ -1,0 +1,56 @@
+{
+  "schema_version": "pod.v2",
+  "pod_id": "pod:fixture:pod-001",
+  "event_id": "event:fixture:event-001",
+  "round_number": 1,
+  "occurred_at": "2026-08-10T12:00:00Z",
+  "status": "complete",
+  "entries": [
+    {
+      "seat": 1,
+      "canonical_deck_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "result": "win",
+      "points": 5,
+      "placement": 1,
+      "participant_reference": null
+    },
+    {
+      "seat": 2,
+      "canonical_deck_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "result": "loss",
+      "points": 0,
+      "placement": 2,
+      "participant_reference": null
+    },
+    {
+      "seat": 3,
+      "canonical_deck_id": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "result": "loss",
+      "points": 0,
+      "placement": 3,
+      "participant_reference": null
+    },
+    {
+      "seat": 4,
+      "canonical_deck_id": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "result": "loss",
+      "points": 0,
+      "placement": 4,
+      "participant_reference": null
+    }
+  ],
+  "raw_locator": "{\"raw_object_id\":\"pod-001\",\"location\":{\"kind\":\"json_pointer\",\"pointer\":\"/pod\"}}",
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10",
+      "source_object_id": "pod-001",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T12:00:00Z",
+      "adapter_version": "fixture-v1",
+      "mapper_version": "task12-v1",
+      "approval_status": "APPROVED_LOCAL"
+    }
+  ],
+  "finding_codes": []
+}
