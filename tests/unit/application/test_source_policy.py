@@ -109,6 +109,18 @@ def test_historical_approval_cannot_override_current_block(
     assert decision.code == "POLICY_CURRENT_USE_BLOCKED"
 
 
+def test_allowed_processing_decision_keeps_current_use_binding() -> None:
+    decision = SourcePolicy(registry_for(SourceApprovalStatus.APPROVED_LOCAL)).check_operation(
+        "example_source", "normalize"
+    )
+
+    assert decision.allowed
+    assert decision.decision_sha256 is not None
+    assert decision.decision_reference == (
+        f"current-use.v1:example_source:{decision.decision_sha256[:32]}"
+    )
+
+
 @pytest.mark.parametrize("operation", ["normalize", "validate", "report", "dataset_build"])
 def test_processing_operations_require_a_current_use_decision(operation: str) -> None:
     registry = registry_for(SourceApprovalStatus.APPROVED_LOCAL)

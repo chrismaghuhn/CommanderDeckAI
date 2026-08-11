@@ -49,8 +49,8 @@ class AuditRecord(DomainModel):
     def validate_stage_code(self) -> AuditRecord:
         if self.finding_code.split(".", maxsplit=1)[0] != self.stage:
             raise ValueError("audit stage and finding namespace must match")
-        if self.stage == "parse" and self.raw_locator is None:
-            raise ValueError("parse audit findings require an exact raw_locator")
+        if self.stage in {"parse", "integrity"} and self.raw_locator is None:
+            raise ValueError(f"{self.stage} audit findings require an exact raw_locator")
         return self
 
 

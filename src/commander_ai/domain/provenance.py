@@ -13,6 +13,14 @@ from commander_ai.domain.path_policy import (
 )
 from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
 
+from .normalized_snapshot_validation import (
+    validate_finding_codes as validate_normalized_finding_codes,
+)
+from .normalized_snapshot_validation import (
+    validate_provenance_order,
+    validate_quarantine_references,
+)
+
 DETACHED_MANIFEST_DIGEST_FIELD = "manifest_sha256"
 
 
@@ -116,6 +124,7 @@ class ProvenanceReference(DomainModel):
     mapper_version: str | None = Field(default=None, min_length=1)
     approval_status: ApprovalStatus | None = None
 
+
 class QuarantineReference(DomainModel):
     """Stable pointer to a record withheld from normalized output."""
 
@@ -196,6 +205,7 @@ class RawObjectReference(DomainModel):
     @classmethod
     def validate_path(cls, value: str) -> str:
         return validate_portable_relative_path(value)
+
 
 class SourceSnapshotManifest(DomainModel):
     """Authoritative v2 source snapshot provenance."""
@@ -293,6 +303,23 @@ class NormalizedSnapshotManifest(DomainModel):
             raise ValueError("normalized manifest counts must be non-negative integers")
         return dict(sorted(value.items()))
 
+    @field_validator("finding_codes")
+    @classmethod
+    def validate_finding_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        return validate_normalized_finding_codes(value)
+
+    @field_validator("quarantine_references", mode="before")
+    @classmethod
+    def validate_quarantine_references(cls, value: object) -> tuple[QuarantineReference, ...]:
+        return validate_quarantine_references(value)  # type: ignore[return-value]
+
+    @field_validator("provenance")
+    @classmethod
+    def validate_provenance_order(
+        cls, value: tuple[ProvenanceReference, ...]
+    ) -> tuple[ProvenanceReference, ...]:
+        return validate_provenance_order(value)  # type: ignore[return-value]
+
     @model_validator(mode="after")
     def validate_provenance_scope(self) -> NormalizedSnapshotManifest:
         for reference in self.provenance:
@@ -302,20 +329,18 @@ class NormalizedSnapshotManifest(DomainModel):
                 raise ValueError(
                     "provenance source_snapshot_id must match input_source_snapshot_manifest_id"
                 )
-        if self.status == "COMPLETE" and self.completed_at is None:
-            raise ValueError("COMPLETE normalized manifests require completed_at")
+        if self.status in {"COMPLETE", "FAILED"} and self.completed_at is None:
+            raise ValueError(f"{self.status} normalized manifests require completed_at")
         if self.status == "INCOMPLETE" and self.completed_at is not None:
             raise ValueError("INCOMPLETE normalized manifests cannot have completed_at")
         if self.started_at > self.created_at:
-            raise ValueError("normalized started_at must not follow created_at")
+            raise ValueError("started_at must not follow created_at")
         if self.completed_at is not None and self.completed_at < self.started_at:
             raise ValueError("normalized completed_at must not precede started_at")
         return self
 
 
 class DatasetInputReference(DomainModel):
-    """Hashed input manifest reference bound into a dataset manifest."""
-
     kind: str = Field(min_length=1)
     id: str = Field(min_length=1)
     path: str | None = Field(default=None, min_length=1)
@@ -328,8 +353,6 @@ class DatasetInputReference(DomainModel):
 
 
 class DatasetOutputReference(DomainModel):
-    """Hashed dataset output artifact reference."""
-
     name: str = Field(min_length=1)
     path: str = Field(min_length=1)
     sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
@@ -343,16 +366,12 @@ class DatasetOutputReference(DomainModel):
 
 
 class DatasetExclusion(DomainModel):
-    """Versioned exclusion reason and count for a dataset build."""
-
     code: str = Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
     count: int = Field(ge=0)
     references: tuple[str, ...] = Field(default_factory=tuple)
 
 
 class DatasetManifest(DomainModel):
-    """Dataset provenance; it is not a normalization or operation manifest."""
-
     schema_version: Literal["dataset-manifest.v2"] = "dataset-manifest.v2"
     dataset_id: str = Field(min_length=1)
     created_at: datetime

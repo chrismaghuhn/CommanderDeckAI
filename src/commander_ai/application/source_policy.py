@@ -32,6 +32,8 @@ class SourcePolicyDecision:
     reason: str
     historical_status: SourceApprovalStatus | None
     current_status: CurrentUseStatus | None
+    decision_reference: str | None = None
+    decision_sha256: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -102,6 +104,8 @@ class SourcePolicy:
             reason="historical source status is locally allowlisted",
             historical_status=historical_status,
             current_status=current.current_status,
+            decision_reference=current.decision_reference,
+            decision_sha256=current.decision_sha256,
         )
 
     def check_operation(
@@ -144,6 +148,8 @@ class SourcePolicy:
                 reason="historical redistribution approval is required for public export",
                 historical_status=historical_status,
                 current_status=current.current_status,
+                decision_reference=current.decision_reference,
+                decision_sha256=current.decision_sha256,
             )
         return SourcePolicyDecision(
             source_id=normalized,
@@ -153,6 +159,8 @@ class SourcePolicy:
             reason="source and current-use policy allow the operation",
             historical_status=historical_status,
             current_status=current.current_status,
+            decision_reference=current.decision_reference,
+            decision_sha256=current.decision_sha256,
         )
 
     def require_operation(
@@ -234,4 +242,6 @@ class SourcePolicy:
             reason=result.reason,
             historical_status=result.historical_status,
             current_status=result.current_status,
+            decision_reference=result.decision_reference,
+            decision_sha256=result.decision_sha256,
         )

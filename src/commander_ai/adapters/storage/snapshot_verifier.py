@@ -7,9 +7,12 @@ import json
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
-from types import MappingProxyType
 
 from commander_ai.application.normalize_snapshot import RawSnapshotVerificationError
+from commander_ai.application.verified_source_snapshot import (
+    _VERIFIER_TOKEN,
+    VerifiedSourceSnapshot,
+)
 from commander_ai.domain.provenance import SourceSnapshotManifest
 
 from .canonical_json import canonical_json_bytes
@@ -26,14 +29,7 @@ class SnapshotIntegrityError(RawSnapshotVerificationError):
         super().__init__(code)
 
 
-@dataclass(frozen=True, slots=True)
-class VerifiedSnapshot:
-    manifest: SourceSnapshotManifest
-    snapshot_dir: Path
-    object_paths: Mapping[str, Path]
-    record_count: int
-    manifest_sha256: str
-    manifest_path: Path
+VerifiedSnapshot = VerifiedSourceSnapshot
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,14 +60,13 @@ class SnapshotVerifier:
                 paths[reference.raw_object_id] = resolve_under_root(snapshot_dir, reference.path)
             except ValueError as error:
                 raise SnapshotIntegrityError("INTEGRITY_OBJECT_PATH") from error
-        return VerifiedSnapshot(
+        return VerifiedSnapshot._issue(
+            token=_VERIFIER_TOKEN,
             manifest=inspection.manifest,
             snapshot_dir=snapshot_dir,
-            object_paths=MappingProxyType(paths),
+            object_paths=paths,
             record_count=inspection.record_count,
-            manifest_sha256=detached_manifest_sha256(
-                inspection.manifest.model_dump(mode="json")
-            ),
+            manifest_sha256=detached_manifest_sha256(inspection.manifest.model_dump(mode="json")),
             manifest_path=snapshot_dir / "manifest.json",
         )
 

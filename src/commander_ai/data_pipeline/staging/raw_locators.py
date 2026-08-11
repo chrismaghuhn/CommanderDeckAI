@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field, field_validator
 
 from commander_ai.domain.provenance import DomainModel, validate_portable_relative_path
 from commander_ai.domain.serialization import canonical_json_bytes
+
+if TYPE_CHECKING:
+    from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
 
 
 class JsonPointerLocator(DomainModel):
@@ -103,6 +106,52 @@ class RawLocator(DomainModel):
             }
         ).decode("utf-8")
 
+    @property
+    def identity(self) -> str:
+        """Canonical identity used to reject duplicate source locators."""
+
+        return self.exact_locator
+
+
+def validate_raw_locator_against_snapshot(
+    locator: RawLocator,
+    *,
+    verified_snapshot: VerifiedSourceSnapshot,
+    source_id: str | None = None,
+    raw_sha256: str | None = None,
+) -> None:
+    """Fail closed unless locator identity agrees with nominal raw evidence."""
+
+    from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
+
+    if not isinstance(verified_snapshot, VerifiedSourceSnapshot):
+        raise ValueError("verified raw snapshot evidence is required for raw locators")
+    verified_snapshot.assert_consistent()
+    manifest = verified_snapshot.manifest
+    if source_id is not None and source_id != manifest.source_id:
+        raise ValueError("raw locator source_id does not match verified snapshot")
+    if locator.source_snapshot_id != manifest.source_snapshot_id:
+        raise ValueError("raw locator source_snapshot_id does not match verified snapshot")
+    reference = verified_snapshot.object_index.get(locator.raw_object_id)
+    if reference is None:
+        raise ValueError("raw locator raw_object_id is absent from verified snapshot")
+    if locator.raw_object_path != reference.path:
+        raise ValueError("raw locator path does not match verified source object")
+    if raw_sha256 is not None and raw_sha256 != reference.sha256:
+        raise ValueError("raw locator sha256 does not match verified source object")
+    if (
+        isinstance(locator.location, RecordIndexLocator)
+        and reference.logical_record_count is not None
+        and locator.location.index >= reference.logical_record_count
+    ):
+        raise ValueError("raw record index is outside the verified object record count")
+    if (
+        isinstance(locator.location, ByteRangeLocator)
+        and locator.archive_member is None
+        and locator.location.end > reference.bytes
+    ):
+        raise ValueError("raw byte range is outside the verified object")
+
 
 RawObjectLocator = RawLocator
 
@@ -113,4 +162,5 @@ __all__ = [
     "RawLocator",
     "RawObjectLocator",
     "RecordIndexLocator",
+    "validate_raw_locator_against_snapshot",
 ]

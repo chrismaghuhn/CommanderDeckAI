@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import json
 import os
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
@@ -13,12 +13,33 @@ from typing import Any, Literal
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
 
+from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
+from commander_ai.data_pipeline.provenance.rows import (
+    AuditRecord,
+    ProvenanceRow,
+    ResolutionAttempt,
+)
+from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord
+from commander_ai.data_pipeline.staging.raw_locators import (
+    RawLocator,
+    validate_raw_locator_against_snapshot,
+)
+from commander_ai.data_pipeline.staging.records import StagingRecord
+from commander_ai.domain.provenance import DomainModel
 from commander_ai.domain.serialization import canonical_json_bytes
 
 from .path_policy import resolve_under_root, validate_portable_relative_path
 from .raw_snapshot_io import fsync_directory, publish_new, sha256_file
 
 _PARQUET_LAYERS = frozenset({"staging", "normalized", "audit", "quarantine", "curated"})
+
+
+class CuratedRow(DomainModel):
+    """Explicit generic curated-table row contract for the Task-5 boundary."""
+
+    curated_id: str
+    values: Mapping[str, object]
+    layer: Literal["curated"] = "curated"
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,6 +67,8 @@ class ParquetTableWriter:
         relative_path: str | None = None,
         schema_version: str = "staging.v1",
         layer: Literal["staging", "normalized", "audit", "quarantine", "curated"] | None = None,
+        row_contract: type[DomainModel] | None = None,
+        verified_snapshot: VerifiedSourceSnapshot | None = None,
     ) -> ParquetArtifact:
         if not table_name or table_name.startswith("."):
             raise ValueError("table name must be a portable non-hidden name")
@@ -53,25 +76,16 @@ class ParquetTableWriter:
             raise ValueError("Parquet table persistence requires an explicit layer")
         if not isinstance(layer, str) or layer not in _PARQUET_LAYERS:
             raise ValueError("Parquet table layer is not recognized")
+        contract = _require_row_contract(layer, row_contract)
         if table_name.casefold() == "audit" and layer != "audit":
             raise ValueError("audit tables require the audit layer")
         if table_name.casefold() == "quarantine" and layer != "quarantine":
             raise ValueError("quarantine tables require the quarantine layer")
         if table_name.casefold().startswith("curated") and layer != "curated":
             raise ValueError("curated tables require the curated layer")
-        normalized_rows = [_row_payload(row) for row in rows]
-        if layer == "curated" and any(row.get("layer") != "curated" for row in normalized_rows):
-            raise ValueError(
-                "staging, normalized, audit, or quarantine rows cannot be written to curated tables"
-            )
-        if layer in {"audit", "quarantine"} and any(
-            row.get("layer") != layer for row in normalized_rows
-        ):
-            raise ValueError(f"{layer} rows must carry the {layer} layer metadata")
-        if layer == "normalized" and any(
-            row.get("layer") not in {None, "staging", "normalized"} for row in normalized_rows
-        ):
-            raise ValueError("normalized tables cannot contain audit or quarantine rows")
+        typed_rows = list(rows)
+        _validate_source_locators(typed_rows, verified_snapshot)
+        normalized_rows = [_row_payload(row, contract, layer) for row in typed_rows]
         portable_path = validate_portable_relative_path(
             relative_path or f"normalized/{table_name}.parquet"
         )
@@ -130,16 +144,37 @@ class ParquetTableWriter:
         audit: Iterable[object],
         quarantine: Iterable[object],
         schema_version: str = "staging.v1",
+        staging_row_contract: type[DomainModel] = StagingRecord,
+        audit_row_contract: type[DomainModel] = AuditRecord,
+        quarantine_row_contract: type[DomainModel] = QuarantineRecord,
+        verified_snapshot: VerifiedSourceSnapshot | None = None,
     ) -> tuple[ParquetArtifact, ParquetArtifact, ParquetArtifact]:
         """Write the three non-curated Task-5 layers as separate immutable tables."""
 
         return (
             self.write_table(
-                "staging", staging, schema_version=schema_version, layer="normalized"
+                "staging",
+                staging,
+                schema_version=schema_version,
+                layer="normalized",
+                row_contract=staging_row_contract,
+                verified_snapshot=verified_snapshot,
             ),
-            self.write_table("audit", audit, schema_version="audit.v1", layer="audit"),
             self.write_table(
-                "quarantine", quarantine, schema_version="quarantine.v1", layer="quarantine"
+                "audit",
+                audit,
+                schema_version="audit.v1",
+                layer="audit",
+                row_contract=audit_row_contract,
+                verified_snapshot=verified_snapshot,
+            ),
+            self.write_table(
+                "quarantine",
+                quarantine,
+                schema_version="quarantine.v1",
+                layer="quarantine",
+                row_contract=quarantine_row_contract,
+                verified_snapshot=verified_snapshot,
             ),
         )
 
@@ -149,17 +184,107 @@ class ParquetTableWriter:
         return [json.loads(value) for value in table.column("row_json").to_pylist()]
 
 
-def _row_payload(row: object) -> dict[str, object]:
+def _require_row_contract(layer: str, contract: type[DomainModel] | None) -> type[DomainModel]:
+    if contract is None:
+        raise ValueError("Parquet persistence requires an explicit typed row contract")
+    allowed: dict[str, tuple[type[DomainModel], ...]] = {
+        "staging": (StagingRecord,),
+        "normalized": (StagingRecord,),
+        "audit": (AuditRecord, ResolutionAttempt, ProvenanceRow),
+        "quarantine": (QuarantineRecord,),
+        "curated": (CuratedRow,),
+    }
+    if contract not in allowed[layer]:
+        raise ValueError(f"row contract is not valid for the {layer} layer")
+    return contract
+
+
+def _row_payload(
+    row: object,
+    contract: type[DomainModel],
+    layer: str,
+) -> dict[str, object]:
+    if not isinstance(row, contract):
+        raise TypeError("Parquet rows must match the explicit typed row contract")
     model_dump = getattr(row, "model_dump", None)
     if callable(model_dump):
         value = model_dump(mode="json")
-    elif isinstance(row, Mapping):
-        value = dict(row)
     else:
-        raise TypeError("Parquet rows must be mappings or Pydantic models")
+        raise TypeError("Parquet row contract must be a Pydantic domain model")
     if not isinstance(value, dict):
         raise TypeError("Parquet row model_dump must return a mapping")
+    declared_layer = value.get("layer")
+    expected_layers = {"staging"} if layer == "normalized" else {layer}
+    if declared_layer not in expected_layers:
+        raise ValueError(f"{layer} rows must carry the validated layer metadata")
     return value
+
+
+def _validate_source_locators(
+    rows: Sequence[object], verified_snapshot: VerifiedSourceSnapshot | None
+) -> None:
+    locators: list[tuple[RawLocator, str | None, str | None]] = []
+    for row in rows:
+        if isinstance(row, StagingRecord):
+            locators.append((row.raw_locator, row.source_id, None))
+        elif isinstance(row, ProvenanceRow):
+            locators.append((row.raw_locator, row.source_id, row.raw_sha256))
+        elif type(row) in {ResolutionAttempt, QuarantineRecord} or (
+            type(row) is AuditRecord and row.raw_locator is not None
+        ):
+            locator = getattr(row, "raw_locator", None)
+            if isinstance(locator, RawLocator):
+                locators.append((locator, None, None))
+    if len({locator.identity for locator, _, _ in locators}) != len(locators):
+        raise ValueError("source-backed Parquet rows must have unique raw locators")
+    if locators and verified_snapshot is None:
+        raise ValueError("source-backed Parquet rows require verified raw snapshot evidence")
+    if verified_snapshot is None:
+        return
+    for locator, source_id, raw_sha256 in locators:
+        validate_raw_locator_against_snapshot(
+            locator,
+            verified_snapshot=verified_snapshot,
+            source_id=source_id,
+            raw_sha256=raw_sha256,
+        )
+
+
+def validate_parquet_table_rows(
+    path: Path,
+    *,
+    layer: Literal["staging", "normalized", "audit", "quarantine", "curated"],
+    verified_snapshot: VerifiedSourceSnapshot | None = None,
+) -> None:
+    """Deserialize persisted rows through the same nominal layer contract."""
+
+    contracts = {
+        "staging": StagingRecord,
+        "normalized": StagingRecord,
+        "audit": (AuditRecord, ResolutionAttempt, ProvenanceRow),
+        "quarantine": QuarantineRecord,
+        "curated": CuratedRow,
+    }[layer]
+    try:
+        table = pq.read_table(path)
+        raw_rows = table.column("row_json").to_pylist()
+        rows: list[DomainModel] = []
+        for value in raw_rows:
+            payload = json.loads(value)
+            matches = []
+            for contract in contracts if isinstance(contracts, tuple) else (contracts,):
+                try:
+                    candidate = contract.model_validate(payload)
+                    _row_payload(candidate, contract, layer)
+                    matches.append(candidate)
+                except (TypeError, ValueError):
+                    continue
+            if len(matches) != 1:
+                raise ValueError("row does not match exactly one typed layer contract")
+            rows.append(matches[0])
+    except Exception as error:  # pragma: no cover - backend-specific exception types
+        raise ValueError("Parquet rows do not satisfy their typed layer contract") from error
+    _validate_source_locators(rows, verified_snapshot)
 
 
 def _temporary_path(directory: Path) -> tuple[int, str]:
@@ -168,4 +293,9 @@ def _temporary_path(directory: Path) -> tuple[int, str]:
     return tempfile.mkstemp(prefix=".parquet-", dir=directory)
 
 
-__all__ = ["ParquetArtifact", "ParquetTableWriter"]
+__all__ = [
+    "CuratedRow",
+    "ParquetArtifact",
+    "ParquetTableWriter",
+    "validate_parquet_table_rows",
+]

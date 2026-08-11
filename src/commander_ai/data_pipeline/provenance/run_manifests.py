@@ -29,10 +29,21 @@ class RunInputReference(DomainModel):
     path: str | None = Field(default=None, min_length=1)
     sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
 
+    @field_validator("kind", "id")
+    @classmethod
+    def redact_identifiers(cls, value: str) -> str:
+        return _safe_text(value)
+
     @field_validator("path")
     @classmethod
     def validate_path(cls, value: str | None) -> str | None:
         return None if value is None else validate_portable_relative_path(value)
+
+    @model_validator(mode="after")
+    def validate_path_binding(self) -> RunInputReference:
+        if self.path is None and self.kind not in {"current_use_decision", "policy_decision"}:
+            raise ValueError("file and object run inputs require a portable path")
+        return self
 
 
 class RunArtifactReference(DomainModel):
@@ -87,8 +98,6 @@ class RunEnvironment(DomainModel):
 
 
 class RunManifest(DomainModel):
-    """Typed v1 run manifest; no secrets or source response bodies are accepted."""
-
     schema_version: Literal["run-manifest.v1"] = "run-manifest.v1"
     run_id: str = Field(min_length=1)
     run_kind: str = Field(min_length=1)
@@ -136,6 +145,13 @@ class RunManifest(DomainModel):
             raise ValueError("run version references must be non-empty strings")
         if len(value) != len(set(value)):
             raise ValueError("run version references must be unique")
+        return value
+
+    @field_validator("ruleset_versions")
+    @classmethod
+    def validate_unique_rulesets(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if len(value) != len(set(value)):
+            raise ValueError("run ruleset references must be unique")
         return value
 
     @field_validator("metrics")
@@ -291,7 +307,10 @@ def run_manifest_bytes(manifest: RunManifest) -> bytes:
 
 
 def validate_run_manifest_bytes(value: bytes) -> RunManifest:
-    payload = json.loads(value.decode("utf-8"))
+    try:
+        payload = json.loads(value.decode("utf-8"), object_pairs_hook=_reject_duplicate_members)
+    except (UnicodeError, json.JSONDecodeError, ValueError) as error:
+        raise ValueError("run manifest is not valid JSON or contains duplicate members") from error
     if not isinstance(payload, dict):
         raise ValueError("run manifest must be a JSON object")
     if canonical_json_bytes(payload) != value:
@@ -317,6 +336,15 @@ def _with_manifest_digest(manifest: RunManifest) -> RunManifest:
         canonical_json_bytes({key: value for key, value in payload.items() if key != "sha256"})
     )
     return manifest.model_copy(update={"sha256": digest})
+
+
+def _reject_duplicate_members(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError(f"duplicate run manifest member: {key}")
+        result[key] = value
+    return result
 
 
 def _unique_strings(values: Sequence[str], label: str) -> tuple[str, ...]:

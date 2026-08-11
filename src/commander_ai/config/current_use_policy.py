@@ -7,6 +7,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
 
+from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
+
 from .source_settings import SourceApprovalStatus, normalize_source_id
 from .yaml_loader import redact_text
 
@@ -118,6 +120,28 @@ class CurrentUseDecision(BaseModel):
         return value
 
 
+def current_use_decision_binding(
+    *,
+    source_id: str,
+    historical_status: SourceApprovalStatus,
+    current_use: CurrentUseDecision,
+    operation: PolicyOperation | str,
+) -> tuple[str, str]:
+    """Return a deterministic reference and digest for one current-use decision."""
+
+    normalized_source_id = normalize_source_id(source_id)
+    normalized_operation = PolicyOperation.normalize(operation)
+    payload = {
+        "schema_version": "current-use-decision.v1",
+        "source_id": normalized_source_id,
+        "operation": normalized_operation.value,
+        "historical_status": getattr(historical_status, "value", str(historical_status)),
+        "current_use": current_use.model_dump(mode="json"),
+    }
+    digest = sha256_hex(canonical_json_bytes(payload))
+    return f"current-use.v1:{normalized_source_id}:{digest[:32]}", digest
+
+
 class CurrentUseResult(BaseModel):
     """Safe policy result suitable for application errors and run metadata."""
 
@@ -130,6 +154,8 @@ class CurrentUseResult(BaseModel):
     reason: str
     historical_status: SourceApprovalStatus
     current_status: CurrentUseStatus | None = None
+    decision_reference: str | None = Field(default=None, min_length=1)
+    decision_sha256: str | None = Field(default=None, pattern=r"^[a-f0-9]{64}$")
 
 
 class CurrentUsePolicy:
@@ -161,6 +187,16 @@ class CurrentUsePolicy:
         normalized_source_id = normalize_source_id(source_id)
         normalized_operation = PolicyOperation.normalize(operation)
         if current_use is None:
+            decision_reference = None
+            decision_sha256 = None
+        else:
+            decision_reference, decision_sha256 = current_use_decision_binding(
+                source_id=normalized_source_id,
+                historical_status=historical_status,
+                current_use=current_use,
+                operation=normalized_operation,
+            )
+        if current_use is None:
             if normalized_operation.is_audit_only:
                 return CurrentUseResult(
                     source_id=normalized_source_id,
@@ -171,6 +207,8 @@ class CurrentUsePolicy:
                         "audit-only inspection does not emit processed or redistributable records"
                     ),
                     historical_status=historical_status,
+                    decision_reference=decision_reference,
+                    decision_sha256=decision_sha256,
                 )
             if cls.requires_decision(normalized_operation):
                 return CurrentUseResult(
@@ -180,6 +218,8 @@ class CurrentUsePolicy:
                     code="POLICY_CURRENT_USE_REQUIRED",
                     reason="current-use decision is required for this operation",
                     historical_status=historical_status,
+                    decision_reference=decision_reference,
+                    decision_sha256=decision_sha256,
                 )
             return CurrentUseResult(
                 source_id=normalized_source_id,
@@ -188,6 +228,8 @@ class CurrentUsePolicy:
                 code="POLICY_CURRENT_USE_NOT_REQUIRED",
                 reason="operation does not require a current-use decision",
                 historical_status=historical_status,
+                decision_reference=decision_reference,
+                decision_sha256=decision_sha256,
             )
 
         if current_use.source_id != normalized_source_id:
@@ -199,6 +241,8 @@ class CurrentUsePolicy:
                 reason="current-use decision source does not match requested source",
                 historical_status=historical_status,
                 current_status=current_use.status,
+                decision_reference=decision_reference,
+                decision_sha256=decision_sha256,
             )
         if normalized_operation.is_audit_only:
             return CurrentUseResult(
@@ -209,6 +253,8 @@ class CurrentUsePolicy:
                 reason=("audit-only inspection does not emit processed or redistributable records"),
                 historical_status=historical_status,
                 current_status=current_use.status,
+                decision_reference=decision_reference,
+                decision_sha256=decision_sha256,
             )
         if current_use.status is not CurrentUseStatus.ALLOWED:
             return CurrentUseResult(
@@ -219,6 +265,8 @@ class CurrentUsePolicy:
                 reason=f"current-use status is {current_use.status.value}",
                 historical_status=historical_status,
                 current_status=current_use.status,
+                decision_reference=decision_reference,
+                decision_sha256=decision_sha256,
             )
         if normalized_operation is PolicyOperation.PUBLIC_EXPORT and (
             current_use.approval_status is not SourceApprovalStatus.APPROVED_REDISTRIBUTION
@@ -231,6 +279,8 @@ class CurrentUsePolicy:
                 reason="current redistribution approval is required for public export",
                 historical_status=historical_status,
                 current_status=current_use.status,
+                decision_reference=decision_reference,
+                decision_sha256=decision_sha256,
             )
         return CurrentUseResult(
             source_id=normalized_source_id,
@@ -240,4 +290,6 @@ class CurrentUsePolicy:
             reason=redact_text(current_use.reason),
             historical_status=historical_status,
             current_status=current_use.status,
+            decision_reference=decision_reference,
+            decision_sha256=decision_sha256,
         )

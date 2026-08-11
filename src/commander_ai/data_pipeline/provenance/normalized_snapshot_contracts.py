@@ -44,9 +44,7 @@ class NormalizedTableArtifact(DomainModel):
 class NormalizedSnapshotManifestV2(DomainModel):
     """Closed v2 extension that binds every normalized-layer artifact explicitly."""
 
-    schema_version: Literal["normalized-snapshot-manifest.v2"] = (
-        "normalized-snapshot-manifest.v2"
-    )
+    schema_version: Literal["normalized-snapshot-manifest.v2"] = "normalized-snapshot-manifest.v2"
     normalized_snapshot_id: str = Field(min_length=1)
     producing_run_id: str = Field(min_length=1)
     input_source_snapshot_manifest_id: str = Field(min_length=1)
@@ -101,10 +99,33 @@ class NormalizedSnapshotManifestV2(DomainModel):
             raise ValueError("normalized finding codes must be unique")
         return tuple(sorted(findings))
 
+    @field_validator("quarantine_references", mode="before")
+    @classmethod
+    def validate_quarantine_order(cls, value: object) -> tuple[QuarantineReference, ...]:
+        if not isinstance(value, (tuple, list)):
+            raise ValueError("quarantine references must be a sequence")
+        references = tuple(QuarantineReference.model_validate(item) for item in value)
+        if len({item.quarantine_id for item in references}) != len(references):
+            raise ValueError("quarantine references must be unique")
+        ordered = tuple(
+            sorted(
+                references,
+                key=lambda item: (
+                    item.quarantine_id,
+                    item.reason_code,
+                    item.path or "",
+                    item.record_locator or "",
+                ),
+            )
+        )
+        if references != ordered:
+            raise ValueError("quarantine references must be sorted")
+        return references
+
     @model_validator(mode="after")
     def validate_bindings(self) -> NormalizedSnapshotManifestV2:
-        if self.status == "COMPLETE" and self.completed_at is None:
-            raise ValueError("COMPLETE normalized manifests require completed_at")
+        if self.status in {"COMPLETE", "FAILED"} and self.completed_at is None:
+            raise ValueError(f"{self.status} normalized manifests require completed_at")
         if self.status == "INCOMPLETE" and self.completed_at is not None:
             raise ValueError("INCOMPLETE normalized manifests cannot have completed_at")
         if self.started_at > self.created_at:

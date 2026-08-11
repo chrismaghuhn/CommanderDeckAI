@@ -17,15 +17,21 @@ from commander_ai.data_pipeline.provenance.normalized_snapshot_manifests import 
 from commander_ai.data_pipeline.provenance.normalized_snapshot_verifier import (
     read_normalized_snapshot_manifest,
 )
+from commander_ai.data_pipeline.provenance.rows import AuditRecord
 from commander_ai.data_pipeline.provenance.run_manifests import (
     RunArtifactReference,
     RunInputReference,
     build_run_manifest,
 )
+from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord
+from commander_ai.data_pipeline.staging.raw_locators import JsonPointerLocator, RawLocator
+from commander_ai.data_pipeline.staging.records import SourceRecordDTO, StagingRecord
 from commander_ai.domain.provenance import SourceSnapshotRequest
 from commander_ai.domain.serialization import canonical_json_bytes
 
 NOW = datetime(2026, 8, 11, 0, 0, tzinfo=UTC)
+POLICY_REFERENCE = "current-use.v1:fixture:" + "a" * 32
+POLICY_SHA256 = "a" * 64
 
 
 def test_normalized_snapshot_read_verifies_manifest_run_source_and_parquet_bytes(
@@ -52,13 +58,48 @@ def test_normalized_snapshot_read_verifies_manifest_run_source_and_parquet_bytes
     verified = SnapshotVerifier(tmp_path).verify_complete_snapshot("fixture", "snapshot-1")
 
     parquet = ParquetTableWriter(tmp_path)
+    staging = StagingRecord.from_dto(
+        SourceRecordDTO(
+            source_id="fixture",
+            record_type="deck",
+            raw_locator=RawLocator(
+                source_snapshot_id="snapshot-1",
+                raw_object_id="object-1",
+                raw_object_path="objects/object-1",
+                location=JsonPointerLocator(pointer="/0"),
+            ),
+            original_source_values={"value": 1},
+        ),
+        staging_record_id="staging-1",
+        status="OBSERVED",
+    )
+    audit = AuditRecord(
+        audit_id="audit-1",
+        entity_id="staging-1",
+        stage="quality",
+        finding_code="quality.example",
+    )
     normalized_file = parquet.write_table(
-        "staging", [{"layer": "staging", "value": 1}], layer="normalized"
+        "staging",
+        [staging],
+        layer="normalized",
+        row_contract=StagingRecord,
+        verified_snapshot=verified,
     )
     audit_file = parquet.write_table(
-        "audit", [{"layer": "audit", "finding_code": "quality.example"}], layer="audit"
+        "audit",
+        [audit],
+        layer="audit",
+        row_contract=AuditRecord,
+        verified_snapshot=verified,
     )
-    quarantine_file = parquet.write_table("quarantine", [], layer="quarantine")
+    quarantine_file = parquet.write_table(
+        "quarantine",
+        [],
+        layer="quarantine",
+        row_contract=QuarantineRecord,
+        verified_snapshot=verified,
+    )
     artifacts = tuple(
         NormalizedTableArtifact(
             table_name=item.table_name,
@@ -86,6 +127,11 @@ def test_normalized_snapshot_read_verifies_manifest_run_source_and_parquet_bytes
                 id="snapshot-1",
                 path="raw/fixture/snapshot-1/manifest.json",
                 sha256=verified.manifest_sha256,
+            ),
+            RunInputReference(
+                kind="current_use_decision",
+                id=POLICY_REFERENCE,
+                sha256=POLICY_SHA256,
             ),
         ),
         schema_versions=("records.v1",),
@@ -134,14 +180,34 @@ def test_normalized_snapshot_read_verifies_manifest_run_source_and_parquet_bytes
         producing_run_path="runs/normalize-run-1/manifest.json",
     )
     assert (
-        verified_normalized.manifest.normalized_snapshot_id
-        == build.manifest.normalized_snapshot_id
+        verified_normalized.manifest.normalized_snapshot_id == build.manifest.normalized_snapshot_id
     )
+
+    run_file = tmp_path / "runs/normalize-run-1/manifest.json"
+    original_run_bytes = run_file.read_bytes()
+    run_file.write_bytes(original_run_bytes.replace(b"normalize-run-1", b"tampered-run-1"))
+    with pytest.raises(ValueError, match="run manifest digest"):
+        read_normalized_snapshot_manifest(
+            tmp_path,
+            "normalized/fixture/snapshot-1/manifest.json",
+            producing_run_path="runs/normalize-run-1/manifest.json",
+        )
+    run_file.write_bytes(original_run_bytes)
+
+    raw_object = tmp_path / "raw/fixture/snapshot-1/objects/object-1"
+    raw_object.write_bytes(b"tampered")
+    with pytest.raises(ValueError, match=r"INTEGRITY|hash|size"):
+        read_normalized_snapshot_manifest(
+            tmp_path,
+            "normalized/fixture/snapshot-1/manifest.json",
+            producing_run_path="runs/normalize-run-1/manifest.json",
+        )
+    raw_object.write_bytes(b"{}")
 
     manifest_file = tmp_path / "normalized/fixture/snapshot-1/manifest.json"
     original_manifest_bytes = manifest_file.read_bytes()
     modified_manifest = json.loads(original_manifest_bytes.decode("utf-8"))
-    modified_manifest["created_at"] = "2026-08-11T00:00:01Z"
+    modified_manifest["normalized_snapshot_id"] = "normalized-tampered"
     manifest_file.write_bytes(canonical_json_bytes(modified_manifest))
     with pytest.raises(ValueError, match="detached digest"):
         read_normalized_snapshot_manifest(

@@ -11,7 +11,9 @@ Parse-, Integritäts-, Resolution-, Legalitäts- und Qualitätsbefunde haben get
 Namespaces. Audit- und Quarantänezeilen werden behalten und nie als curated
 ausgegeben. Parquet und das versionierte Normalized-Snapshot-Manifest sind die
 autoritativen normalisierten Artefakte; SQL/DuckDB bleibt rebuildbarer lokaler Index.
-Die eingefrorene v1 bleibt unverändert. Für die vollständige Task-5-Bindung verwendet
-die Persistenz die versionierte v2-Erweiterung: Sie bindet normalisierte, Audit- und
-Quarantäne-Parquet-Dateien jeweils mit portablem Pfad, Bytezahl, Hash und Zeilenzahl
-und wird vor Verwendung gegen Run-Manifest, Raw-Snapshot und alle Dateien verifiziert.
+Die eingefrorene `normalized-snapshot-manifest.v1` bleibt der autoritative Task-5-Output
+und wird unverändert erzeugt und gelesen. Seine vollständige Bindung liegt deterministisch
+im Content-Digest und in den drei typisierten Parquet-Artefakten: portable Pfade, Hashes,
+Byte- und Zeilenzahlen werden gegen das persistierte Run-Manifest, den verifizierten
+Raw-Snapshot und jede Datei geprüft. `normalized-snapshot-manifest.v2` bleibt eine separate
+optionale strengere Erweiterung und ersetzt v1 nicht.

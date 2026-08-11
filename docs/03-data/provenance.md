@@ -35,5 +35,6 @@ replaced before the snapshot is serialized.
 manifest. Its deterministic ID/content digest binds the producing run, verified source
 manifest ID/hash, source and transform versions, normalized/audit/quarantine table
 hashes and row counts, findings, quarantine references, source provenance, and
-timestamps. Parquet and this manifest are authoritative; the SQL tables are derived
-and rebuildable.
+timestamps. The frozen v1 JSON shape stays unchanged; detailed byte/row descriptors
+are verified from the typed Parquet artifacts and persisted run bindings. Parquet and
+this manifest are authoritative; the SQL tables are derived and rebuildable.

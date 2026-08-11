@@ -140,6 +140,32 @@ def test_staging_findings_are_limited_to_parse_and_integrity_namespaces() -> Non
         )
 
 
+@pytest.mark.parametrize(
+    ("status", "finding_codes"),
+    (
+        ("OBSERVED", ("parse.json.invalid",)),
+        ("INCOMPLETE", ()),
+        ("PARSE_FAILED", ("integrity.object.missing",)),
+        ("STRUCTURAL_INVALID", ("integrity.object.missing",)),
+    ),
+)
+def test_staging_status_and_finding_namespaces_are_consistent(
+    status: str, finding_codes: tuple[str, ...]
+) -> None:
+    with pytest.raises(ValueError, match=r"status|finding"):
+        StagingRecord.from_dto(
+            SourceRecordDTO(
+                source_id="fixture",
+                record_type="deck",
+                raw_locator=raw_locator(),
+                original_source_values={},
+            ),
+            staging_record_id="staging-inconsistent",
+            status=status,  # type: ignore[arg-type]
+            finding_codes=finding_codes,
+        )
+
+
 def test_parse_audit_findings_require_an_exact_raw_locator() -> None:
     with pytest.raises(ValueError, match="raw_locator"):
         AuditRecord(
@@ -147,6 +173,14 @@ def test_parse_audit_findings_require_an_exact_raw_locator() -> None:
             entity_id="staging-1",
             stage="parse",
             finding_code="parse.json.invalid",
+        )
+
+    with pytest.raises(ValueError, match="raw_locator"):
+        AuditRecord(
+            audit_id="audit-integrity",
+            entity_id="staging-1",
+            stage="integrity",
+            finding_code="integrity.object.missing",
         )
 
 
