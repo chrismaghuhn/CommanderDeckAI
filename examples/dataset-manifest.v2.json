@@ -1,6 +1,9 @@
 {
   "schema_version": "dataset-manifest.v2",
   "dataset_id": "commander-completion-v2-fixture",
+  "dataset_kind": "deck_completion",
+  "config_version": "dataset-config.v1",
+  "producing_run_id": "run-dataset-fixture",
   "created_at": "2026-08-10T18:05:00Z",
   "builder_version": "dataset-builder-v2",
   "code_commit": "abcdef1234567890abcdef1234567890abcdef12",
@@ -39,6 +42,11 @@
     "strategy": "temporal_grouped",
     "near_duplicate_policy_version": "near-duplicate-v1"
   },
+  "split_policy_version": "temporal-grouped-v1",
+  "near_duplicate_algorithm": "quantity_weighted_jaccard",
+  "near_duplicate_version": "near-duplicate-v1",
+  "near_duplicate_threshold": 0.92,
+  "exclusion_policy_version": "dataset-exclusions-v1",
   "exclusions": [],
   "counts": {
     "train": 1,

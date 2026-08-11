@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import datetime
+from typing import Literal
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, model_validator
 
@@ -73,6 +75,8 @@ class DatasetSplitSettings(StrictDatasetModel):
     version: str = Field(default="split-policy-v1", min_length=1)
     group_keys: tuple[str, ...] = Field(default_factory=tuple)
     extra_segments: tuple[str, ...] = Field(default_factory=tuple)
+    train_until: datetime | None = None
+    validation_until: datetime | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -104,6 +108,18 @@ class DatasetSplitSettings(StrictDatasetModel):
             "extra_segments",
             tuple(dict.fromkeys(item.strip() for item in self.extra_segments if item.strip())),
         )
+        if (self.train_until is None) != (self.validation_until is None):
+            raise ValueError("train_until and validation_until must be supplied together")
+        if (
+            self.train_until is not None
+            and self.validation_until is not None
+            and self.validation_until <= self.train_until
+        ):
+            raise ValueError("validation_until must follow train_until")
+        for field_name in ("train_until", "validation_until"):
+            value = getattr(self, field_name)
+            if value is not None and (value.tzinfo is None or value.utcoffset() is None):
+                raise ValueError(f"{field_name} must include a timezone")
         return self
 
 
@@ -183,6 +199,12 @@ class DatasetSettings(StrictDatasetModel):
 
     dataset_id: str = Field(min_length=1)
     schema_version: str = Field(default="dataset-config.v1", min_length=1)
+    dataset_kind: Literal[
+        "deck_completion",
+        "tournament_outcomes",
+        "card_cooccurrence",
+        "combo",
+    ] = "deck_completion"
     inputs: DatasetInputSettings = Field(default_factory=DatasetInputSettings)
     filters: DatasetFilterSettings = Field(default_factory=DatasetFilterSettings)
     split_policy: DatasetSplitSettings = Field(

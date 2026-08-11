@@ -1,0 +1,19 @@
+dataset_id: commander-tournament-outcomes-example
+schema_version: dataset-config.v1
+dataset_kind: tournament_outcomes
+inputs:
+  require_approved_sources: true
+  require_complete_decklists: true
+  require_complete_pod_result: true
+splits:
+  strategy: temporal_event_grouped
+  version: temporal-event-grouped-v1
+  train_until: "2025-01-01T00:00:00Z"
+  validation_until: "2026-01-01T00:00:00Z"
+  group_key: event_id
+quality:
+  report_seat_distribution: true
+  report_missingness: true
+privacy:
+  player_identifiers: event_scoped_only
+  use_player_as_model_feature: false

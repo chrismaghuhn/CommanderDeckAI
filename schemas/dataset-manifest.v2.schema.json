@@ -34,6 +34,26 @@
       "type": "string",
       "minLength": 1
     },
+    "dataset_kind": {
+      "enum": [
+        "deck_completion",
+        "tournament_outcomes",
+        "card_cooccurrence",
+        "combo",
+        "unknown"
+      ]
+    },
+    "config_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producing_run_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
     "created_at": {
       "type": "string",
       "format": "date-time"
@@ -114,6 +134,36 @@
     },
     "split_policy": {
       "type": "object"
+    },
+    "split_policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "near_duplicate_algorithm": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "near_duplicate_version": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "near_duplicate_threshold": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0,
+      "maximum": 1
+    },
+    "exclusion_policy_version": {
+      "type": "string",
+      "minLength": 1
     },
     "exclusions": {
       "type": "array",

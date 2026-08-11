@@ -39,3 +39,17 @@ Dataset-Manifest.
 Outcome-Datasets gruppieren vollständige Events statt wiederholte CanonicalDecks
 global zu sperren. Strenge Zusatzbenchmarks können kalte Fingerprints, Command-Zone-
 Kombinationen und Low-Data-Commander separat ausweisen.
+
+## Task-13-Artefakte
+
+`DatasetSettings` verlangt für die implementierten Split-Builder explizite
+timezone-aware `train_until`- und `validation_until`-Cutoffs. Der
+`dataset-manifest.v2` bindet zusätzlich `dataset_kind`, Konfigurationsversion,
+Split-/Exclusion-Version, Near-Duplicate-Algorithmus, Version und Schwelle,
+Input-Manifest-Hashes, Ausschlüsse, Counts sowie Parquet- und Inhalts-Digests.
+
+Der Dataset-Builder schreibt eine immutable Curated-Projektion unter
+`datasets/{dataset_id}/` und ein kanonisch serialisiertes Manifest. `inspect`
+prüft Manifest-Digest, Existenz, Hash und Row-Count jedes Outputs. Die
+Curated-Payload maskiert bekannte Player-/Account-Felder; Audit- und
+Quarantine-Informationen bleiben außerhalb dieses Trainingsartefakts.

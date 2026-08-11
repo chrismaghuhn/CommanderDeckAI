@@ -1,0 +1,24 @@
+dataset_id: commander-completion-example
+schema_version: dataset-config.v1
+dataset_kind: deck_completion
+inputs:
+  require_approved_sources: true
+  require_complete_decklists: true
+  legal_decks_only: true
+splits:
+  strategy: temporal_grouped
+  version: temporal-grouped-v1
+  train_until: "2025-01-01T00:00:00Z"
+  validation_until: "2026-01-01T00:00:00Z"
+  group_keys: [revision_group_id, near_duplicate_cluster_id]
+  extra_segments: [cold_fingerprint, cold_command_zone, cold_commander]
+deduplication:
+  exact_fingerprint: true
+  group_revisions: true
+  near_duplicate:
+    algorithm: jaccard
+    version: jaccard-v1
+    threshold: 0.92
+quality:
+  fail_on_blocking_findings: true
+  emit_leakage_report: true

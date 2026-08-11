@@ -9,6 +9,12 @@ from .cards import (
     Printing,
 )
 from .combos import Combo, ComboCard
+from .dataset_contracts import (
+    DatasetExclusion,
+    DatasetInputReference,
+    DatasetManifest,
+    DatasetOutputReference,
+)
 from .decks import (
     CanonicalDeck,
     CardQuantity,
@@ -20,10 +26,6 @@ from .decks import (
 from .evaluations import DeckLegalityEvaluation, DeckQualityEvaluation
 from .observations import EventDeckObservation, ParticipantReference, PodEntry
 from .provenance import (
-    DatasetExclusion,
-    DatasetInputReference,
-    DatasetManifest,
-    DatasetOutputReference,
     NormalizedSnapshotManifest,
     ProvenanceReference,
     QuarantineReference,

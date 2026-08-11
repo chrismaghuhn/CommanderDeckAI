@@ -13,9 +13,6 @@ from .contract_validation import (
     ContentEncoding,
     JSONMapping,
     NonEmptyCounts,
-    NonEmptyString,
-    NonNegativeCounts,
-    NonNegativeInt,
     UniqueTuple,
     URIString,
 )
@@ -341,59 +338,9 @@ class NormalizedSnapshotManifest(DomainModel):
         return self
 
 
-class DatasetInputReference(DomainModel):
-    kind: str = Field(min_length=1)
-    id: str = Field(min_length=1)
-    path: str | None = Field(default=None, min_length=1)
-    sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-
-    @field_validator("path")
-    @classmethod
-    def validate_path(cls, value: str | None) -> str | None:
-        return None if value is None else validate_portable_relative_path(value)
-
-
-class DatasetOutputReference(DomainModel):
-    name: str = Field(min_length=1)
-    path: str = Field(min_length=1)
-    sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    rows: int = Field(ge=0)
-    bytes: int | None = Field(default=None, ge=0)
-
-    @field_validator("path")
-    @classmethod
-    def validate_path(cls, value: str) -> str:
-        return validate_portable_relative_path(value)
-
-
-class DatasetExclusion(DomainModel):
-    code: str = Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
-    count: int = Field(ge=0)
-    references: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
-
-
-class DatasetManifest(DomainModel):
-    schema_version: Literal["dataset-manifest.v2"] = "dataset-manifest.v2"
-    dataset_id: str = Field(min_length=1)
-    created_at: AwareDatetime
-    builder_version: str = Field(min_length=1)
-    code_commit: str = Field(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
-    dependency_lock_hash: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    input_manifests: UniqueTuple[DatasetInputReference] = Field(min_length=1)
-    schema_versions: UniqueTuple[NonEmptyString] = Field(min_length=1)
-    transform_versions: UniqueTuple[NonEmptyString] = Field(min_length=1)
-    policy_versions: UniqueTuple[NonEmptyString] = Field(min_length=1)
-    ruleset_versions: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
-    card_snapshot_ids: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
-    source_snapshots: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
-    filters: JSONMapping = Field(default_factory=dict)
-    split_policy: JSONMapping = Field(default_factory=dict)
-    exclusions: tuple[DatasetExclusion, ...] = Field(default_factory=tuple)
-    counts: NonNegativeCounts
-    outputs: UniqueTuple[DatasetOutputReference] = Field(min_length=1)
-    quality_report: DatasetOutputReference | None = None
-    leakage_report: DatasetOutputReference | None = None
-    random_seeds: UniqueTuple[NonNegativeInt] = Field(default_factory=tuple)
-    redistribution_status: Literal["local_only", "derived_only", "redistributable"] = "local_only"
-    dataset_content_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    manifest_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
+from .dataset_contracts import (  # noqa: E402, F401
+    DatasetExclusion,
+    DatasetInputReference,
+    DatasetManifest,
+    DatasetOutputReference,
+)

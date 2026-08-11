@@ -55,6 +55,7 @@ def group_revisions(
                             else "",
                             item.deck.canonical_deck_id,
                             item.source.source_snapshot_id,
+                            item.source.raw_object_id,
                         ),
                     )
                 ),
