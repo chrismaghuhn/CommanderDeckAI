@@ -80,6 +80,11 @@ class CurrentUseDecision(BaseModel):
     decision_id: str = Field(default="current-use.v1", min_length=1)
     takedown_reference: str | None = Field(default=None, min_length=1)
 
+    @field_validator("reason")
+    @classmethod
+    def redact_reason(cls, value: str) -> str:
+        return redact_text(value)
+
     @field_validator("source_id")
     @classmethod
     def validate_source(cls, value: str) -> str:

@@ -10,25 +10,77 @@ from typing import TYPE_CHECKING
 
 import yaml  # type: ignore[import-untyped]
 from pydantic import BaseModel, ValidationError
+from yaml.nodes import MappingNode  # type: ignore[import-untyped]
+from yaml.resolver import BaseResolver  # type: ignore[import-untyped]
 
 from .dataset_settings import DatasetSettings
 from .runtime import RuntimeConfig
-from .source_settings import SourceSettings, is_credential_key
+from .source_catalog import PermissionGatedSourceCatalog
+from .source_settings import SourceSettings, is_credential_key, is_environment_name
 
 if TYPE_CHECKING:
     from commander_ai.application.configuration import OperationConfig
 
 _SECRET_ASSIGNMENT = re.compile(
-    r"(?i)(api[_-]?key|access[_-]?token|authorization|cookie|password|secret|token)"
+    r"(?i)(api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)"
     r"(\s*[:=]\s*)([^,\s;}]+)"
 )
-_AUTHORIZATION_VALUE = re.compile(
-    r"(?i)((?:authorization|proxy-authorization)(?:\s*[:=])\s*)"
-    r"(?:bearer|basic)\s+[^,\s;}]+"
+_BEARER_BASIC_VALUE = re.compile(
+    r"(?i)(?<![\w-])"
+    r"(?P<label>(?:(?:proxy-)?authorization\s*[:=]\s*)?)"
+    r"(?P<scheme>bearer|basic)\s+(?P<value>[^,\s;}]+)"
 )
 _SECRET_QUERY_PARAMETER = re.compile(
-    r"(?i)([?&](?:api[_-]?key|access[_-]?token|authorization|cookie|password|secret|token)=)"
+    r"(?i)([?&](?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)=)"
     r"[^&#\s]+"
+)
+_SOURCE_SETTINGS_ENV_FIELDS = frozenset(
+    {"api_key_env", "credential_env_vars", "user_agent_env"}
+)
+
+
+class _DuplicateYamlKeyError(yaml.constructor.ConstructorError):  # type: ignore[misc]
+    """Raised when a YAML mapping repeats a key."""
+
+
+class _StrictSafeLoader(yaml.SafeLoader):  # type: ignore[misc]
+    """Safe YAML loader that rejects duplicate mapping keys."""
+
+
+def _construct_strict_mapping(
+    loader: _StrictSafeLoader, node: MappingNode, deep: bool = False
+) -> dict[object, object]:
+    if not isinstance(node, MappingNode):
+        raise yaml.constructor.ConstructorError(
+            None, None, "expected a mapping node", node.start_mark
+        )
+
+    mapping: dict[object, object] = {}
+    for key_node, value_node in node.value:
+        key = loader.construct_object(key_node, deep=deep)
+        try:
+            duplicate = key in mapping
+        except TypeError as error:
+            raise yaml.constructor.ConstructorError(
+                "while constructing a mapping",
+                node.start_mark,
+                "found an unhashable key",
+                key_node.start_mark,
+            ) from error
+        if duplicate:
+            raise _DuplicateYamlKeyError(
+                "while constructing a mapping",
+                node.start_mark,
+                "duplicate YAML key",
+                key_node.start_mark,
+            )
+        mapping[key] = loader.construct_object(value_node, deep=deep)
+    return mapping
+
+
+_StrictSafeLoader.add_constructor(
+    BaseResolver.DEFAULT_MAPPING_TAG,
+    _construct_strict_mapping,
 )
 
 
@@ -38,10 +90,27 @@ class ConfigurationError(ValueError):
     code = "CONFIG_INVALID"
 
 
-def _redact_value(value: object) -> object:
+def _is_safe_source_environment_field(key: object, value: object) -> bool:
+    key_text = str(key)
+    if key_text not in _SOURCE_SETTINGS_ENV_FIELDS:
+        return False
+    if value is None:
+        return True
+    if key_text == "credential_env_vars":
+        return isinstance(value, (list, tuple)) and all(is_environment_name(item) for item in value)
+    return is_environment_name(value)
+
+
+def _redact_value(value: object, *, allow_source_environment_fields: bool = False) -> object:
     if isinstance(value, Mapping):
         return {
-            str(key): "[REDACTED]" if is_credential_key(key) else _redact_value(item)
+            str(key): (
+                item
+                if allow_source_environment_fields and _is_safe_source_environment_field(key, item)
+                else "[REDACTED]"
+                if is_credential_key(key)
+                else _redact_value(item)
+            )
             for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
@@ -60,7 +129,7 @@ def redact_text(text: str, secret_values: Sequence[str] = ()) -> str:
     for secret in secret_values:
         if secret:
             redacted = redacted.replace(secret, "[REDACTED]")
-    redacted = _AUTHORIZATION_VALUE.sub(r"\1[REDACTED]", redacted)
+    redacted = _BEARER_BASIC_VALUE.sub(r"\g<label>\g<scheme> [REDACTED]", redacted)
     redacted = _SECRET_QUERY_PARAMETER.sub(r"\1[REDACTED]", redacted)
     redacted = _SECRET_ASSIGNMENT.sub(r"\1[REDACTED]", redacted)
     return redacted
@@ -71,11 +140,16 @@ def serialize_config(config: BaseModel | Mapping[str, object]) -> dict[str, obje
 
     if isinstance(config, BaseModel):
         data = config.model_dump(mode="json")
+        allow_source_environment_fields = isinstance(config, SourceSettings)
     elif isinstance(config, Mapping):
         data = dict(config)
+        allow_source_environment_fields = False
     else:
         raise TypeError("config must be a Pydantic model or mapping")
-    redacted = _redact_value(data)
+    redacted = _redact_value(
+        data,
+        allow_source_environment_fields=allow_source_environment_fields,
+    )
     if not isinstance(redacted, dict):
         raise TypeError("serialized config must be a mapping")
     return redacted
@@ -101,11 +175,15 @@ def _safe_validation_message(error: ValidationError) -> str:
 
 
 def load_config[ModelT: BaseModel](path: Path | str, model: type[ModelT]) -> ModelT:
-    """Load one strict YAML document using ``yaml.safe_load`` and no network I/O."""
+    """Load one strict, duplicate-key-rejecting YAML document without network I/O."""
 
     config_path = Path(path)
     try:
-        raw = yaml.safe_load(config_path.read_text(encoding="utf-8"))
+        raw = yaml.load(config_path.read_text(encoding="utf-8"), Loader=_StrictSafeLoader)
+    except _DuplicateYamlKeyError as error:
+        raise ConfigurationError(
+            redact_text(f"{config_path}: duplicate YAML key")
+        ) from error
     except (OSError, yaml.YAMLError) as error:
         raise ConfigurationError(
             redact_text(f"{config_path}: unable to read configuration")
@@ -128,6 +206,10 @@ def load_source_settings(path: Path | str) -> SourceSettings:
 
 def load_dataset_settings(path: Path | str) -> DatasetSettings:
     return load_config(path, DatasetSettings)
+
+
+def load_permission_gated_catalog(path: Path | str) -> PermissionGatedSourceCatalog:
+    return load_config(path, PermissionGatedSourceCatalog)
 
 
 def load_operation_config(path: Path | str) -> OperationConfig:

@@ -15,8 +15,7 @@ from commander_ai.domain.provenance import validate_portable_relative_path
 _ENVIRONMENT_NAME = re.compile(r"^[A-Z][A-Z0-9_]{1,127}$")
 _SOURCE_ID = re.compile(r"^[a-z0-9]+(?:[_-][a-z0-9]+)*$")
 _SECRET_KEY = re.compile(
-    r"(?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)"
-    r"(?![_-]?env(?:ironment)?\b)",
+    r"(?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)",
     re.IGNORECASE,
 )
 
@@ -25,6 +24,12 @@ def is_credential_key(value: object) -> bool:
     """Return whether a configuration key names a credential-like value."""
 
     return _SECRET_KEY.search(str(value)) is not None
+
+
+def is_environment_name(value: object) -> bool:
+    """Return whether a value is a valid environment-variable name."""
+
+    return isinstance(value, str) and _ENVIRONMENT_NAME.fullmatch(value.strip().upper()) is not None
 
 
 def _reject_nested_credential_keys(
@@ -235,7 +240,7 @@ class SourceSettings(BaseModel):
         if value is None:
             return None
         normalized = value.strip().upper()
-        if not _ENVIRONMENT_NAME.fullmatch(normalized):
+        if not is_environment_name(normalized):
             raise ValueError("credential fields must contain environment-variable names")
         return normalized
 
@@ -250,7 +255,7 @@ class SourceSettings(BaseModel):
             raise ValueError("credential_env_vars must be a sequence")
         normalized = []
         for item in value:
-            if not isinstance(item, str) or not _ENVIRONMENT_NAME.fullmatch(item.strip().upper()):
+            if not is_environment_name(item):
                 raise ValueError("credential fields must contain environment-variable names")
             normalized.append(item.strip().upper())
         return tuple(dict.fromkeys(normalized))

@@ -1,5 +1,7 @@
 # Beispielkonfigurationen
 
+`sources/permission-gated.yaml` is loaded as a typed assessment-only catalog. Its `PROPOSED` and `PAUSED` entries reuse the `SourceApprovalStatus` contract but cannot authorize acquisition; enabling a source requires a separate source-registry and review entry.
+
 Diese Dateien zeigen den vorgesehenen Zuschnitt. Vor echter Nutzung werden sie in typisierte Settings geladen; unbekannte Felder sind Fehler.
 
 `PROPOSED`, `REVIEWED`, `REJECTED` oder `PAUSED` Sources dürfen nicht synchronisiert werden. Lokaler Sync ist nur für `APPROVED_LOCAL` und `APPROVED_REDISTRIBUTION` erlaubt; Public Export benötigt exakt `APPROVED_REDISTRIBUTION` sowie eine aktuelle Allow-Entscheidung. Secrets werden nur über die angegebenen Environment-Variablen aufgelöst und niemals als Werte konfiguriert.

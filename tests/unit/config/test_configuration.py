@@ -7,6 +7,7 @@ import pytest
 from pydantic import BaseModel, ValidationError
 
 from commander_ai.application.configuration import OperationConfig
+from commander_ai.config import load_permission_gated_catalog
 from commander_ai.config.current_use_policy import CurrentUseDecision, CurrentUsePolicy
 from commander_ai.config.dataset_settings import DatasetSettings
 from commander_ai.config.runtime import RuntimeConfig
@@ -138,35 +139,51 @@ def test_source_features_reject_credential_keys() -> None:
         SourceSettings.model_validate(payload)
 
 
-def test_nested_environment_names_remain_allowed_and_nested_serialization_is_redacted() -> None:
+@pytest.mark.parametrize(
+    "nested_filters",
+    [
+        {"request": {"api_key_env": "actual-secret"}},
+        {"items": [{"details": [{"token_env": "actual-secret"}]}]},
+    ],
+)
+def test_source_filters_reject_credential_like_environment_keys(
+    nested_filters: dict[str, object],
+) -> None:
     payload = minimal_source_payload()
-    payload["filters"] = {
-        "request": {
-            "api_key_env": "TOPDECK_API_KEY",
-            "items": [{"token_env": "TOPDECK_TOKEN"}],
-        }
-    }
+    payload["filters"] = nested_filters
+
+    with pytest.raises(ValidationError) as error:
+        SourceSettings.model_validate(payload)
+
+    assert "actual-secret" not in str(error.value)
+
+
+def test_top_level_source_credential_environment_names_are_preserved() -> None:
+    payload = minimal_source_payload()
+    payload["api_key_env"] = "TOPDECK_API_KEY"
+    payload["credential_env_vars"] = ["TOPDECK_TOKEN"]
 
     settings = SourceSettings.model_validate(payload)
     serialized = serialize_config(settings)
 
-    assert serialized["filters"] == payload["filters"]
+    assert serialized["api_key_env"] == "TOPDECK_API_KEY"
+    assert serialized["credential_env_vars"] == ["TOPDECK_TOKEN"]
 
+
+def test_nested_serialization_redacts_bare_authorization_values() -> None:
     nested = serialize_config(
         {
-            "filters": {
-                "request": [
-                    {"authorization": "Bearer nested-secret"},
-                    {"token": "token-secret"},
-                    {"token_env": "TOPDECK_TOKEN"},
-                ]
-            }
+            "items": [
+                "Bearer bearer-secret",
+                {"headers": ["Basic basic-secret"]},
+                {"api_key_env": "actual-secret"},
+            ]
         }
     )
     nested_text = str(nested)
-    assert "nested-secret" not in nested_text
-    assert "token-secret" not in nested_text
-    assert nested["filters"]["request"][2]["token_env"] == "TOPDECK_TOKEN"
+    assert "bearer-secret" not in nested_text
+    assert "basic-secret" not in nested_text
+    assert "actual-secret" not in nested_text
 
 
 def test_current_use_reason_redacts_bearer_and_other_credential_forms() -> None:
@@ -175,12 +192,17 @@ def test_current_use_reason_redacts_bearer_and_other_credential_forms() -> None:
         status="ALLOWED",
         approval_status=SourceApprovalStatus.APPROVED_LOCAL,
         reason=(
-            "Authorization: Bearer bearer-secret; api_key=api-secret; "
+            "Bearer bearer-secret; Basic basic-secret; Authorization: Bearer labeled-secret; "
+            "api_key=api-secret; "
             "access_token: access-secret; cookie=cookie-secret; "
             "password=password-secret; secret: secret-value; token=token-secret"
         ),
         effective_at=datetime(2026, 8, 10, tzinfo=UTC),
     )
+
+    assert "bearer-secret" not in decision.reason
+    assert "basic-secret" not in decision.reason
+    assert "labeled-secret" not in decision.reason
 
     result = CurrentUsePolicy.check(
         source_id="example_source",
@@ -199,6 +221,46 @@ def test_current_use_reason_redacts_bearer_and_other_credential_forms() -> None:
     assert "token-secret" not in result.reason
     assert "Authorization" in result.reason
     assert "[REDACTED]" in result.reason
+
+
+def test_strict_yaml_loader_rejects_duplicate_keys_without_exposing_values(
+    tmp_path: Path,
+) -> None:
+    config_path = tmp_path / "duplicate.yaml"
+    config_path.write_text(
+        "\n".join(
+            [
+                "source_id: example_source",
+                "approval_status: PROPOSED",
+                "review_path: docs/03-data/source-reviews/example.md",
+                "endpoints: [https://example.com/api]",
+                "host_allowlist: [example.com]",
+                "filters:",
+                "  api_key: actual-secret",
+                "  api_key: duplicate-secret",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    with pytest.raises(ConfigurationError) as error:
+        load_source_settings(config_path)
+
+    assert "duplicate YAML key" in str(error.value)
+    assert "actual-secret" not in str(error.value)
+    assert "duplicate-secret" not in str(error.value)
+
+
+def test_permission_gated_catalog_loads_typed_statuses_and_denies_acquisition() -> None:
+    project_root = Path(__file__).resolve().parents[3]
+
+    catalog = load_permission_gated_catalog(
+        project_root / "configs" / "sources" / "permission-gated.yaml"
+    )
+
+    assert catalog.status_for("edhrec").value == "PAUSED"
+    assert catalog.status_for("spellbinder").value == "PROPOSED"
+    assert not catalog.acquisition_allowed("edhrec")
 
 
 def test_checked_in_source_and_dataset_configs_are_explicit_and_offline_loadable() -> None:
@@ -297,7 +359,7 @@ def test_loader_error_and_serialized_config_do_not_expose_secret_values(tmp_path
 
     assert "super-secret-value" not in str(serialized)
     assert serialized["api_key"] == "[REDACTED]"
-    assert serialized["api_key_env"] == "TOPDECK_API_KEY"
+    assert serialized["api_key_env"] == "[REDACTED]"
 
     text_config = serialize_config(
         {

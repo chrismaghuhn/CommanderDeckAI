@@ -9,6 +9,7 @@ from .current_use_policy import (
 )
 from .dataset_settings import DatasetConfig, DatasetSettings
 from .runtime import RuntimeConfig
+from .source_catalog import PermissionGatedSource, PermissionGatedSourceCatalog
 from .source_registry import (
     HistoricalApprovalMetadata,
     SourceRegistry,
@@ -20,6 +21,7 @@ from .yaml_loader import (
     load_config,
     load_dataset_settings,
     load_operation_config,
+    load_permission_gated_catalog,
     load_runtime_config,
     load_source_settings,
     serialize_config,
@@ -35,6 +37,8 @@ __all__ = [
     "DatasetConfig",
     "DatasetSettings",
     "HistoricalApprovalMetadata",
+    "PermissionGatedSource",
+    "PermissionGatedSourceCatalog",
     "PolicyOperation",
     "RuntimeConfig",
     "SourceApprovalStatus",
@@ -45,6 +49,7 @@ __all__ = [
     "load_config",
     "load_dataset_settings",
     "load_operation_config",
+    "load_permission_gated_catalog",
     "load_runtime_config",
     "load_source_settings",
     "serialize_config",
