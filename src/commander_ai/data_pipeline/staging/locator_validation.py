@@ -3,17 +3,21 @@
 from __future__ import annotations
 
 import hashlib
-import io
 import json
-import tarfile
-import zipfile
+from pathlib import Path
 
+from commander_ai.adapters.storage.archive_safety import (
+    ArchiveLimits,
+    ArchiveSafetyError,
+    read_archive_member,
+)
 from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
 
 from .raw_locators import (
     ByteRangeLocator,
     JsonPointerLocator,
     RawLocator,
+    RawLocatorValidationError,
     RecordIndexLocator,
 )
 
@@ -24,6 +28,7 @@ def validate_raw_locator_against_snapshot(
     verified_snapshot: VerifiedSourceSnapshot,
     source_id: str | None = None,
     raw_sha256: str | None = None,
+    archive_limits: ArchiveLimits | None = None,
 ) -> None:
     """Fail closed unless the exact member/document locator exists in evidence."""
 
@@ -42,8 +47,24 @@ def validate_raw_locator_against_snapshot(
         raise ValueError("raw locator path does not match verified source object")
     if raw_sha256 is not None and raw_sha256 != reference.sha256:
         raise ValueError("raw locator sha256 does not match verified source object")
-    raw_bytes = _read_verified_object(verified_snapshot, locator.raw_object_id)
-    payload = _read_archive_member(raw_bytes, locator.archive_member)
+    raw_path = _verified_object_path(verified_snapshot, locator.raw_object_id)
+    if locator.archive_member is None:
+        try:
+            payload = raw_path.read_bytes()
+        except OSError:
+            raise ValueError("verified raw object cannot be read") from None
+    else:
+        try:
+            payload = read_archive_member(
+                raw_path,
+                locator.archive_member,
+                limits=archive_limits,
+            )
+        except ArchiveSafetyError as error:
+            raise RawLocatorValidationError(
+                f"archive member validation failed: {error.code.lower()}",
+                code=error.code,
+            ) from None
     if isinstance(locator.location, JsonPointerLocator):
         _validate_json_pointer(payload, locator.location.pointer)
     elif isinstance(locator.location, RecordIndexLocator):
@@ -52,44 +73,26 @@ def validate_raw_locator_against_snapshot(
         raise ValueError("raw byte range is outside the verified source document")
 
 
-def _read_verified_object(verified_snapshot: VerifiedSourceSnapshot, raw_object_id: str) -> bytes:
+def _verified_object_path(
+    verified_snapshot: VerifiedSourceSnapshot, raw_object_id: str
+) -> Path:
     reference = verified_snapshot.object_index[raw_object_id]
     path = verified_snapshot.object_paths[raw_object_id]
     try:
-        raw_bytes = path.read_bytes()
+        digest = hashlib.sha256()
+        actual_bytes = 0
+        with path.open("rb") as stream:
+            while chunk := stream.read(1024 * 1024):
+                actual_bytes += len(chunk)
+                digest.update(chunk)
     except OSError:
         raise ValueError("verified raw object cannot be read") from None
     if (
-        len(raw_bytes) != reference.bytes
-        or hashlib.sha256(raw_bytes).hexdigest() != reference.sha256
+        actual_bytes != reference.bytes
+        or digest.hexdigest() != reference.sha256
     ):
         raise ValueError("verified raw object bytes do not match its manifest digest")
-    return raw_bytes
-
-
-def _read_archive_member(raw_bytes: bytes, archive_member: str | None) -> bytes:
-    if archive_member is None:
-        return raw_bytes
-    try:
-        if zipfile.is_zipfile(io.BytesIO(raw_bytes)):
-            with zipfile.ZipFile(io.BytesIO(raw_bytes)) as archive:
-                info = archive.getinfo(archive_member)
-                if info.is_dir():
-                    raise ValueError(f"archive member {archive_member} is a directory")
-                return archive.read(info)
-        with tarfile.open(fileobj=io.BytesIO(raw_bytes), mode="r:*") as archive:
-            member = archive.getmember(archive_member)
-            if member.isdir():
-                raise ValueError(f"archive member {archive_member} is a directory")
-            stream = archive.extractfile(member)
-            if stream is None:
-                raise ValueError(f"archive member {archive_member} is missing")
-            with stream:
-                return stream.read()
-    except ValueError:
-        raise
-    except (OSError, KeyError, tarfile.TarError, zipfile.BadZipFile):
-        raise ValueError(f"archive member {archive_member} is missing") from None
+    return path
 
 
 def _validate_json_pointer(payload: bytes, pointer: str) -> None:
@@ -130,4 +133,4 @@ def _validate_record_index(payload: bytes, index: int, expected_count: int | Non
         raise ValueError("verified record count does not match the source document")
 
 
-__all__ = ["validate_raw_locator_against_snapshot"]
+__all__ = ["RawLocatorValidationError", "validate_raw_locator_against_snapshot"]

@@ -43,7 +43,10 @@ def sanitize_json_scalars(value: object) -> object:
     if isinstance(value, str):
         return _sanitize_text(value)
     if isinstance(value, Mapping):
-        return {key: sanitize_json_scalars(item) for key, item in value.items()}
+        return {
+            _sanitize_mapping_key(key): sanitize_json_scalars(item)
+            for key, item in value.items()
+        }
     if isinstance(value, (list, tuple)):
         return [sanitize_json_scalars(item) for item in value]
     return value
@@ -59,7 +62,11 @@ def find_malformed_scalars(
     if isinstance(value, Mapping):
         findings: list[tuple[str, MalformedJSONScalar]] = []
         for key, item in value.items():
-            key_text = str(key)
+            if isinstance(key, MalformedJSONScalar):
+                findings.append((_malformed_key_path(path, key), key))
+                key_text = _malformed_key_token(key)
+            else:
+                key_text = str(key)
             child_path = f"{path}/{_escape_pointer(key_text)}"
             findings.extend(find_malformed_scalars(item, child_path))
         return tuple(findings)
@@ -112,6 +119,20 @@ def _invalid_unicode_scalar(value: str) -> MalformedJSONScalar:
         raw_bytes=escaped.encode("ascii"),
         encoding="json_escaped",
     )
+
+
+def _sanitize_mapping_key(key: object) -> object:
+    if isinstance(key, str):
+        return _sanitize_text(key)
+    return key
+
+
+def _malformed_key_path(path: str, value: MalformedJSONScalar) -> str:
+    return f"{path or '$'}/@key/{_malformed_key_token(value)}"
+
+
+def _malformed_key_token(value: MalformedJSONScalar) -> str:
+    return hashlib.sha256(value.raw_bytes).hexdigest()
 
 
 def _constant_token(value: float) -> str:

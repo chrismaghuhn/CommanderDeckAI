@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import hashlib
 import json
-import tarfile
-import zipfile
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -13,7 +11,7 @@ from commander_ai.adapters.storage.archive_safety import (
     ArchiveLimits,
     ArchiveSafetyError,
     extract_archive,
-    inspect_archive,
+    read_archive_member,
 )
 from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
 from commander_ai.data_pipeline.staging.raw_locators import JsonPointerLocator, RawLocator
@@ -219,26 +217,21 @@ class MTGJSONParser:
                     digest.update(chunk)
             if actual_bytes != reference.bytes or digest.hexdigest() != reference.sha256:
                 raise MTGJSONParseError("INTEGRITY_OBJECT_HASH_MISMATCH")
-            inspection = inspect_archive(raw_path, limits=self._archive_limits)
-            if not any(
-                item.name == archive_member and not item.is_dir for item in inspection.members
-            ):
-                raise MTGJSONParseError("INTEGRITY_ARCHIVE_MEMBER_MISSING")
-            if zipfile.is_zipfile(raw_path):
-                with zipfile.ZipFile(raw_path) as archive:
-                    return archive.read(archive_member)
-            with tarfile.open(raw_path, mode="r:*") as archive:
-                member = archive.getmember(archive_member)
-                member_stream = archive.extractfile(member)
-                if member_stream is None:
-                    raise MTGJSONParseError("INTEGRITY_ARCHIVE_MEMBER_MISSING")
-                with member_stream:
-                    return member_stream.read()
+            return read_archive_member(
+                raw_path,
+                archive_member,
+                limits=self._archive_limits,
+            )
         except MTGJSONParseError:
             raise
         except ArchiveSafetyError as error:
-            raise MTGJSONParseError(error.code) from None
-        except (OSError, tarfile.TarError, zipfile.BadZipFile, KeyError, ValueError):
+            code = (
+                "INTEGRITY_ARCHIVE_MEMBER_MISSING"
+                if error.code == "SECURITY_ARCHIVE_MEMBER_MISSING"
+                else error.code
+            )
+            raise MTGJSONParseError(code) from None
+        except (OSError, KeyError, ValueError):
             raise MTGJSONParseError("INTEGRITY_ARCHIVE_MEMBER_MISSING") from None
 
 

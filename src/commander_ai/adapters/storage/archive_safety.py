@@ -377,4 +377,24 @@ __all__ = [
     "ArchiveSafetyError",
     "extract_archive",
     "inspect_archive",
+    "read_archive_member",
 ]
+
+
+def read_archive_member(
+    path: Path | str,
+    member_name: str,
+    *,
+    limits: ArchiveLimits | None = None,
+    chunk_bytes: int = 1024 * 1024,
+) -> bytes:
+    """Read one regular member through the shared archive safety path."""
+
+    from .archive_member_reader import read_archive_member as _read_archive_member
+
+    return _read_archive_member(
+        path,
+        member_name,
+        limits=limits,
+        chunk_bytes=chunk_bytes,
+    )

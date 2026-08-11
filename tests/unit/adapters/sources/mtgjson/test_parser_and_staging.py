@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import stat
 import zipfile
 from pathlib import Path
 
@@ -16,6 +17,7 @@ from commander_ai.adapters.sources.mtgjson.dto import (
 from commander_ai.adapters.sources.mtgjson.parser import MTGJSONParseError, MTGJSONParser
 from commander_ai.adapters.sources.mtgjson.settings import MTGJSONProduct
 from commander_ai.adapters.sources.mtgjson.staging import MTGJSONStagingMapper
+from commander_ai.adapters.storage.archive_safety import ArchiveLimits
 from commander_ai.adapters.storage.parquet_tables import (
     ParquetTableWriter,
     validate_parquet_table_rows,
@@ -313,6 +315,84 @@ def test_malformed_json_scalars_are_retained_as_structural_staging_findings(
     )
 
 
+def test_malformed_json_object_keys_are_retained_through_staging_audit_and_parquet(
+    tmp_path: Path,
+) -> None:
+    malformed_key = b"\\ud800"
+    card = (
+        b'{"uuid":"malformed-key-card","name":"Malformed Key Card","'
+        + malformed_key
+        + b'":"retained"}'
+    )
+    member = (
+        b'{"meta":{},"data":{"BAD":{"code":"BAD","name":"Malformed Set","cards":['
+        + card
+        + b"]}}}"
+    )
+    verified = _verified_snapshot(tmp_path, _zip_members({"AllPrintings.json": member}))
+
+    result = MTGJSONParser().parse_archive(
+        verified,
+        raw_object_id="AllPrintings.json.zip",
+        destination=tmp_path / "derived" / "malformed-keys",
+        product=MTGJSONProduct.ALL_PRINTINGS,
+    )
+
+    card_record = next(record for record in result.records if record.record_type == "card")
+    assert card_record.dto is None
+    assert card_record.finding_codes == ("parse.malformed_scalar",)
+    object_envelope = card_record.source_values
+    assert object_envelope["encoding"] == "json_object_entries"
+    malformed_entry = next(
+        entry
+        for entry in object_envelope["entries"]
+        if entry["key"].get("role") == "object_key"
+    )
+    key_envelope = malformed_entry["key"]
+    assert key_envelope["scalar_type"] == "invalid_unicode_scalar"
+    assert base64.b64decode(key_envelope["data"]) == b'"\\ud800"'
+
+    staging = MTGJSONStagingMapper().map_records((card_record,))
+    row = staging[0]
+    assert row.status == "STRUCTURAL_INVALID"
+    assert row.finding_codes == ("parse.malformed_scalar",)
+    row_payload = row.model_dump(mode="json")
+    assert row_payload["original_source_values"] == json.loads(
+        json.dumps(object_envelope, sort_keys=True)
+    )
+
+    audit = AuditRecord(
+        audit_id="audit-malformed-key",
+        entity_id=row.staging_record_id,
+        stage="parse",
+        finding_code="parse.malformed_scalar",
+        raw_locator=row.raw_locator,
+        details={"original_source_values": row.original_source_values},
+    )
+    writer = ParquetTableWriter(tmp_path / "artifacts")
+    staging_artifact = writer.write_table(
+        "staging",
+        [row],
+        layer="normalized",
+        row_contract=StagingRecord,
+        verified_snapshot=verified,
+    )
+    audit_artifact = writer.write_table(
+        "audit",
+        [audit],
+        layer="audit",
+        row_contract=AuditRecord,
+        verified_snapshot=verified,
+    )
+
+    assert writer.read_table(staging_artifact.path) == [row_payload]
+    validate_parquet_table_rows(
+        tmp_path / "artifacts" / audit_artifact.path,
+        layer="audit",
+        verified_snapshot=verified,
+    )
+
+
 def test_parser_rejects_member_bytes_that_do_not_match_verified_archive(
     tmp_path: Path,
 ) -> None:
@@ -398,6 +478,83 @@ def test_locator_validation_rejects_missing_member_pointer_and_record_index(
     for candidate, message in cases:
         with pytest.raises(ValueError, match=message):
             validate_raw_locator_against_snapshot(candidate, verified_snapshot=verified)
+
+
+def test_locator_validation_rejects_a_compression_bomb_with_shared_security_code(
+    tmp_path: Path,
+) -> None:
+    archive = _zip_members({"records.json": b"a" * 100_000})
+    verified = _verified_snapshot(tmp_path, archive)
+    candidate = RawLocator(
+        source_id="mtgjson",
+        source_snapshot_id="mtgjson-fixture",
+        raw_object_id="AllPrintings.json.zip",
+        raw_object_path="objects/AllPrintings.json.zip",
+        archive_member="records.json",
+        location=JsonPointerLocator(pointer=""),
+    )
+
+    with pytest.raises(ValueError) as error:
+        validate_raw_locator_against_snapshot(candidate, verified_snapshot=verified)
+
+    assert getattr(error.value, "code", None) == "SECURITY_ARCHIVE_RATIO_LIMIT"
+
+
+@pytest.mark.parametrize(
+    ("limits", "expected_code"),
+    [
+        (ArchiveLimits(max_file_bytes=32), "SECURITY_ARCHIVE_FILE_LIMIT"),
+        (ArchiveLimits(max_compression_ratio=2.0), "SECURITY_ARCHIVE_RATIO_LIMIT"),
+    ],
+)
+def test_locator_validation_applies_configured_archive_member_limits(
+    tmp_path: Path,
+    limits: ArchiveLimits,
+    expected_code: str,
+) -> None:
+    archive = _zip_members({"records.json": b"a" * 100_000})
+    verified = _verified_snapshot(tmp_path, archive)
+    candidate = RawLocator(
+        source_id="mtgjson",
+        source_snapshot_id="mtgjson-fixture",
+        raw_object_id="AllPrintings.json.zip",
+        raw_object_path="objects/AllPrintings.json.zip",
+        archive_member="records.json",
+        location=JsonPointerLocator(pointer=""),
+    )
+
+    with pytest.raises(ValueError) as error:
+        validate_raw_locator_against_snapshot(
+            candidate,
+            verified_snapshot=verified,
+            archive_limits=limits,
+        )
+
+    assert getattr(error.value, "code", None) == expected_code
+
+
+def test_locator_validation_rejects_a_symlink_archive_member_with_shared_security_code(
+    tmp_path: Path,
+) -> None:
+    output = io.BytesIO()
+    info = zipfile.ZipInfo("records.json")
+    info.external_attr = (stat.S_IFLNK | 0o777) << 16
+    with zipfile.ZipFile(output, "w") as archive:
+        archive.writestr(info, "outside")
+    verified = _verified_snapshot(tmp_path, output.getvalue())
+    candidate = RawLocator(
+        source_id="mtgjson",
+        source_snapshot_id="mtgjson-fixture",
+        raw_object_id="AllPrintings.json.zip",
+        raw_object_path="objects/AllPrintings.json.zip",
+        archive_member="records.json",
+        location=JsonPointerLocator(pointer=""),
+    )
+
+    with pytest.raises(ValueError) as error:
+        validate_raw_locator_against_snapshot(candidate, verified_snapshot=verified)
+
+    assert getattr(error.value, "code", None) == "SECURITY_ARCHIVE_LINK"
 
 
 def test_invalid_member_bytes_are_json_safe_and_persistable_in_staging(tmp_path: Path) -> None:

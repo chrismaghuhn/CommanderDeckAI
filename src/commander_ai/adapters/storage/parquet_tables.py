@@ -28,6 +28,7 @@ from commander_ai.data_pipeline.staging.records import StagingRecord
 from commander_ai.domain.provenance import DomainModel
 from commander_ai.domain.serialization import canonical_json_bytes
 
+from .archive_safety import ArchiveLimits
 from .path_policy import resolve_under_root, validate_portable_relative_path
 from .raw_snapshot_io import fsync_directory, publish_new, sha256_file
 
@@ -69,6 +70,7 @@ class ParquetTableWriter:
         layer: Literal["staging", "normalized", "audit", "quarantine", "curated"] | None = None,
         row_contract: type[DomainModel] | None = None,
         verified_snapshot: VerifiedSourceSnapshot | None = None,
+        archive_limits: ArchiveLimits | None = None,
     ) -> ParquetArtifact:
         if not table_name or table_name.startswith("."):
             raise ValueError("table name must be a portable non-hidden name")
@@ -84,7 +86,7 @@ class ParquetTableWriter:
         if table_name.casefold().startswith("curated") and layer != "curated":
             raise ValueError("curated tables require the curated layer")
         typed_rows = list(rows)
-        _validate_source_locators(typed_rows, verified_snapshot)
+        _validate_source_locators(typed_rows, verified_snapshot, archive_limits=archive_limits)
         normalized_rows = [_row_payload(row, contract, layer) for row in typed_rows]
         portable_path = validate_portable_relative_path(
             relative_path or f"normalized/{table_name}.parquet"
@@ -148,6 +150,7 @@ class ParquetTableWriter:
         audit_row_contract: type[DomainModel] = AuditRecord,
         quarantine_row_contract: type[DomainModel] = QuarantineRecord,
         verified_snapshot: VerifiedSourceSnapshot | None = None,
+        archive_limits: ArchiveLimits | None = None,
     ) -> tuple[ParquetArtifact, ParquetArtifact, ParquetArtifact]:
         """Write the three non-curated Task-5 layers as separate immutable tables."""
 
@@ -159,6 +162,7 @@ class ParquetTableWriter:
                 layer="normalized",
                 row_contract=staging_row_contract,
                 verified_snapshot=verified_snapshot,
+                archive_limits=archive_limits,
             ),
             self.write_table(
                 "audit",
@@ -167,6 +171,7 @@ class ParquetTableWriter:
                 layer="audit",
                 row_contract=audit_row_contract,
                 verified_snapshot=verified_snapshot,
+                archive_limits=archive_limits,
             ),
             self.write_table(
                 "quarantine",
@@ -175,6 +180,7 @@ class ParquetTableWriter:
                 layer="quarantine",
                 row_contract=quarantine_row_contract,
                 verified_snapshot=verified_snapshot,
+                archive_limits=archive_limits,
             ),
         )
 
@@ -221,7 +227,10 @@ def _row_payload(
 
 
 def _validate_source_locators(
-    rows: Sequence[object], verified_snapshot: VerifiedSourceSnapshot | None
+    rows: Sequence[object],
+    verified_snapshot: VerifiedSourceSnapshot | None,
+    *,
+    archive_limits: ArchiveLimits | None,
 ) -> None:
     locators: list[tuple[RawLocator, str | None, str | None]] = []
     for row in rows:
@@ -247,6 +256,7 @@ def _validate_source_locators(
             verified_snapshot=verified_snapshot,
             source_id=source_id,
             raw_sha256=raw_sha256,
+            archive_limits=archive_limits,
         )
 
 
@@ -255,6 +265,7 @@ def validate_parquet_table_rows(
     *,
     layer: Literal["staging", "normalized", "audit", "quarantine", "curated"],
     verified_snapshot: VerifiedSourceSnapshot | None = None,
+    archive_limits: ArchiveLimits | None = None,
 ) -> None:
     """Deserialize persisted rows through the same nominal layer contract."""
 
@@ -284,7 +295,7 @@ def validate_parquet_table_rows(
             rows.append(matches[0])
     except Exception as error:  # pragma: no cover - backend-specific exception types
         raise ValueError("Parquet rows do not satisfy their typed layer contract") from error
-    _validate_source_locators(rows, verified_snapshot)
+    _validate_source_locators(rows, verified_snapshot, archive_limits=archive_limits)
 
 
 def _temporary_path(directory: Path) -> tuple[int, str]:

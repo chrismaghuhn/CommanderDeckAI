@@ -13,6 +13,7 @@ from pydantic import Field, field_validator
 from commander_ai.data_pipeline.quality.finding_codes import validate_finding_code
 from commander_ai.data_pipeline.staging.raw_locators import RawLocator
 from commander_ai.domain.provenance import DomainModel
+from commander_ai.domain.serialization import canonical_json_bytes
 
 from .dto import MTGJSONModel
 from .scalar_safety import (
@@ -113,12 +114,39 @@ def _json_safe_source_value(value: object) -> object:
             "sha256": hashlib.sha256(raw).hexdigest(),
         }
     if isinstance(value, Mapping):
+        if any(isinstance(key, MalformedJSONScalar) for key in value):
+            return _json_safe_mapping_envelope(value)
         return {str(key): _json_safe_source_value(item) for key, item in value.items()}
     if isinstance(value, (list, tuple)):
         return [_json_safe_source_value(item) for item in value]
     if isinstance(value, (set, frozenset)):
         return [_json_safe_source_value(item) for item in sorted(value, key=str)]
     return value
+
+
+def _json_safe_mapping_envelope(value: Mapping[object, object]) -> dict[str, object]:
+    entries: list[dict[str, object]] = []
+    for key, item in value.items():
+        if isinstance(key, MalformedJSONScalar):
+            key_payload: dict[str, object] = {
+                **scalar_envelope(key),
+                "role": "object_key",
+            }
+        else:
+            key_payload = {"role": "text", "value": str(key)}
+        entries.append(
+            {
+                "key": key_payload,
+                "value": _json_safe_source_value(item),
+            }
+        )
+    entry_payload = {"entries": entries}
+    return {
+        "encoding": "json_object_entries",
+        "entries": entries,
+        "entry_count": len(entries),
+        "sha256": hashlib.sha256(canonical_json_bytes(entry_payload)).hexdigest(),
+    }
 
 
 __all__ = [

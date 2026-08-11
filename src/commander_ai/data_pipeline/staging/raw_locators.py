@@ -10,6 +10,7 @@ from commander_ai.domain.provenance import DomainModel, validate_portable_relati
 from commander_ai.domain.serialization import canonical_json_bytes
 
 if TYPE_CHECKING:
+    from commander_ai.adapters.storage.archive_safety import ArchiveLimits
     from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
 
 
@@ -60,6 +61,14 @@ RawLocation = Annotated[
     JsonPointerLocator | RecordIndexLocator | ByteRangeLocator,
     Field(discriminator="kind"),
 ]
+
+
+class RawLocatorValidationError(ValueError):
+    """Locator rejection carrying a stable validation or security code."""
+
+    def __init__(self, message: str, *, code: str | None = None) -> None:
+        self.code = code
+        super().__init__(message)
 
 
 class RawLocator(DomainModel):
@@ -121,6 +130,7 @@ def validate_raw_locator_against_snapshot(
     verified_snapshot: VerifiedSourceSnapshot,
     source_id: str | None = None,
     raw_sha256: str | None = None,
+    archive_limits: ArchiveLimits | None = None,
 ) -> None:
     """Fail closed unless locator identity agrees with nominal raw evidence."""
 
@@ -131,6 +141,7 @@ def validate_raw_locator_against_snapshot(
         verified_snapshot=verified_snapshot,
         source_id=source_id,
         raw_sha256=raw_sha256,
+        archive_limits=archive_limits,
     )
 
 
@@ -141,6 +152,7 @@ __all__ = [
     "JsonPointerLocator",
     "RawLocation",
     "RawLocator",
+    "RawLocatorValidationError",
     "RawObjectLocator",
     "RecordIndexLocator",
     "validate_raw_locator_against_snapshot",
