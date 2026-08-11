@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import base64
+import binascii
+import hashlib
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, field_validator, model_validator
 
 from commander_ai.domain.provenance import DomainModel, validate_portable_relative_path
 from commander_ai.domain.serialization import canonical_json_bytes
@@ -23,14 +26,47 @@ class JsonPointerLocator(DomainModel):
     @field_validator("pointer")
     @classmethod
     def validate_pointer(cls, value: str) -> str:
-        if value and not value.startswith("/"):
-            raise ValueError("JSON pointer must be empty or start with '/'")
-        if any(char == "~" and index + 1 == len(value) for index, char in enumerate(value)):
-            raise ValueError("JSON pointer has an incomplete escape")
-        for index, char in enumerate(value[:-1]):
-            if char == "~" and value[index + 1] not in "01":
-                raise ValueError("JSON pointer escape must be ~0 or ~1")
-        return value
+        return _validate_json_pointer_text(value)
+
+
+class JsonObjectEntryLocator(DomainModel):
+    """Locator for an ordered JSON object entry with a non-pointer-safe key.
+
+    ``parent_pointer`` identifies the containing object, ``entry_index`` is its
+    zero-based source order, and ``value_pointer`` optionally identifies a
+    descendant within that entry's value. The key metadata is the base64-
+    encoded, canonical JSON-escaped key representation used by the malformed-
+    scalar envelope. Validation resolves the parent object from verified
+    source bytes and checks the entry, descendant, and key metadata before
+    accepting the locator.
+    """
+
+    kind: Literal["json_object_entry"] = "json_object_entry"
+    parent_pointer: str
+    entry_index: int = Field(ge=0)
+    value_pointer: str = ""
+    key_base64: str = Field(min_length=1)
+    key_byte_length: int = Field(gt=0)
+    key_sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
+
+    @field_validator("parent_pointer", "value_pointer")
+    @classmethod
+    def validate_pointers(cls, value: str) -> str:
+        return _validate_json_pointer_text(value)
+
+    @model_validator(mode="after")
+    def validate_key_metadata(self) -> JsonObjectEntryLocator:
+        try:
+            raw = base64.b64decode(self.key_base64, validate=True)
+        except (ValueError, UnicodeEncodeError, binascii.Error):
+            raise ValueError("JSON object entry key_base64 must be valid base64") from None
+        if base64.b64encode(raw).decode("ascii") != self.key_base64:
+            raise ValueError("JSON object entry key_base64 must use canonical padding")
+        if len(raw) != self.key_byte_length:
+            raise ValueError("JSON object entry key byte length does not match key_base64")
+        if hashlib.sha256(raw).hexdigest() != self.key_sha256:
+            raise ValueError("JSON object entry key sha256 does not match key_base64")
+        return self
 
 
 class RecordIndexLocator(DomainModel):
@@ -58,7 +94,7 @@ class ByteRangeLocator(DomainModel):
 
 
 RawLocation = Annotated[
-    JsonPointerLocator | RecordIndexLocator | ByteRangeLocator,
+    JsonPointerLocator | JsonObjectEntryLocator | RecordIndexLocator | ByteRangeLocator,
     Field(discriminator="kind"),
 ]
 
@@ -97,6 +133,16 @@ class RawLocator(DomainModel):
             location: dict[str, object] = {
                 "kind": self.location.kind,
                 "pointer": self.location.pointer,
+            }
+        elif isinstance(self.location, JsonObjectEntryLocator):
+            location = {
+                "kind": self.location.kind,
+                "parent_pointer": self.location.parent_pointer,
+                "entry_index": self.location.entry_index,
+                "value_pointer": self.location.value_pointer,
+                "key_base64": self.location.key_base64,
+                "key_byte_length": self.location.key_byte_length,
+                "key_sha256": self.location.key_sha256,
             }
         elif isinstance(self.location, RecordIndexLocator):
             location = {"kind": self.location.kind, "index": self.location.index}
@@ -147,8 +193,22 @@ def validate_raw_locator_against_snapshot(
 
 RawObjectLocator = RawLocator
 
+
+def _validate_json_pointer_text(value: str) -> str:
+    if value and not value.startswith("/"):
+        raise ValueError("JSON pointer must be empty or start with '/'")
+    if any(0xD800 <= ord(character) <= 0xDFFF for character in value):
+        raise ValueError("JSON pointer cannot contain surrogate code points")
+    if any(char == "~" and index + 1 == len(value) for index, char in enumerate(value)):
+        raise ValueError("JSON pointer has an incomplete escape")
+    for index, char in enumerate(value[:-1]):
+        if char == "~" and value[index + 1] not in "01":
+            raise ValueError("JSON pointer escape must be ~0 or ~1")
+    return value
+
 __all__ = [
     "ByteRangeLocator",
+    "JsonObjectEntryLocator",
     "JsonPointerLocator",
     "RawLocation",
     "RawLocator",

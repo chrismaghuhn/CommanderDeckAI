@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import io
 import json
 import stat
@@ -125,6 +126,7 @@ def test_parser_preserves_cards_printings_faces_and_required_source_fields(tmp_p
     assert len({record.raw_locator.exact_locator for record in result.records}) == len(
         result.records
     )
+    assert all(record.raw_locator.location.kind == "json_pointer" for record in result.records)
     staging = MTGJSONStagingMapper().map_records(result.records)
     artifact = ParquetTableWriter(tmp_path / "artifacts").write_table(
         "cards",
@@ -391,6 +393,159 @@ def test_malformed_json_object_keys_are_retained_through_staging_audit_and_parqu
         layer="audit",
         verified_snapshot=verified,
     )
+
+
+@pytest.mark.parametrize(
+    ("product", "raw_object_id", "source_object_id", "member_name", "record_type"),
+    [
+        (
+            MTGJSONProduct.ALL_PRINTINGS,
+            "AllPrintings.json.zip",
+            "AllPrintings",
+            "AllPrintings.json",
+            "set",
+        ),
+        (
+            MTGJSONProduct.ALL_DECK_FILES,
+            "AllDeckFiles.json.zip",
+            "AllDeckFiles",
+            "AllDeckFiles.json",
+            "deck_product",
+        ),
+    ],
+)
+def test_malformed_record_identity_uses_a_reconstructable_entry_locator(
+    tmp_path: Path,
+    product: MTGJSONProduct,
+    raw_object_id: str,
+    source_object_id: str,
+    member_name: str,
+    record_type: str,
+) -> None:
+    malformed_key = b"\\ud800"
+    if product is MTGJSONProduct.ALL_PRINTINGS:
+        value = (
+            b'{"code":"BAD","name":"Malformed Set","cards":['
+            b'{"uuid":"nested-card","name":"Nested Card"}]}'
+        )
+    else:
+        value = (
+            b'{"code":"BAD","name":"Malformed Deck","mainBoard":[],'
+            b'"sideBoard":[],"type":"precon"}'
+        )
+    member = b'{"meta":{},"data":{"' + malformed_key + b'":' + value + b"}}"
+    archive = _zip_members({member_name: member})
+    verified = _verified_snapshot(
+        tmp_path,
+        archive,
+        raw_object_id=raw_object_id,
+        source_object_id=source_object_id,
+    )
+
+    result = MTGJSONParser().parse_archive(
+        verified,
+        raw_object_id=raw_object_id,
+        destination=tmp_path / "derived" / product.value,
+        product=product,
+    )
+    record = next(item for item in result.records if item.record_type == record_type)
+
+    assert record.dto is None
+    assert record.finding_codes == ("parse.malformed_scalar",)
+    location = record.raw_locator.location
+    assert location.kind == "json_object_entry"
+    assert location.parent_pointer == "/data"
+    assert location.entry_index == 0
+    assert location.key_base64 == base64.b64encode(b'"\\ud800"').decode("ascii")
+    assert location.key_byte_length == len(b'"\\ud800"')
+    assert location.key_sha256 == hashlib.sha256(b'"\\ud800"').hexdigest()
+
+    locator_text = record.raw_locator.exact_locator
+    assert all(not 0xD800 <= ord(character) <= 0xDFFF for character in locator_text)
+    locator_text.encode("utf-8")
+    validate_raw_locator_against_snapshot(record.raw_locator, verified_snapshot=verified)
+    with pytest.raises(ValueError, match="outside"):
+        validate_raw_locator_against_snapshot(
+            record.raw_locator.model_copy(
+                update={"location": location.model_copy(update={"entry_index": 1})}
+            ),
+            verified_snapshot=verified,
+        )
+    with pytest.raises(ValueError, match="sha256"):
+        location.model_copy(update={"key_sha256": "0" * 64})
+
+    if product is MTGJSONProduct.ALL_PRINTINGS:
+        nested_card = next(item for item in result.records if item.record_type == "card")
+        assert nested_card.raw_locator.location.kind == "json_object_entry"
+        assert nested_card.raw_locator.location.value_pointer == "/cards/0"
+        validate_raw_locator_against_snapshot(nested_card.raw_locator, verified_snapshot=verified)
+
+    source_values = record.source_values
+    assert source_values["encoding"] == "json_object_entries"
+    assert source_values["entry_count"] == 1
+    entry = source_values["entries"][0]
+    assert entry["key"]["role"] == "object_key"
+    assert entry["key"]["data"] == location.key_base64
+    assert entry["value"]["code"] == "BAD"
+    assert source_values["sha256"] == hashlib.sha256(
+        json.dumps({"entries": source_values["entries"]}, sort_keys=True, separators=(",", ":"))
+        .encode("utf-8")
+    ).hexdigest()
+
+    staging = MTGJSONStagingMapper().map_records((record,))
+    row = staging[0]
+    assert row.status == "STRUCTURAL_INVALID"
+    assert row.finding_codes == ("parse.malformed_scalar",)
+    row_payload = row.model_dump(mode="json")
+    json.dumps(row_payload, ensure_ascii=False).encode("utf-8")
+
+    audit = AuditRecord(
+        audit_id="audit-malformed-identity",
+        entity_id=row.staging_record_id,
+        stage="parse",
+        finding_code="parse.malformed_scalar",
+        raw_locator=row.raw_locator,
+        details={"original_source_values": row.original_source_values},
+    )
+    writer = ParquetTableWriter(tmp_path / "artifacts")
+    staging_artifact = writer.write_table(
+        "staging",
+        [row],
+        layer="normalized",
+        row_contract=StagingRecord,
+        verified_snapshot=verified,
+    )
+    audit_artifact = writer.write_table(
+        "audit",
+        [audit],
+        layer="audit",
+        row_contract=AuditRecord,
+        verified_snapshot=verified,
+    )
+
+    assert writer.read_table(staging_artifact.path) == [row_payload]
+    validate_parquet_table_rows(
+        tmp_path / "artifacts" / staging_artifact.path,
+        layer="normalized",
+        verified_snapshot=verified,
+    )
+    validate_parquet_table_rows(
+        tmp_path / "artifacts" / audit_artifact.path,
+        layer="audit",
+        verified_snapshot=verified,
+    )
+
+    repeat = MTGJSONParser().parse_archive(
+        verified,
+        raw_object_id=raw_object_id,
+        destination=tmp_path / "derived" / f"{product.value}-repeat",
+        product=product,
+    )
+    repeat_record = next(item for item in repeat.records if item.record_type == record_type)
+    repeat_row = MTGJSONStagingMapper().map_records((repeat_record,))[0]
+    assert repeat_record.raw_locator.exact_locator == locator_text
+    assert repeat_record.source_values["sha256"] == source_values["sha256"]
+    assert repeat_row.staging_record_id == row.staging_record_id
 
 
 def test_parser_rejects_member_bytes_that_do_not_match_verified_archive(

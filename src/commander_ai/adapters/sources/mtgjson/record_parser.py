@@ -2,9 +2,15 @@
 
 from __future__ import annotations
 
+import base64
+import hashlib
 from collections.abc import Callable, Mapping
 
-from commander_ai.data_pipeline.staging.raw_locators import RawLocator
+from commander_ai.data_pipeline.staging.raw_locators import (
+    JsonObjectEntryLocator,
+    RawLocation,
+    RawLocator,
+)
 
 from .dto import MTGJSONCard, MTGJSONCardFace, MTGJSONDeckProduct, MTGJSONSet
 from .models import (
@@ -13,14 +19,16 @@ from .models import (
     finding_record,
     record_with_findings,
 )
-from .scalar_safety import find_malformed_scalars, sanitize_json_scalars
+from .scalar_safety import MalformedJSONScalar, find_malformed_scalars, sanitize_json_scalars
 from .settings import MTGJSONProduct
+
+RecordLocation = str | JsonObjectEntryLocator
 
 
 class MTGJSONMemberParser:
     """Parse one already-decoded archive member without changing raw values."""
 
-    def __init__(self, locator_factory: Callable[[str], RawLocator]) -> None:
+    def __init__(self, locator_factory: Callable[[str | RawLocation], RawLocator]) -> None:
         self._locator = locator_factory
 
     def parse(self, payload: object, product: MTGJSONProduct) -> tuple[MTGJSONParsedRecord, ...]:
@@ -52,25 +60,37 @@ class MTGJSONMemberParser:
                 ),
             )
         records: list[MTGJSONParsedRecord] = []
-        for set_code, set_value in data.items():
-            set_pointer = f"/data/{_escape_pointer(str(set_code))}"
-            set_locator = self._locator(set_pointer)
+        for entry_index, (set_code, set_value) in enumerate(data.items()):
+            set_location = self._record_location("/data", set_code, entry_index)
+            set_locator = self._locator(set_location)
+            source_values = _record_source_values(set_code, set_value)
+            identity_finding = _malformed_identity_finding(
+                set_code,
+                set_locator,
+                parent_pointer="/data",
+                entry_index=entry_index,
+            )
             if not isinstance(set_value, Mapping):
-                records.append(
-                    finding_record(
-                        "set",
-                        set_locator,
-                        set_value,
+                findings = [
+                    MTGJSONFinding(
                         code="parse.record_not_object",
                         message="set record is not an object",
+                        raw_locator=set_locator,
                     )
+                ]
+                if identity_finding is not None:
+                    findings.append(identity_finding)
+                records.append(
+                    record_with_findings("set", set_locator, source_values, None, findings)
                 )
                 continue
             set_findings = _required_findings(set_value, ("code", "name"), set_locator)
             scalar_finding = _malformed_scalar_finding(set_value, set_locator)
             if scalar_finding is not None:
                 set_findings.append(scalar_finding)
-            if scalar_finding is not None:
+            if identity_finding is not None:
+                set_findings.append(identity_finding)
+            if scalar_finding is not None or identity_finding is not None:
                 set_dto = None
             else:
                 try:
@@ -79,14 +99,15 @@ class MTGJSONMemberParser:
                     set_dto = None
                     set_findings.append(_shape_finding("set", set_locator))
             records.append(
-                record_with_findings("set", set_locator, set_value, set_dto, set_findings)
+                record_with_findings("set", set_locator, source_values, set_dto, set_findings)
             )
             cards = set_value.get("cards")
+            cards_location = _append_location(set_location, "/cards")
             if not isinstance(cards, list):
                 records.append(
                     finding_record(
                         "set_cards",
-                        self._locator(f"{set_pointer}/cards"),
+                        self._locator(cards_location),
                         cards,
                         code="parse.missing_or_invalid_data",
                         message="set cards must be an array",
@@ -94,12 +115,14 @@ class MTGJSONMemberParser:
                 )
                 continue
             for index, card_value in enumerate(cards):
-                pointer = f"{set_pointer}/cards/{index}"
-                records.extend(self._parse_card(card_value, pointer))
+                card_location = _append_location(cards_location, f"/{index}")
+                records.extend(self._parse_card(card_value, card_location))
         return tuple(records)
 
-    def _parse_card(self, value: object, pointer: str) -> tuple[MTGJSONParsedRecord, ...]:
-        locator = self._locator(pointer)
+    def _parse_card(
+        self, value: object, location: RecordLocation
+    ) -> tuple[MTGJSONParsedRecord, ...]:
+        locator = self._locator(location)
         if not isinstance(value, Mapping):
             return (
                 finding_record(
@@ -124,8 +147,11 @@ class MTGJSONMemberParser:
                 findings.append(_shape_finding("card", locator))
         records = [record_with_findings("card", locator, value, dto, findings)]
         if "faceName" in value or "side" in value:
-            face_pointer = f"{pointer}/faceName" if "faceName" in value else f"{pointer}/side"
-            face_locator = self._locator(face_pointer)
+            face_location = _append_location(
+                location,
+                "/faceName" if "faceName" in value else "/side",
+            )
+            face_locator = self._locator(face_location)
             face_findings = _required_findings(value, ("name",), face_locator)
             face_scalar_finding = _malformed_scalar_finding(value, face_locator)
             if face_scalar_finding is not None:
@@ -161,21 +187,45 @@ class MTGJSONMemberParser:
         data = payload.get("data")
         if isinstance(data, Mapping) and "meta" in payload:
             return tuple(
-                self._parse_deck_record(value, f"/data/{_escape_pointer(str(key))}")
-                for key, value in data.items()
+                self._parse_deck_record(
+                    value,
+                    self._record_location("/data", key, entry_index),
+                    identity_key=key,
+                    identity_parent_pointer="/data",
+                    identity_entry_index=entry_index,
+                )
+                for entry_index, (key, value) in enumerate(data.items())
             )
         return (self._parse_deck_record(payload, ""),)
 
-    def _parse_deck_record(self, value: object, pointer: str) -> MTGJSONParsedRecord:
-        locator = self._locator(pointer)
+    def _parse_deck_record(
+        self,
+        value: object,
+        location: RecordLocation,
+        *,
+        identity_key: object | None = None,
+        identity_parent_pointer: str = "/data",
+        identity_entry_index: int = 0,
+    ) -> MTGJSONParsedRecord:
+        locator = self._locator(location)
+        source_values = _record_source_values(identity_key, value)
+        identity_finding = _malformed_identity_finding(
+            identity_key,
+            locator,
+            parent_pointer=identity_parent_pointer,
+            entry_index=identity_entry_index,
+        )
         if not isinstance(value, Mapping):
-            return finding_record(
-                "deck_product",
-                locator,
-                value,
-                code="parse.record_not_object",
-                message="deck product record is not an object",
-            )
+            findings = [
+                MTGJSONFinding(
+                    code="parse.record_not_object",
+                    message="deck product record is not an object",
+                    raw_locator=locator,
+                )
+            ]
+            if identity_finding is not None:
+                findings.append(identity_finding)
+            return record_with_findings("deck_product", locator, source_values, None, findings)
         findings = _required_findings(
             value,
             ("code", "name", "mainBoard", "sideBoard", "type"),
@@ -184,7 +234,9 @@ class MTGJSONMemberParser:
         scalar_finding = _malformed_scalar_finding(value, locator)
         if scalar_finding is not None:
             findings.append(scalar_finding)
-        if scalar_finding is not None:
+        if identity_finding is not None:
+            findings.append(identity_finding)
+        if scalar_finding is not None or identity_finding is not None:
             dto = None
         else:
             try:
@@ -192,7 +244,20 @@ class MTGJSONMemberParser:
             except ValueError:
                 dto = None
                 findings.append(_shape_finding("deck product", locator))
-        return record_with_findings("deck_product", locator, value, dto, findings)
+        return record_with_findings("deck_product", locator, source_values, dto, findings)
+
+    def _record_location(
+        self, parent_pointer: str, key: object, entry_index: int
+    ) -> RecordLocation:
+        if not isinstance(key, MalformedJSONScalar):
+            return f"{parent_pointer}/{_escape_pointer(str(key))}"
+        return JsonObjectEntryLocator(
+            parent_pointer=parent_pointer,
+            entry_index=entry_index,
+            key_base64=base64.b64encode(key.raw_bytes).decode("ascii"),
+            key_byte_length=len(key.raw_bytes),
+            key_sha256=hashlib.sha256(key.raw_bytes).hexdigest(),
+        )
 
 
 def _required_findings(
@@ -229,6 +294,38 @@ def _malformed_scalar_finding(
         message=f"source record contains malformed JSON scalar(s) at {locations}",
         raw_locator=locator,
     )
+
+
+def _malformed_identity_finding(
+    key: object | None,
+    locator: RawLocator,
+    *,
+    parent_pointer: str,
+    entry_index: int,
+) -> MTGJSONFinding | None:
+    if not isinstance(key, MalformedJSONScalar):
+        return None
+    digest = hashlib.sha256(key.raw_bytes).hexdigest()
+    return MTGJSONFinding(
+        code="parse.malformed_scalar",
+        message=(
+            "source record contains a malformed JSON object key at "
+            f"{parent_pointer}/@entry/{entry_index}/key/{digest}"
+        ),
+        raw_locator=locator,
+    )
+
+
+def _record_source_values(key: object | None, value: object) -> object:
+    if isinstance(key, MalformedJSONScalar):
+        return {key: value}
+    return value
+
+
+def _append_location(location: RecordLocation, suffix: str) -> RecordLocation:
+    if isinstance(location, str):
+        return f"{location}{suffix}"
+    return location.model_copy(update={"value_pointer": f"{location.value_pointer}{suffix}"})
 
 
 def _escape_pointer(value: str) -> str:

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import json
 from pathlib import Path
@@ -15,6 +16,7 @@ from commander_ai.application.verified_source_snapshot import VerifiedSourceSnap
 
 from .raw_locators import (
     ByteRangeLocator,
+    JsonObjectEntryLocator,
     JsonPointerLocator,
     RawLocator,
     RawLocatorValidationError,
@@ -67,6 +69,8 @@ def validate_raw_locator_against_snapshot(
             ) from None
     if isinstance(locator.location, JsonPointerLocator):
         _validate_json_pointer(payload, locator.location.pointer)
+    elif isinstance(locator.location, JsonObjectEntryLocator):
+        _validate_json_object_entry(payload, locator.location)
     elif isinstance(locator.location, RecordIndexLocator):
         _validate_record_index(payload, locator.location.index, reference.logical_record_count)
     elif isinstance(locator.location, ByteRangeLocator) and locator.location.end > len(payload):
@@ -102,7 +106,42 @@ def _validate_json_pointer(payload: bytes, pointer: str) -> None:
         document = json.loads(payload.decode("utf-8"))
     except (UnicodeDecodeError, json.JSONDecodeError):
         raise ValueError("JSON pointer cannot be resolved in an invalid JSON document") from None
-    current: object = document
+    _resolve_json_pointer(document, pointer)
+
+
+def _validate_json_object_entry(payload: bytes, locator: JsonObjectEntryLocator) -> None:
+    try:
+        document = json.loads(
+            payload.decode("utf-8"),
+            object_pairs_hook=_pairs_without_duplicates,
+        )
+    except (UnicodeDecodeError, json.JSONDecodeError, _DuplicateJSONKey):
+        raise ValueError(
+            "JSON object entry locator cannot be resolved in an invalid JSON document"
+        ) from None
+    parent = _resolve_json_pointer(document, locator.parent_pointer)
+    if not isinstance(parent, dict):
+        raise ValueError("JSON object entry parent pointer does not identify an object")
+    entries = list(parent.items())
+    if locator.entry_index >= len(entries):
+        raise ValueError("JSON object entry index is outside the verified source document")
+    key, value = entries[locator.entry_index]
+    key_bytes = _malformed_key_bytes(key)
+    if key_bytes is None:
+        raise ValueError("JSON object entry does not identify a malformed object key")
+    if (
+        base64.b64encode(key_bytes).decode("ascii") != locator.key_base64
+        or len(key_bytes) != locator.key_byte_length
+        or hashlib.sha256(key_bytes).hexdigest() != locator.key_sha256
+    ):
+        raise ValueError("JSON object entry key metadata does not match the verified source")
+    _resolve_json_pointer(value, locator.value_pointer)
+
+
+def _resolve_json_pointer(document: object, pointer: str) -> object:
+    if not pointer:
+        return document
+    current = document
     for token in pointer[1:].split("/"):
         token = token.replace("~1", "/").replace("~0", "~")
         if isinstance(current, dict):
@@ -120,6 +159,28 @@ def _validate_json_pointer(payload: bytes, pointer: str) -> None:
             current = current[index]
         else:
             raise ValueError(f"JSON pointer {pointer} is missing")
+    return current
+
+
+def _malformed_key_bytes(value: object) -> bytes | None:
+    if not isinstance(value, str) or not any(
+        0xD800 <= ord(character) <= 0xDFFF for character in value
+    ):
+        return None
+    return json.dumps(value, ensure_ascii=True, separators=(",", ":")).encode("ascii")
+
+
+class _DuplicateJSONKey(ValueError):
+    pass
+
+
+def _pairs_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
+    result: dict[str, object] = {}
+    for key, value in pairs:
+        if key in result:
+            raise _DuplicateJSONKey(key)
+        result[key] = value
+    return result
 
 
 def _validate_record_index(payload: bytes, index: int, expected_count: int | None) -> None:

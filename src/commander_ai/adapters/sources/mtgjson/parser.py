@@ -14,7 +14,11 @@ from commander_ai.adapters.storage.archive_safety import (
     read_archive_member,
 )
 from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
-from commander_ai.data_pipeline.staging.raw_locators import JsonPointerLocator, RawLocator
+from commander_ai.data_pipeline.staging.raw_locators import (
+    JsonPointerLocator,
+    RawLocation,
+    RawLocator,
+)
 
 from .models import (
     MTGJSONFinding,
@@ -140,7 +144,7 @@ class MTGJSONParser:
         verified_snapshot: VerifiedSourceSnapshot,
         raw_object_id: str,
         archive_member: str,
-        pointer: str,
+        location: str | RawLocation,
     ) -> RawLocator:
         reference = verified_snapshot.object_index.get(raw_object_id)
         if reference is None:
@@ -151,7 +155,11 @@ class MTGJSONParser:
             raw_object_id=raw_object_id,
             raw_object_path=reference.path,
             archive_member=archive_member,
-            location=JsonPointerLocator(pointer=pointer),
+            location=(
+                JsonPointerLocator(pointer=location)
+                if isinstance(location, str)
+                else location
+            ),
         )
 
     @staticmethod
