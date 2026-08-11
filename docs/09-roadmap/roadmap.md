@@ -10,9 +10,7 @@ M2 Deck Imports + Statistical Baselines
 M3 Approved Commander/Tournament Sources
   ↓
 M4 Frozen Completion Benchmark
-  │
-  └── Learnability/Pivot Gate: GREEN / YELLOW / RED
-        ↓ when justified
+  ↓
 M5 Matrix Factorization + DeepSets Ranker
   ↓
 M6 Deterministic Deck Optimizer
@@ -28,13 +26,11 @@ M6 Deterministic Deck Optimizer
 
 ## Grundregel
 
-Ein späterer Milestone darf nicht die Exit-Kriterien eines früheren Milestones umgehen. Besonders M5 beginnt erst nach eingefrorenem M4-Benchmark und ausgewertetem Learnability-/Pivot-Gate, und M8 beginnt nicht als Ersatz für fehlende Offline-Qualität.
+Ein späterer Milestone darf nicht die Exit-Kriterien eines früheren Milestones umgehen. Besonders M5 beginnt erst nach eingefrorenem M4-Benchmark, und M8 beginnt nicht als Ersatz für fehlende Offline-Qualität.
 
-M4 besitzt einen vorab committed Minimum-Viable-Freeze-Trigger. Sobald dessen Bedingungen erfüllt sind, darf der erste Completion-Benchmark nicht wegen optionaler Quellen, zusätzlicher historischer Coverage, Reporting-Polish oder weiterer Plattform-Infrastruktur aufgeschoben werden. Spätere Daten können eine Benchmark-v2 begründen, verändern aber v1 nicht rückwirkend.
+M4 wird durch ein vor M4 preregistriertes Minimum-Viable-Freeze-Profil ausgelöst. Seine numerischen Mindestwerte werden ausschließlich aus outcome-blinden deskriptiven Bestands-/Coverage-Statistiken nach reproduzierbarer Ableitungsregel bestimmt und müssen in der Git-Ancestry des ersten entscheidenden Validation-Runs liegen. Zusätzliche Quellen oder Plattformpolish dürfen den Freeze danach nicht verzögern.
 
-`GREEN` erlaubt den regulären M5-Pfad. `YELLOW` erlaubt nur das begrenzte Diagnosebudget des Gates. `RED` erzwingt eine Dataset-/Benchmark- oder Formulierungsentscheidung, bevor zusätzliche Modellkomplexität als Tuningversuch eingesetzt wird.
-
-Details: `docs/06-evaluation/learnability-pivot-gate.md`.
+M4 bewertet G0/G1 des Learnability-/Pivot-Gates. Matrix Factorization (`B6`) wird anschließend in M5 vor DeepSets gegen dieselbe preregistrierte Benchmarkversion bewertet. Eine fehlgeschlagene frühere Gate-Stufe darf nicht durch bloß mehr Modellkomplexität übersprungen werden.
 
 Der optionale Joint-Consistency-/Repair-Gate nach M6 ist kein eigener Pflicht-Milestone und blockiert M7 nicht. Er wird nur aktiviert, wenn der one-shot Ranker+CP-SAT-Pfad einen messbaren Kontextfehler zeigt und ein iteratives Verfahren diesen auf eingefrorenen Benchmarks besser löst. Zusätzliche Komplexität muss sich durch Ablation, Stabilität und Laufzeitmessung verdienen.
 
@@ -51,7 +47,8 @@ Diese Stufen sind nicht austauschbar. Insbesondere ist eine bessere Completion-N
 ## Nutzbarer Wert entlang der Roadmap
 
 - M2 liefert bereits einen echten, nicht-LLM-basierten Recommendation-Baseline;
-- M4 liefert einen publizierbaren Benchmark und eine explizite Go/Diagnose/Pivot-Entscheidung;
+- M4 liefert einen publizierbaren Benchmark und eine explizite GREEN/YELLOW/RED-Entscheidung zur Completion-Formulierung;
+- M5 darf Modellkomplexität nur entsprechend des Learnability-Gates erhöhen;
 - M6 liefert vollständige legale Decks;
 - M7/M8 ergänzen Performance-Evidenz;
 - M9 macht Casual-Ziele produktreif, ohne sie in cEDH-Winrate zu pressen.
