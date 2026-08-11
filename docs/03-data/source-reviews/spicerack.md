@@ -1,37 +1,66 @@
 # Spicerack Review
 
-**Status:** PROPOSED<br>
-**Reviewed:** 2026-08-10<br>
-**Decklist-API:** https://docs.spicerack.gg/api-reference/public-decklist-database<br>
-**API-Einführung:** https://docs.spicerack.gg/api-reference/introduction
+**Status:** PROPOSED
+**Reviewed:** 2026-08-10
+**Decklist API:** https://docs.spicerack.gg/api-reference/public-decklist-database
+**API introduction:** https://docs.spicerack.gg/api-reference/introduction
 
-## Verifizierte Eigenschaften
+## Verified technical properties
 
-- Public Decklist Database beschreibt Tournament-Decklisten und Resultate;
-- `COMMANDER2`, `PAUPER_COMMANDER` und `DUEL` sind dokumentierte Formate;
-- API-Schlüssel erforderlich;
-- Dokumentation kennzeichnet die API als Beta und warnt vor Breaking Changes.
+- the documented endpoint is `GET https://api.spicerack.gg/api/export-decklists/`;
+- documented query parameters are `num_days`, `event_format`,
+  `organization_id`, and `decklist_as_text`;
+- documented Commander formats include `COMMANDER2`, `PAUPER_COMMANDER`, and
+  `DUEL`;
+- the endpoint returns a tournament array and supports JSON and NDJSON;
+- the documentation shows API-key authentication and describes the API as beta.
 
-## Zugriff und Grenzen
+These documented properties are technical evidence only. Public visibility,
+beta documentation, or a reachable endpoint is not treated as blanket
+permission for bulk acquisition, local retention, or redistribution.
 
-- Der Adapter bleibt bis zu einer ausdrücklichen Review-/Terms-Freigabe blockiert (`PROPOSED`).
-- Der konfigurierte Credential-Name ist `SPICERACK_API_KEY`; ein Schlüsselwert darf weder in YAML noch in Config-Snapshots stehen.
-- Host-Allowlist, Timeout, begrenzte Retries, Rate-/`Retry-After`, Seiten- und Downloadgrenzen sowie die Commander-Formatfilter sind explizit zu konfigurieren.
-- Attribution, lokale Speicherung, Aufbewahrung und Redistribution werden vor Aktivierung konkret bestätigt. Dies ist keine rechtliche Freigabe.
+## Access and gates
 
-## Architekturfolge
+- The adapter remains blocked until the source registry changes from `PROPOSED`
+  and the current-use decision allows `SOURCE_SYNC`/`NORMALIZE`.
+- The credential configuration stores only the environment-variable name
+  `SPICERACK_API_KEY`; no key may appear in YAML, manifests, logs, or config
+  snapshots.
+- The adapter accepts only the reviewed host and exact export path. It does not
+  implement undocumented paths or scraping.
+- Local byte, timeout, retry, rate, response-size, and format limits are safety
+  bounds, not claims about provider quotas. The endpoint is not page-paginated;
+  one request is made for each configured format.
 
-Payloadmodelle bleiben strikt adapterlokal. Contract-Fixtures und klare Versionfehler sind Pflicht. Der Adapter wird unabhängig von TopDeck implementiert, auch wenn beide in dasselbe kanonische Event-/Pod-Schema mappen.
+## Rights and retention assessment
 
-## Source-Approval-Gate checklist
+- **Official API:** documented public read API; authentication and account
+  eligibility still require confirmation before activation.
+- **Authentication:** API key required; the repository does not contain a key.
+- **Rate limits:** exact provider quota is not established by this review;
+  bounded local rate/retry settings are mandatory.
+- **Attribution:** source configuration requires attribution, but exact wording,
+  placement, and treatment of tournament/decklist/result content require
+  confirmation.
+- **Local raw storage:** `pending_terms_review`; raw responses and manifests
+  remain blocked while the source is `PROPOSED`.
+- **Redistribution:** `not_approved`; neither raw responses nor derived records
+  may be exported under this review.
+- **PII:** tournament standings may contain player names and linked decklist
+  URLs. Staging projections remove direct names/contact fields unless an
+  approved use explicitly requires them; source locators and missingness remain.
+- **Takedown/deletion:** no universal automated guarantee is claimed. A later
+  takedown or terms change must block current use and trigger review of affected
+  raw and derived artifacts without mutating historical manifests.
 
-1. **Official API/access:** Reviewed access is the documented Spicerack Public Decklist Database API and its introduction page. The documentation describes a public read contract, but public availability, beta documentation, or a reachable endpoint are not treated as blanket permission for bulk acquisition or redistribution. The configured access method, host allowlist, Commander format filters, and explicit sync policy remain in force.
-2. **Authentication and rate limits:** The configured credential is the environment-variable name `SPICERACK_API_KEY`; no key is stored in this repository. The documentation identifies API-key access and a beta API, while the exact quota, authentication terms, and breaking-change policy must be rechecked before activation. The configured `rate_limit_per_minute`, retry bound, timeout, page limit, download limit, and `Retry-After` handling are local safety bounds, not a claim about the provider's allowance.
-3. **Attribution:** The source config requires attribution. The exact attribution wording, placement, and treatment of event, decklist, result, and upstream content must be confirmed and recorded before any approved use.
-4. **Local raw storage:** The source config keeps `raw_storage: pending_terms_review`. Raw JSON/NDJSON responses, request metadata, and immutable manifests must not be acquired or retained as an approved project path while the source is `PROPOSED`. A later local approval would still need to specify retention, access control, and the exact raw objects allowed to remain local.
-5. **Normalized derivations:** If access is later approved, deterministic local staging/derivation may retain only event, format, date, decklist/commander, standings, results, and supplied round/pod fields needed for the configured use case, with source provenance and missingness preserved. Pod structure must not be synthesized when Spicerack does not supply it, and the review does not currently authorize these derivations.
-6. **Redistribution:** The config remains `redistribution: not_approved`. Raw responses, decklists, player-linked records, standings, results, and derived artifacts must not be exported or redistributed under this review. Any future redistribution requires a separate current review of the applicable terms and content rights; this checklist makes no legal guarantee.
-7. **PII:** Event and tournament payloads may contain player names, IDs, account references, or other person-linked fields; the reviewed documentation is not treated as proof that such fields are absent. Contact data and unnecessary identifiers are out of scope for curated datasets. Unexpected PII must be minimized, quarantined, or excluded, subject to a documented review.
-8. **Deletion/takedown:** No universal automated deletion or takedown guarantee is claimed. A source, event, participant, or rights notice must pause affected acquisition and downstream processing, record the relevant source locator, and trigger review plus removal or quarantine of affected raw and derived artifacts where required by the applicable decision. Beta breaking changes also require revalidation rather than silent interpretation.
-9. **Interval and user agent:** Use bounded, explicit retrievals rather than polling or repeated bulk refreshes. The configured rate/retry limits and `Retry-After` behavior are mandatory local controls. Before activation, the project must confirm the provider's interval and identifiable User-Agent expectations and configure them; this review does not infer compliance from a reachable API.
-10. **Necessary fields/recommended use:** Necessary fields are the configured Commander format, event identity/date, decklist/commander, standings/results, and round/pod structure only when explicitly supplied. Recommended use is local, provenance-bound tournament/decklist analysis and offline evaluation with missing pod data preserved; it is not a general content mirror, gameplay guarantee, or unrestricted redistribution feed.
+## Implemented project use
+
+The adapter preserves source-shaped event, standing, player/decklist projection,
+and result staging records with exact raw locators. It does not create canonical
+events, decks, participants, or pods. Missing pod information is missing data
+and produces a quality finding; pods are never synthesized from standings.
+
+This review is not a legal opinion or redistribution authorization. Before
+changing the status to an approved state, record the applicable terms,
+retention, attribution, authentication, and redistribution decisions in the
+source registry and configuration.

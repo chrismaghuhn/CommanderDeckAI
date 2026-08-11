@@ -1,0 +1,33 @@
+[
+  {
+    "TID": "fixture-tournament-1",
+    "tournamentName": "Spicerack Fixture Open",
+    "format": "COMMANDER2",
+    "bracketUrl": "https://fixture.invalid/bracket/1",
+    "players": 4,
+    "startDate": 1786384800,
+    "swissRounds": 3,
+    "topCut": 0,
+    "standings": [
+      {
+        "name": "Fixture Player Name",
+        "decklist": "https://fixture.invalid/deck/1",
+        "decklist_text": "1 Fixture Commander\n99 Fixture Card",
+        "winsSwiss": 3,
+        "lossesSwiss": 0,
+        "draws": 0,
+        "winsBracket": 0,
+        "lossesBracket": 0
+      },
+      {
+        "name": "Fixture Player Two",
+        "decklist": "https://fixture.invalid/deck/2",
+        "winsSwiss": 2,
+        "lossesSwiss": 1,
+        "draws": 0,
+        "winsBracket": 0,
+        "lossesBracket": 0
+      }
+    ]
+  }
+]

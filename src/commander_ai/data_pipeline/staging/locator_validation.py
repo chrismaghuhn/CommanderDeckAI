@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from commander_ai.adapters.http.content_coding import (
+    DEFAULT_MAX_DECODED_BYTES,
     HttpContentCodingError,
     decode_entity_body,
 )
@@ -35,6 +36,7 @@ def validate_raw_locator_against_snapshot(
     source_id: str | None = None,
     raw_sha256: str | None = None,
     archive_limits: ArchiveLimits | None = None,
+    max_decoded_bytes: int | None = None,
 ) -> None:
     """Fail closed unless the exact member/document locator exists in evidence."""
 
@@ -60,7 +62,13 @@ def validate_raw_locator_against_snapshot(
         except OSError:
             raise ValueError("verified raw object cannot be read") from None
         try:
-            payload = decode_entity_body(raw_payload, reference.content_encoding)
+            payload = decode_entity_body(
+                raw_payload,
+                reference.content_encoding,
+                max_decoded_bytes=(
+                    DEFAULT_MAX_DECODED_BYTES if max_decoded_bytes is None else max_decoded_bytes
+                ),
+            )
         except HttpContentCodingError as error:
             raise ValueError(error.code) from None
     else:

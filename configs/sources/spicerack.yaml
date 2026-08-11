@@ -19,3 +19,5 @@ max_pages: 100
 max_download_bytes: 200000000
 filters:
   formats: [COMMANDER2, PAUPER_COMMANDER, DUEL]
+  num_days: 14
+  decklist_as_text: true

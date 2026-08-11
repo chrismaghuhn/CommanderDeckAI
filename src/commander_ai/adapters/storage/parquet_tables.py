@@ -71,6 +71,7 @@ class ParquetTableWriter:
         row_contract: type[DomainModel] | None = None,
         verified_snapshot: VerifiedSourceSnapshot | None = None,
         archive_limits: ArchiveLimits | None = None,
+        max_decoded_bytes: int | None = None,
     ) -> ParquetArtifact:
         if not table_name or table_name.startswith("."):
             raise ValueError("table name must be a portable non-hidden name")
@@ -86,7 +87,12 @@ class ParquetTableWriter:
         if table_name.casefold().startswith("curated") and layer != "curated":
             raise ValueError("curated tables require the curated layer")
         typed_rows = list(rows)
-        _validate_source_locators(typed_rows, verified_snapshot, archive_limits=archive_limits)
+        _validate_source_locators(
+            typed_rows,
+            verified_snapshot,
+            archive_limits=archive_limits,
+            max_decoded_bytes=max_decoded_bytes,
+        )
         normalized_rows = [_row_payload(row, contract, layer) for row in typed_rows]
         portable_path = validate_portable_relative_path(
             relative_path or f"normalized/{table_name}.parquet"
@@ -151,6 +157,7 @@ class ParquetTableWriter:
         quarantine_row_contract: type[DomainModel] = QuarantineRecord,
         verified_snapshot: VerifiedSourceSnapshot | None = None,
         archive_limits: ArchiveLimits | None = None,
+        max_decoded_bytes: int | None = None,
     ) -> tuple[ParquetArtifact, ParquetArtifact, ParquetArtifact]:
         """Write the three non-curated Task-5 layers as separate immutable tables."""
 
@@ -163,6 +170,7 @@ class ParquetTableWriter:
                 row_contract=staging_row_contract,
                 verified_snapshot=verified_snapshot,
                 archive_limits=archive_limits,
+                max_decoded_bytes=max_decoded_bytes,
             ),
             self.write_table(
                 "audit",
@@ -172,6 +180,7 @@ class ParquetTableWriter:
                 row_contract=audit_row_contract,
                 verified_snapshot=verified_snapshot,
                 archive_limits=archive_limits,
+                max_decoded_bytes=max_decoded_bytes,
             ),
             self.write_table(
                 "quarantine",
@@ -181,6 +190,7 @@ class ParquetTableWriter:
                 row_contract=quarantine_row_contract,
                 verified_snapshot=verified_snapshot,
                 archive_limits=archive_limits,
+                max_decoded_bytes=max_decoded_bytes,
             ),
         )
 
@@ -231,21 +241,33 @@ def _validate_source_locators(
     verified_snapshot: VerifiedSourceSnapshot | None,
     *,
     archive_limits: ArchiveLimits | None,
+    max_decoded_bytes: int | None,
 ) -> None:
     locators: list[tuple[RawLocator, str | None, str | None]] = []
+    identities: list[tuple[object, ...]] = []
     for row in rows:
         if isinstance(row, StagingRecord):
             locators.append((row.raw_locator, row.source_id, None))
+            identities.append(("staging", row.record_type, row.raw_locator.identity))
         elif isinstance(row, ProvenanceRow):
             locators.append((row.raw_locator, row.source_id, row.raw_sha256))
-        elif type(row) in {ResolutionAttempt, QuarantineRecord} or (
-            type(row) is AuditRecord and row.raw_locator is not None
-        ):
+            identities.append(("provenance", row.entity_id, row.raw_locator.identity))
+        elif isinstance(row, (ResolutionAttempt, QuarantineRecord, AuditRecord)):
             locator = getattr(row, "raw_locator", None)
             if isinstance(locator, RawLocator):
                 locators.append((locator, None, None))
-    if len({locator.identity for locator, _, _ in locators}) != len(locators):
-        raise ValueError("source-backed Parquet rows must have unique raw locators")
+                if isinstance(row, ResolutionAttempt):
+                    identities.append(
+                        ("resolution", row.staging_record_id, row.source_field, locator.identity)
+                    )
+                elif isinstance(row, QuarantineRecord):
+                    identities.append(
+                        ("quarantine", row.staging_record_id, row.reason_code, locator.identity)
+                    )
+                else:
+                    identities.append(("audit", row.entity_id, row.finding_code, locator.identity))
+    if len(set(identities)) != len(identities):
+        raise ValueError("duplicate source-backed logical rows")
     if locators and verified_snapshot is None:
         raise ValueError("source-backed Parquet rows require verified raw snapshot evidence")
     if verified_snapshot is None:
@@ -257,6 +279,7 @@ def _validate_source_locators(
             source_id=source_id,
             raw_sha256=raw_sha256,
             archive_limits=archive_limits,
+            max_decoded_bytes=max_decoded_bytes,
         )
 
 
@@ -266,6 +289,7 @@ def validate_parquet_table_rows(
     layer: Literal["staging", "normalized", "audit", "quarantine", "curated"],
     verified_snapshot: VerifiedSourceSnapshot | None = None,
     archive_limits: ArchiveLimits | None = None,
+    max_decoded_bytes: int | None = None,
 ) -> None:
     """Deserialize persisted rows through the same nominal layer contract."""
 
@@ -295,7 +319,12 @@ def validate_parquet_table_rows(
             rows.append(matches[0])
     except Exception as error:  # pragma: no cover - backend-specific exception types
         raise ValueError("Parquet rows do not satisfy their typed layer contract") from error
-    _validate_source_locators(rows, verified_snapshot, archive_limits=archive_limits)
+    _validate_source_locators(
+        rows,
+        verified_snapshot,
+        archive_limits=archive_limits,
+        max_decoded_bytes=max_decoded_bytes,
+    )
 
 
 def _temporary_path(directory: Path) -> tuple[int, str]:

@@ -28,6 +28,7 @@ SAFE_REQUEST_PARAMETER_KEYS = frozenset(
         "cursor",
         "date",
         "end_date",
+        "event_format",
         "fields",
         "filter",
         "format",
@@ -48,12 +49,14 @@ SAFE_REQUEST_PARAMETER_KEYS = frozenset(
         "players",
         "language",
         "limit",
+        "num_days",
         "locale",
         "name",
         "next",
         "next_page",
         "offset",
         "order",
+        "organization_id",
         "page",
         "page_size",
         "pagesize",
@@ -64,6 +67,7 @@ SAFE_REQUEST_PARAMETER_KEYS = frozenset(
         "start_date",
         "type",
         "version",
+        "decklist_as_text",
     }
 )
 

@@ -141,11 +141,13 @@ def test_curated_rows_require_the_explicit_curated_contract(tmp_path: Path) -> N
     assert artifact.rows == 1
 
 
-def test_source_locators_are_verified_against_raw_index_and_unique(tmp_path: Path) -> None:
+def test_source_locators_are_verified_against_raw_index_and_logical_rows_are_unique(
+    tmp_path: Path,
+) -> None:
     verified = verified_snapshot(tmp_path)
     row = staging_record()
     duplicate = row.model_copy(update={"staging_record_id": "staging-2"})
-    with pytest.raises(ValueError, match="unique raw locators"):
+    with pytest.raises(ValueError, match="duplicate source-backed logical rows"):
         ParquetTableWriter(tmp_path).write_table(
             "staging",
             [row, duplicate],

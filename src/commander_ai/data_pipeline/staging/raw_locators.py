@@ -177,6 +177,7 @@ def validate_raw_locator_against_snapshot(
     source_id: str | None = None,
     raw_sha256: str | None = None,
     archive_limits: ArchiveLimits | None = None,
+    max_decoded_bytes: int | None = None,
 ) -> None:
     """Fail closed unless locator identity agrees with nominal raw evidence."""
 
@@ -188,6 +189,7 @@ def validate_raw_locator_against_snapshot(
         source_id=source_id,
         raw_sha256=raw_sha256,
         archive_limits=archive_limits,
+        max_decoded_bytes=max_decoded_bytes,
     )
 
 
@@ -205,6 +207,7 @@ def _validate_json_pointer_text(value: str) -> str:
         if char == "~" and value[index + 1] not in "01":
             raise ValueError("JSON pointer escape must be ~0 or ~1")
     return value
+
 
 __all__ = [
     "ByteRangeLocator",
