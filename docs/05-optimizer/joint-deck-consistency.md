@@ -32,16 +32,33 @@ M6 erzeugt legale und constraint-konforme Decks. M7/M8 liefern erst zusätzliche
 
 ## Baseline vor Repair
 
-Iteratives Repair darf erst bewertet werden, nachdem ein reproduzierbarer one-shot M6-Pfad existiert. Mindestens folgende Ablation-Ladder soll vergleichbar sein:
+Iteratives Repair darf erst bewertet werden, nachdem ein reproduzierbarer one-shot M6-Pfad existiert. Die Kontrollgruppen werden getrennt gehalten:
 
 ```text
-A  Ranker Top-K / einfache Auswahl
-B  Ranker + CP-SAT
-C  Ranker + CP-SAT + kalibrierte Rollen/Pair/Combo-Ziele
-D  C + iteratives Contextual Re-Score/Repair
+A0  Ranker raw Top-K
+    reine Ranking-Kontrollgruppe; keine vollständige Deckkonstruktion
+
+A1  Ranker + deterministischer greedy legal fill
+    billigste vollständige Konstruktionsbaseline
+
+B   Ranker + CP-SAT
+    hard constraints, noch ohne kalibrierte Auxiliary Objectives
+
+C   B + kalibrierte Rollen/Pair/Combo-/weitere Auxiliary Objectives
+
+D   C + iteratives Contextual Re-Score/Repair
 ```
 
-D wird nur übernommen, wenn es auf eingefrorenen Benchmarks einen relevanten Gewinn gegen C zeigt und die zusätzliche Laufzeit rechtfertigt.
+Damit kann getrennt gemessen werden:
+
+```text
+A0 -> A1  Effekt trivialer Konstruktion/Legalität
+A1 -> B   zusätzlicher Nutzen des Solvers
+B  -> C   zusätzlicher Nutzen der Auxiliary Objectives
+C  -> D   zusätzlicher Nutzen des iterativen Repairs
+```
+
+D wird nur übernommen, wenn es auf eingefrorenen Benchmarks einen relevanten Gewinn gegen C zeigt und die zusätzliche Laufzeit rechtfertigt. Der interne Optimizer-Objective-Wert allein ist kein Deckqualitätsnachweis.
 
 ## Experimenteller Repair-Loop
 
@@ -64,9 +81,22 @@ Für bereits ausgewählte Karte `X` wird bevorzugt Leave-One-Out bewertet:
 score(X | ProposedDeck - X)
 ```
 
-Zusätzlich wird ein deterministischer Challenger-Pool aus nicht gewählten, zuvor hoch gerankten legalen Karten erneut bewertet. Nur die bereits gewählten Karten zu re-scoring wäre ein geschlossener Suchraum und könnte schwache lokale Lösungen konservieren.
+Nur die bereits gewählten Karten erneut zu bewerten wäre ein geschlossener Suchraum und könnte schwache lokale Lösungen konservieren. Auch ein Repair-Pool, der ausschließlich aus den global am höchsten gerankten verworfenen Karten besteht, kann einen systematischen Ranker-Fehler fortschreiben.
 
-Jede Iteration muss ihre Inputs, Score-Snapshots, Candidate-/Repair-Pool-Hashes, Optimizer-Konfiguration, Änderungen und Laufzeit reproduzierbar referenzieren. Ein bestehender Score-Snapshot wird nie nachträglich verändert.
+Deshalb besitzt jedes Repair-Experiment eine versionierte und deterministische `repair_pool_policy`. Sie darf je nach diagnostiziertem Fehler Kandidaten aus mehreren Strata kombinieren, zum Beispiel:
+
+```text
+selected_cards
+union top_K_overall
+union top_K_per_deficient_role
+union combo_rescue_candidates
+union feasibility_rescue_candidates
+union required_constraint_support_candidates
+```
+
+Nicht jedes Experiment muss jedes Stratum aktivieren. Die aktivierten Strata, ihre Grenzen, Sortierung und Tie-Breaks sind Teil der versionierten Policy. Ein Rescue-Kandidat muss weiterhin legal und für den jeweiligen Constraint-/Ruleset-Kontext zulässig sein.
+
+Jede Iteration muss ihre Inputs, Score-Snapshots, Candidate-/Repair-Pool-Hashes, `repair_pool_policy`, Optimizer-Konfiguration, strukturellen Deckfingerprints, Änderungen und Laufzeit reproduzierbar referenzieren. Ein bestehender Score-Snapshot wird nie nachträglich verändert.
 
 ## DeepSets und Leave-One-Out
 
@@ -92,14 +122,31 @@ Andernfalls wird der Repair-Pfad als Out-of-Distribution-Experiment markiert und
 
 ## Konvergenz und Zyklen
 
-Der Loop benötigt deterministische Stop-Regeln. Beispiele:
+Der Deckzustand wird über den kanonischen strukturellen Deckfingerprint verglichen, nicht über ein bloßes Set ausgewählter `oracle_id`s. Der Fingerprint muss Zonen und Quantitäten gemäß der kanonischen Deckidentität berücksichtigen; dadurch bleiben Copy-Limit-Ausnahmen und unterschiedliche Mengen unterscheidbar.
 
-- ausgewähltes Kartenset unverändert;
-- Verbesserung unter einer versionierten Epsilon-Schwelle;
-- erkannter Zyklus, zum Beispiel `Deck A -> Deck B -> Deck A`;
-- konfiguriertes maximales Iterationslimit.
+Für v1 des Repair-Experiments werden Stop-Gründe in fester Präzedenz ausgewertet:
 
-Ein Iterationslimit allein gilt nicht als Konvergenznachweis.
+```text
+1. if fingerprint_t == fingerprint_(t-1):
+       CONVERGED
+
+2. else if fingerprint_t in fingerprints_[0:t-1]:
+       CYCLE
+
+3. else if iteration >= max_iterations:
+       LIMIT
+
+4. else:
+       CONTINUE
+```
+
+Damit wird ein unveränderter Deckzustand als `CONVERGED` und nicht zugleich als `CYCLE` klassifiziert. Ebenso hat echte Konvergenz auf der letzten erlaubten Iteration Vorrang vor `LIMIT`. `LIMIT` ist kein Konvergenznachweis.
+
+Fingerprint-basierte Cycle Detection setzt in v1 eine deterministische, history-unabhängige Transition voraus: Derselbe kanonische Deckfingerprint muss unter demselben Modell, derselben versionierten `repair_pool_policy`, denselben Constraints und derselben Optimizer-Konfiguration wieder denselben nächsten Suchzustand erzeugen. Falls später eine history-abhängige Repair-Policy eingeführt wird, muss der Cycle-State-Key mindestens um den relevanten Policy-Zustand und den Repair-Pool-Hash erweitert werden; der Deckfingerprint allein reicht dann nicht mehr.
+
+Eine Epsilon-Regel über den jeweils aktuellen Solver-Objective ist in v1 ausdrücklich **nicht** zulässig: Durch das Contextual Re-Scoring verändert sich zwischen Iterationen die zugrunde liegende Objective-Funktion. Objective-Werte aus zwei unterschiedlich gescorten Iterationen sind daher nicht automatisch vergleichbar.
+
+Eine spätere Epsilon-Regel darf nur eingeführt werden, wenn eine konstante, versionierte und iterationsübergreifend vergleichbare Evaluationsfunktion definiert ist. Diese Evaluationsfunktion muss von den jeweils neu berechneten Optimizer-Scores semantisch getrennt sein.
 
 ## Doppelzählung von Synergie
 
@@ -126,9 +173,9 @@ Der Repair-Pfad wird nicht nur mit Completion-Metriken bewertet. Mindestens beri
 - Rollenüberdeckung und Rollenlücken;
 - Pair-/Combo-Metriken ohne Doppelzählungsannahme;
 - Deckdiversität;
-- Optimizer-Objective-Komponenten;
-- Kartenwechsel pro Iteration und Stabilität;
-- Zyklus-/Konvergenzrate;
+- Optimizer-Objective-Komponenten, ohne Cross-Iteration-Vergleichbarkeit zu unterstellen;
+- strukturelle Deckfingerprints und Karten-/Mengenänderungen pro Iteration;
+- Zyklus-/Konvergenzrate und Stop-Grund;
 - Laufzeit und Solverbudget;
 - später separat cEDH-Outcome- und Forge-Evidenz.
 
