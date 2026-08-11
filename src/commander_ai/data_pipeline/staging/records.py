@@ -38,7 +38,10 @@ class StagingRecord(DomainModel):
     @field_validator("finding_codes")
     @classmethod
     def validate_findings(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        return validate_finding_codes(value)
+        findings = validate_finding_codes(value)
+        if any(code.split(".", maxsplit=1)[0] not in {"parse", "integrity"} for code in findings):
+            raise ValueError("staging finding codes must use parse or integrity namespaces")
+        return findings
 
     @classmethod
     def from_dto(

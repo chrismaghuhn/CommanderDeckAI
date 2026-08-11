@@ -15,10 +15,12 @@
     "normalized_schema_version",
     "mapper_version",
     "transform_version",
+    "policy_version",
     "normalized_artifact_path",
     "normalized_artifact_sha256",
     "audit_artifact_path",
     "audit_artifact_sha256",
+    "artifacts",
     "counts",
     "finding_codes",
     "quarantine_references",
@@ -86,6 +88,10 @@
       "type": "string",
       "minLength": 1
     },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
     "normalized_artifact_path": {
       "$ref": "#/$defs/portable_path"
     },
@@ -100,8 +106,35 @@
       "type": "string",
       "pattern": "^[a-f0-9]{64}$"
     },
+    "artifacts": {
+      "type": "array",
+      "minItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/table_artifact"
+      }
+    },
     "counts": {
       "type": "object",
+      "required": [
+        "normalized_records",
+        "audit_records",
+        "quarantine_records"
+      ],
+      "properties": {
+        "normalized_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "audit_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "quarantine_records": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
       "additionalProperties": {
         "type": "integer",
         "minimum": 0
@@ -122,7 +155,8 @@
         "additionalProperties": false,
         "required": [
           "quarantine_id",
-          "reason_code"
+          "reason_code",
+          "path"
         ],
         "properties": {
           "quarantine_id": {
@@ -134,14 +168,7 @@
             "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$"
           },
           "path": {
-            "anyOf": [
-              {
-                "$ref": "#/$defs/portable_path"
-              },
-              {
-                "type": "null"
-              }
-            ]
+            "$ref": "#/$defs/portable_path"
           },
           "record_locator": {
             "type": [
@@ -181,6 +208,47 @@
     }
   },
   "$defs": {
+    "table_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "table_name",
+        "layer",
+        "path",
+        "sha256",
+        "rows",
+        "bytes"
+      ],
+      "properties": {
+        "table_name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/\\\\]+$"
+        },
+        "layer": {
+          "enum": [
+            "normalized",
+            "audit",
+            "quarantine"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/portable_path"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
     "portable_path": {
       "type": "string",
       "minLength": 1,

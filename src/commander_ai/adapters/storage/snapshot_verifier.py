@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
 
+from commander_ai.application.normalize_snapshot import RawSnapshotVerificationError
 from commander_ai.domain.provenance import SourceSnapshotManifest
 
 from .canonical_json import canonical_json_bytes
@@ -17,7 +18,7 @@ from .manifest_policy import manifest_semantic_code
 from .path_policy import resolve_under_root, validate_portable_relative_path
 
 
-class SnapshotIntegrityError(RuntimeError):
+class SnapshotIntegrityError(RawSnapshotVerificationError):
     """Non-consumable snapshot failure with a stable integrity code."""
 
     def __init__(self, code: str) -> None:
@@ -31,6 +32,8 @@ class VerifiedSnapshot:
     snapshot_dir: Path
     object_paths: Mapping[str, Path]
     record_count: int
+    manifest_sha256: str
+    manifest_path: Path
 
 
 @dataclass(frozen=True, slots=True)
@@ -40,6 +43,7 @@ class SnapshotInspection:
     issue_codes: tuple[str, ...]
     manifest: SourceSnapshotManifest | None
     record_count: int
+    manifest_sha256: str | None = None
 
 
 class SnapshotVerifier:
@@ -65,6 +69,10 @@ class SnapshotVerifier:
             snapshot_dir=snapshot_dir,
             object_paths=MappingProxyType(paths),
             record_count=inspection.record_count,
+            manifest_sha256=detached_manifest_sha256(
+                inspection.manifest.model_dump(mode="json")
+            ),
+            manifest_path=snapshot_dir / "manifest.json",
         )
 
     def inspect(self, source_id: str, snapshot_id: str) -> SnapshotInspection:
@@ -81,6 +89,10 @@ class SnapshotVerifier:
         except (OSError, UnicodeError, json.JSONDecodeError):
             return SnapshotInspection(None, False, ("INTEGRITY_MANIFEST_INVALID",), None, 0)
         if not isinstance(payload, dict):
+            return SnapshotInspection(None, False, ("INTEGRITY_MANIFEST_INVALID",), None, 0)
+        try:
+            manifest_sha256 = detached_manifest_sha256(payload)
+        except (TypeError, ValueError):
             return SnapshotInspection(None, False, ("INTEGRITY_MANIFEST_INVALID",), None, 0)
         status = payload.get("status") if isinstance(payload.get("status"), str) else None
         duplicate_code = _duplicate_id_code(payload)
@@ -196,6 +208,7 @@ class SnapshotVerifier:
             (),
             manifest,
             record_count,
+            manifest_sha256,
         )
 
     def _snapshot_dir(self, source_id: str, snapshot_id: str) -> Path:

@@ -1,4 +1,4 @@
-"""Semantic production and validation for normalized-snapshot-manifest.v1."""
+"""Build and semantically validate versioned normalized snapshot manifests."""
 
 from __future__ import annotations
 
@@ -6,51 +6,46 @@ import json
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
+from typing import Protocol
 
-from pydantic import Field, field_validator
-
-from commander_ai.domain.path_policy import validate_portable_relative_path
 from commander_ai.domain.provenance import (
-    DomainModel,
     NormalizedSnapshotManifest,
     ProvenanceReference,
     QuarantineReference,
     SourceSnapshotManifest,
+    detached_manifest_sha256,
 )
 from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
 
 from ..quality.finding_codes import validate_finding_codes
+from .normalized_snapshot_content import (
+    normalized_snapshot_content_from_manifest,
+    normalized_snapshot_content_payload,
+    normalized_snapshot_id,
+)
+from .normalized_snapshot_contracts import (
+    NormalizedSnapshotManifestV2,
+    NormalizedTableArtifact,
+)
 from .run_manifests import RunManifest
-
-
-class NormalizedTableArtifact(DomainModel):
-    """Hash and row metadata for one authoritative normalized-layer Parquet table."""
-
-    table_name: str = Field(min_length=1)
-    layer: Literal["normalized", "audit", "quarantine"]
-    path: str = Field(min_length=1)
-    sha256: str = Field(pattern=r"^[a-f0-9]{64}$")
-    rows: int = Field(ge=0)
-    bytes: int = Field(ge=0)
-
-    @field_validator("path")
-    @classmethod
-    def validate_path(cls, value: str) -> str:
-        return validate_portable_relative_path(value)
 
 
 @dataclass(frozen=True, slots=True)
 class NormalizedSnapshotBuild:
-    manifest: NormalizedSnapshotManifest
+    manifest: NormalizedSnapshotManifestV2
     table_artifacts: tuple[NormalizedTableArtifact, ...]
+    manifest_sha256: str
+
+
+class VerifiedSnapshotEvidence(Protocol):
+    """Immutable evidence supplied by the raw-snapshot verification port."""
+
+    manifest: SourceSnapshotManifest
     manifest_sha256: str
 
 
 def build_normalized_snapshot_manifest(
     *,
-    source_manifest: SourceSnapshotManifest,
-    source_manifest_sha256: str,
     producing_run: RunManifest,
     table_artifacts: Sequence[NormalizedTableArtifact],
     normalized_schema_version: str,
@@ -58,73 +53,77 @@ def build_normalized_snapshot_manifest(
     transform_version: str,
     policy_version: str,
     counts: Mapping[str, int],
-    finding_codes: Sequence[str] = (),
-    quarantine_references: Sequence[QuarantineReference | Mapping[str, object]] = (),
     started_at: datetime,
     created_at: datetime,
     completed_at: datetime | None,
-    raw_snapshot_verified: bool,
+    verified_snapshot: VerifiedSnapshotEvidence | None = None,
+    source_manifest: SourceSnapshotManifest | None = None,
+    source_manifest_sha256: str | None = None,
+    finding_codes: Sequence[str] = (),
+    quarantine_references: Sequence[QuarantineReference | Mapping[str, object]] = (),
+    raw_snapshot_verified: bool | None = None,
 ) -> NormalizedSnapshotBuild:
-    _require_verified_source(source_manifest, source_manifest_sha256, raw_snapshot_verified)
+    verified_manifest, verified_hash = _require_verified_source(
+        verified_snapshot=verified_snapshot,
+        source_manifest=source_manifest,
+        source_manifest_sha256=source_manifest_sha256,
+        raw_snapshot_verified=raw_snapshot_verified,
+    )
     if producing_run.status != "succeeded":
         raise ValueError("normalized manifest requires a succeeded producing run")
-    _require_run_bindings(
-        producing_run,
-        source_manifest.source_snapshot_id,
-        source_manifest_sha256,
-        normalized_schema_version,
-        mapper_version,
-        transform_version,
-        policy_version,
-    )
     artifacts = tuple(table_artifacts)
-    _require_layers(artifacts)
-    normalized = next(item for item in artifacts if item.layer == "normalized")
-    audit = next(item for item in artifacts if item.layer == "audit")
-    normalized_findings = tuple(sorted(set(validate_finding_codes(tuple(finding_codes)))))
+    findings = _unique_findings(finding_codes)
     quarantine = tuple(QuarantineReference.model_validate(item) for item in quarantine_references)
     normalized_counts = _validate_counts(counts)
-    _validate_artifact_counts(artifacts, normalized_counts)
-    for reference in quarantine:
-        if reference.path is not None and reference.path not in {
-            item.path for item in artifacts if item.layer == "quarantine"
-        }:
-            raise ValueError("quarantine reference path is not a quarantine artifact")
-    content_payload = _content_payload(
-        source_manifest_sha256=source_manifest_sha256,
-        producing_run_id=producing_run.run_id,
-        source_id=source_manifest.source_id,
+    _require_run_bindings(
+        producing_run,
+        source_manifest=verified_manifest,
+        source_manifest_sha256=verified_hash,
+        artifacts=artifacts,
         schema_version=normalized_schema_version,
         mapper_version=mapper_version,
         transform_version=transform_version,
-        policy_version="current-use-bound-in-run",
+        policy_version=policy_version,
+    )
+    content_payload = normalized_snapshot_content_payload(
+        source_id=verified_manifest.source_id,
+        source_manifest_id=verified_manifest.source_snapshot_id,
+        source_manifest_sha256=verified_hash,
+        producing_run_id=producing_run.run_id,
+        schema_version=normalized_schema_version,
+        mapper_version=mapper_version,
+        transform_version=transform_version,
+        policy_version=policy_version,
         artifacts=artifacts,
         counts=normalized_counts,
-        finding_codes=normalized_findings,
+        finding_codes=findings,
         quarantine_references=quarantine,
+        status="COMPLETE",
     )
     content_digest = sha256_hex(canonical_json_bytes(content_payload))
-    snapshot_fingerprint = sha256_hex(
-        canonical_json_bytes({"kind": "normalized-snapshot.v1", **content_payload})
-    )
-    manifest = NormalizedSnapshotManifest(
-        normalized_snapshot_id=f"normalized-{snapshot_fingerprint[:32]}",
+    snapshot_id = normalized_snapshot_id(content_payload)
+    normalized = _artifact_for_layer(artifacts, "normalized")
+    audit = _artifact_for_layer(artifacts, "audit")
+    manifest = NormalizedSnapshotManifestV2(
+        normalized_snapshot_id=snapshot_id,
         producing_run_id=producing_run.run_id,
-        input_source_snapshot_manifest_id=source_manifest.source_snapshot_id,
-        input_source_snapshot_manifest_sha256=source_manifest_sha256,
-        source_id=source_manifest.source_id,
+        input_source_snapshot_manifest_id=verified_manifest.source_snapshot_id,
+        input_source_snapshot_manifest_sha256=verified_hash,
+        source_id=verified_manifest.source_id,
         status="COMPLETE",
         normalized_schema_version=normalized_schema_version,
         mapper_version=mapper_version,
         transform_version=transform_version,
+        policy_version=policy_version,
         normalized_artifact_path=normalized.path,
         normalized_artifact_sha256=normalized.sha256,
         audit_artifact_path=audit.path,
         audit_artifact_sha256=audit.sha256,
+        artifacts=artifacts,
         counts=normalized_counts,
-        finding_codes=normalized_findings,
+        finding_codes=findings,
         quarantine_references=quarantine,
-        provenance=_provenance(source_manifest),
+        provenance=_provenance(verified_manifest),
         created_at=created_at,
         started_at=started_at,
         completed_at=completed_at,
@@ -140,13 +139,38 @@ def build_normalized_snapshot_manifest(
 
 
 def validate_normalized_snapshot_manifest(
-    manifest: NormalizedSnapshotManifest,
-    table_artifacts: Sequence[NormalizedTableArtifact],
+    manifest: NormalizedSnapshotManifestV2 | NormalizedSnapshotManifest,
+    table_artifacts: Sequence[NormalizedTableArtifact] = (),
+    producing_run: RunManifest | None = None,
 ) -> None:
+    if isinstance(manifest, NormalizedSnapshotManifestV2):
+        artifacts = tuple(manifest.artifacts)
+        if table_artifacts and tuple(table_artifacts) != artifacts:
+            raise ValueError("normalized artifact bindings differ from manifest artifacts")
+        expected_content = normalized_snapshot_content_from_manifest(manifest)
+        if sha256_hex(canonical_json_bytes(expected_content)) != manifest.normalized_content_sha256:
+            raise ValueError("normalized content digest mismatch")
+        if manifest.normalized_snapshot_id != normalized_snapshot_id(expected_content):
+            raise ValueError("normalized snapshot ID mismatch")
+        if producing_run is not None:
+            _require_run_bindings(
+                producing_run,
+                source_manifest_id=manifest.input_source_snapshot_manifest_id,
+                source_id=manifest.source_id,
+                source_manifest_sha256=manifest.input_source_snapshot_manifest_sha256,
+                artifacts=artifacts,
+                schema_version=manifest.normalized_schema_version,
+                mapper_version=manifest.mapper_version,
+                transform_version=manifest.transform_version,
+                policy_version=manifest.policy_version,
+            )
+        return
+
     artifacts = tuple(table_artifacts)
-    _require_layers(artifacts)
-    normalized = next(item for item in artifacts if item.layer == "normalized")
-    audit = next(item for item in artifacts if item.layer == "audit")
+    if len(artifacts) != 3:
+        raise ValueError("v1 normalized manifest verification requires all layer artifacts")
+    normalized = _artifact_for_layer(artifacts, "normalized")
+    audit = _artifact_for_layer(artifacts, "audit")
     if (manifest.normalized_artifact_path, manifest.normalized_artifact_sha256) != (
         normalized.path,
         normalized.sha256,
@@ -154,33 +178,24 @@ def validate_normalized_snapshot_manifest(
         raise ValueError("normalized artifact binding mismatch")
     if (manifest.audit_artifact_path, manifest.audit_artifact_sha256) != (audit.path, audit.sha256):
         raise ValueError("audit artifact binding mismatch")
-    _validate_artifact_counts(artifacts, manifest.counts)
-    expected_content = _content_payload_from_manifest(manifest, artifacts)
-    if sha256_hex(canonical_json_bytes(expected_content)) != manifest.normalized_content_sha256:
-        raise ValueError("normalized content digest mismatch")
-    expected_id = sha256_hex(
-        canonical_json_bytes({"kind": "normalized-snapshot.v1", **expected_content})
-    )
-    if manifest.normalized_snapshot_id != f"normalized-{expected_id[:32]}":
-        raise ValueError("normalized snapshot ID mismatch")
 
 
 def normalized_snapshot_manifest_bytes(
-    value: NormalizedSnapshotBuild | NormalizedSnapshotManifest,
+    value: NormalizedSnapshotBuild | NormalizedSnapshotManifestV2 | NormalizedSnapshotManifest,
 ) -> bytes:
     manifest = value.manifest if isinstance(value, NormalizedSnapshotBuild) else value
     return canonical_json_bytes(manifest.model_dump(mode="json"))
 
 
 def normalized_snapshot_manifest_sha256(
-    value: NormalizedSnapshotBuild | NormalizedSnapshotManifest,
+    value: NormalizedSnapshotBuild | NormalizedSnapshotManifestV2 | NormalizedSnapshotManifest,
 ) -> str:
-    return sha256_hex(normalized_snapshot_manifest_bytes(value))
+    return detached_manifest_sha256(
+        json.loads(normalized_snapshot_manifest_bytes(value).decode("utf-8"))
+    )
 
 
 def normalized_table_artifact_index_bytes(build: NormalizedSnapshotBuild) -> bytes:
-    """Serialize the complete normalized/audit/quarantine artifact binding."""
-
     return canonical_json_bytes(
         {
             "schema_version": "normalized-table-artifacts.v1",
@@ -194,47 +209,87 @@ def normalized_table_artifact_index_bytes(build: NormalizedSnapshotBuild) -> byt
     )
 
 
-def validate_normalized_snapshot_manifest_bytes(value: bytes) -> NormalizedSnapshotManifest:
-    payload = json.loads(value.decode("utf-8"))
+def validate_normalized_snapshot_manifest_bytes(
+    value: bytes,
+) -> NormalizedSnapshotManifestV2 | NormalizedSnapshotManifest:
+    try:
+        payload = json.loads(value.decode("utf-8"))
+    except (UnicodeError, json.JSONDecodeError) as error:
+        raise ValueError("normalized manifest is not valid JSON") from error
+    if not isinstance(payload, dict):
+        raise ValueError("normalized manifest must be a JSON object")
     if canonical_json_bytes(payload) != value:
         raise ValueError("normalized manifest serialization is not canonical")
-    manifest = NormalizedSnapshotManifest.model_validate(payload)
-    return manifest
-
-
-serialize_normalized_snapshot_manifest = normalized_snapshot_manifest_bytes
+    if payload.get("schema_version") == "normalized-snapshot-manifest.v2":
+        manifest = NormalizedSnapshotManifestV2.model_validate(payload)
+        validate_normalized_snapshot_manifest(manifest)
+        return manifest
+    return NormalizedSnapshotManifest.model_validate(payload)
 
 
 def _require_verified_source(
-    source_manifest: SourceSnapshotManifest,
-    source_manifest_sha256: str,
-    raw_snapshot_verified: bool,
-) -> None:
-    if source_manifest.status != "COMPLETE" or not raw_snapshot_verified:
+    *,
+    verified_snapshot: VerifiedSnapshotEvidence | None,
+    source_manifest: SourceSnapshotManifest | None,
+    source_manifest_sha256: str | None,
+    raw_snapshot_verified: bool | None,
+) -> tuple[SourceSnapshotManifest, str]:
+    if verified_snapshot is None:
+        raise ValueError("verified raw snapshot evidence is required")
+    if raw_snapshot_verified is False:
+        raise ValueError("raw snapshot integrity verification failed")
+    manifest = verified_snapshot.manifest
+    if not isinstance(manifest, SourceSnapshotManifest):
+        raise ValueError("verified raw snapshot evidence has no typed source manifest")
+    if source_manifest is not None and source_manifest != manifest:
+        raise ValueError("requested source manifest differs from verified snapshot")
+    derived_hash = detached_manifest_sha256(manifest.model_dump(mode="json"))
+    if verified_snapshot.manifest_sha256 != derived_hash:
+        raise ValueError("verified source manifest hash is inconsistent")
+    if source_manifest_sha256 is not None and source_manifest_sha256 != derived_hash:
+        raise ValueError("source manifest hash does not match verified manifest")
+    if manifest.status != "COMPLETE" or manifest.completed_at is None:
         raise ValueError("raw snapshot must be COMPLETE and integrity verified")
-    if len(source_manifest_sha256) != 64 or any(
-        char not in "0123456789abcdef" for char in source_manifest_sha256
-    ):
-        raise ValueError("source manifest hash must be lowercase SHA-256")
+    return manifest, derived_hash
 
 
 def _require_run_bindings(
     producing_run: RunManifest,
-    source_snapshot_id: str,
+    *,
+    source_manifest: SourceSnapshotManifest | None = None,
+    source_manifest_id: str | None = None,
+    source_id: str | None = None,
     source_manifest_sha256: str,
+    artifacts: tuple[NormalizedTableArtifact, ...],
     schema_version: str,
     mapper_version: str,
     transform_version: str,
     policy_version: str,
 ) -> None:
-    input_match = any(
-        item.kind == "source_snapshot_manifest"
-        and item.id == source_snapshot_id
-        and item.sha256 == source_manifest_sha256
-        for item in producing_run.inputs
+    expected_source_id = (
+        source_manifest.source_snapshot_id if source_manifest else source_manifest_id
     )
-    if not input_match:
-        raise ValueError("producing run does not bind the source snapshot manifest")
+    expected_source = source_manifest.source_id if source_manifest else source_id
+    if expected_source_id is None or expected_source is None:
+        raise ValueError("source manifest identity is required")
+    source_inputs = [
+        item
+        for item in producing_run.inputs
+        if item.kind == "source_snapshot_manifest" and item.id == expected_source_id
+    ]
+    if len(source_inputs) != 1 or source_inputs[0].sha256 != source_manifest_sha256:
+        raise ValueError("producing run does not bind the verified source snapshot manifest")
+    expected_path = f"raw/{expected_source}/{expected_source_id}/manifest.json"
+    if source_inputs[0].path != expected_path:
+        raise ValueError("producing run source manifest path is inconsistent")
+    for artifact in artifacts:
+        matches = [
+            item
+            for item in producing_run.artifacts
+            if item.kind == artifact.layer and item.path == artifact.path
+        ]
+        if len(matches) != 1 or matches[0].sha256 != artifact.sha256:
+            raise ValueError(f"producing run does not bind {artifact.layer} output artifact")
     for prefix, version in (
         ("schema", schema_version),
         ("mapper", mapper_version),
@@ -245,36 +300,20 @@ def _require_run_bindings(
             raise ValueError(f"producing run does not bind {prefix} version")
 
 
-def _require_layers(artifacts: tuple[NormalizedTableArtifact, ...]) -> None:
-    layers: list[str] = [item.layer for item in artifacts]
-    if any(layers.count(layer) != 1 for layer in ("normalized", "audit", "quarantine")):
-        raise ValueError(
-            "normalized manifest requires exactly one normalized, audit, and quarantine artifact"
-        )
-
-
 def _validate_counts(counts: Mapping[str, int]) -> dict[str, int]:
-    result: dict[str, int] = {}
-    for key, value in counts.items():
-        if not isinstance(key, str) or not key or type(value) is not int or value < 0:
-            raise ValueError("manifest counts must be non-negative integers")
-        result[key] = value
-    return dict(sorted(result.items()))
+    if not counts or any(
+        not isinstance(key, str) or not key or type(value) is not int or value < 0
+        for key, value in counts.items()
+    ):
+        raise ValueError("manifest counts must be non-negative integers")
+    return dict(sorted(counts.items()))
 
 
-def _validate_artifact_counts(
-    artifacts: tuple[NormalizedTableArtifact, ...], counts: Mapping[str, int]
-) -> None:
-    for artifact in artifacts:
-        expected_keys = {
-            f"{artifact.table_name}_records",
-            f"{artifact.table_name}_rows",
-            f"{artifact.layer}_records",
-            f"{artifact.layer}_rows",
-        }
-        for key in expected_keys & counts.keys():
-            if counts[key] != artifact.rows:
-                raise ValueError(f"count for {key} does not match {artifact.layer} artifact rows")
+def _unique_findings(finding_codes: Sequence[str]) -> tuple[str, ...]:
+    findings = validate_finding_codes(tuple(finding_codes))
+    if len(findings) != len(set(findings)):
+        raise ValueError("normalized finding codes must be unique")
+    return tuple(sorted(findings))
 
 
 def _provenance(source_manifest: SourceSnapshotManifest) -> tuple[ProvenanceReference, ...]:
@@ -292,58 +331,20 @@ def _provenance(source_manifest: SourceSnapshotManifest) -> tuple[ProvenanceRefe
     )
 
 
-def _content_payload(
-    *,
-    source_manifest_sha256: str,
-    producing_run_id: str,
-    source_id: str,
-    schema_version: str,
-    mapper_version: str,
-    transform_version: str,
-    policy_version: str,
-    artifacts: tuple[NormalizedTableArtifact, ...],
-    counts: Mapping[str, int],
-    finding_codes: tuple[str, ...],
-    quarantine_references: tuple[QuarantineReference, ...],
-) -> dict[str, object]:
-    return {
-        "artifacts": [
-            item.model_dump(mode="json") for item in sorted(artifacts, key=lambda item: item.layer)
-        ],
-        "counts": dict(counts),
-        "finding_codes": list(finding_codes),
-        "mapper_version": mapper_version,
-        "policy_version": policy_version,
-        "producing_run_id": producing_run_id,
-        "quarantine_references": [item.model_dump(mode="json") for item in quarantine_references],
-        "schema_version": schema_version,
-        "source_id": source_id,
-        "source_manifest_sha256": source_manifest_sha256,
-        "transform_version": transform_version,
-    }
+def _artifact_for_layer(
+    artifacts: Sequence[NormalizedTableArtifact], layer: str
+) -> NormalizedTableArtifact:
+    matches = [item for item in artifacts if item.layer == layer]
+    if len(matches) != 1:
+        raise ValueError(f"normalized manifest requires exactly one {layer} artifact")
+    return matches[0]
 
 
-def _content_payload_from_manifest(
-    manifest: NormalizedSnapshotManifest,
-    artifacts: tuple[NormalizedTableArtifact, ...],
-) -> dict[str, object]:
-    return _content_payload(
-        source_manifest_sha256=manifest.input_source_snapshot_manifest_sha256,
-        producing_run_id=manifest.producing_run_id,
-        source_id=manifest.source_id,
-        schema_version=manifest.normalized_schema_version,
-        mapper_version=manifest.mapper_version,
-        transform_version=manifest.transform_version,
-        policy_version="current-use-bound-in-run",
-        artifacts=artifacts,
-        counts=manifest.counts,
-        finding_codes=manifest.finding_codes,
-        quarantine_references=manifest.quarantine_references,
-    )
-
+serialize_normalized_snapshot_manifest = normalized_snapshot_manifest_bytes
 
 __all__ = [
     "NormalizedSnapshotBuild",
+    "NormalizedSnapshotManifestV2",
     "NormalizedTableArtifact",
     "build_normalized_snapshot_manifest",
     "normalized_snapshot_manifest_bytes",

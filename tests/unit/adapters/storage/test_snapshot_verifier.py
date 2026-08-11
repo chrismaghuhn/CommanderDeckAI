@@ -78,11 +78,12 @@ def test_non_complete_snapshot_is_rejected_before_consumption(
 
 
 def test_verifier_returns_only_verified_manifest_and_paths(tmp_path: Path) -> None:
-    _manifest_path, _payload = _complete_snapshot(tmp_path)
+    _manifest_path, payload = _complete_snapshot(tmp_path)
 
     verified = verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
 
     assert verified.manifest.status == "COMPLETE"
+    assert verified.manifest_sha256 == detached_manifest_sha256(payload)
     assert verified.object_paths["object-1"].read_bytes() == b"exact raw bytes"
     assert verified.record_count == 0
 

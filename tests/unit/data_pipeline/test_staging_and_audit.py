@@ -4,7 +4,12 @@ from datetime import UTC, datetime
 
 import pytest
 
-from commander_ai.data_pipeline.provenance.rows import AuditRecord, AuditRows, ResolutionAttempt
+from commander_ai.data_pipeline.provenance.rows import (
+    AuditRecord,
+    AuditRows,
+    ProvenanceRow,
+    ResolutionAttempt,
+)
 from commander_ai.data_pipeline.quality.finding_codes import FindingCode
 from commander_ai.data_pipeline.quality.quarantine import quarantine_record
 from commander_ai.data_pipeline.staging.raw_locators import (
@@ -118,3 +123,76 @@ def test_finding_namespaces_cannot_be_collapsed() -> None:
 
     with pytest.raises(ValueError):
         FindingCode.parse("resolution")
+
+
+def test_staging_findings_are_limited_to_parse_and_integrity_namespaces() -> None:
+    with pytest.raises(ValueError, match="staging"):
+        StagingRecord.from_dto(
+            SourceRecordDTO(
+                source_id="fixture",
+                record_type="deck",
+                raw_locator=raw_locator(),
+                original_source_values={},
+            ),
+            staging_record_id="staging-resolution",
+            status="STRUCTURAL_INVALID",
+            finding_codes=("resolution.ambiguous",),
+        )
+
+
+def test_parse_audit_findings_require_an_exact_raw_locator() -> None:
+    with pytest.raises(ValueError, match="raw_locator"):
+        AuditRecord(
+            audit_id="audit-parse",
+            entity_id="staging-1",
+            stage="parse",
+            finding_code="parse.json.invalid",
+        )
+
+
+def test_provenance_top_level_locator_fields_must_match_raw_locator() -> None:
+    locator = raw_locator()
+    with pytest.raises(ValueError, match="raw_locator"):
+        ProvenanceRow(
+            provenance_id="prov-1",
+            entity_id="entity-1",
+            source_id="fixture",
+            source_snapshot_id="other-snapshot",
+            raw_object_id=locator.raw_object_id,
+            raw_object_path=locator.raw_object_path,
+            raw_sha256="a" * 64,
+            raw_locator=locator,
+            adapter_version="adapter-v1",
+        )
+
+
+def test_archive_member_is_portable_and_part_of_exact_locator() -> None:
+    first = RawLocator(
+        source_snapshot_id="fixture-snapshot",
+        raw_object_id="archive-1",
+        raw_object_path="objects/archive-1.zip",
+        location=JsonPointerLocator(pointer="/0"),
+        archive_member="nested/cards.json",
+    )
+    second = first.model_copy(update={"archive_member": "other/cards.json"})
+
+    assert first.exact_locator != second.exact_locator
+    with pytest.raises(ValueError):
+        first.model_copy(update={"archive_member": "nested\\cards.json"})
+
+
+def test_audit_details_and_run_metadata_are_secret_free() -> None:
+    audit = AuditRecord(
+        audit_id="audit-secret",
+        entity_id="staging-1",
+        stage="quality",
+        finding_code="quality.missing_field",
+        details={
+            "url": "https://example.invalid/check?credential=detail-secret&safe=1",
+            "nested": {"authorization": "Bearer detail-token"},
+        },
+    )
+
+    serialized = str(audit.model_dump(mode="json"))
+    assert "detail-secret" not in serialized
+    assert "detail-token" not in serialized

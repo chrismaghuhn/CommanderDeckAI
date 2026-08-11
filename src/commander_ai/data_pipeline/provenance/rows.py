@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
+import math
+from collections.abc import Mapping
 from datetime import datetime
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
 
+from commander_ai.adapters.http.redaction import redact_persisted_text
 from commander_ai.domain.path_policy import validate_portable_relative_path
 from commander_ai.domain.provenance import DomainModel
 
@@ -35,11 +38,59 @@ class AuditRecord(DomainModel):
     def validate_finding(cls, value: str) -> str:
         return validate_finding_code(value)
 
+    @field_validator("details", mode="before")
+    @classmethod
+    def redact_details(cls, value: object) -> object:
+        if not isinstance(value, Mapping):
+            raise ValueError("audit details must be a mapping")
+        return _redact_details(value)
+
     @model_validator(mode="after")
     def validate_stage_code(self) -> AuditRecord:
         if self.finding_code.split(".", maxsplit=1)[0] != self.stage:
             raise ValueError("audit stage and finding namespace must match")
+        if self.stage == "parse" and self.raw_locator is None:
+            raise ValueError("parse audit findings require an exact raw_locator")
         return self
+
+
+def _redact_details(value: object, *, key: str | None = None) -> object:
+    if key is not None and _is_secret_key(key):
+        return "[REDACTED]"
+    if isinstance(value, Mapping):
+        return {
+            str(item_key): _redact_details(item, key=str(item_key))
+            for item_key, item in value.items()
+        }
+    if isinstance(value, (list, tuple)):
+        return [_redact_details(item) for item in value]
+    if isinstance(value, str):
+        return redact_persisted_text(value)
+    if isinstance(value, float):
+        if not math.isfinite(value):
+            raise ValueError("audit details must contain finite numbers")
+        return value
+    if value is None or isinstance(value, (bool, int)):
+        return value
+    raise TypeError("audit details must contain JSON-safe values")
+
+
+def _is_secret_key(key: str) -> bool:
+    normalized = key.casefold().replace("-", "_")
+    return any(
+        marker in normalized
+        for marker in (
+            "api_key",
+            "apikey",
+            "authorization",
+            "cookie",
+            "password",
+            "secret",
+            "token",
+            "credential",
+            "auth",
+        )
+    )
 
 
 class ResolutionAttempt(DomainModel):
@@ -65,6 +116,13 @@ class ResolutionAttempt(DomainModel):
     @classmethod
     def validate_findings(cls, value: tuple[str, ...]) -> tuple[str, ...]:
         return validate_finding_codes(value, namespace="resolution")
+
+    @field_validator("attempted_at")
+    @classmethod
+    def require_timezone(cls, value: datetime) -> datetime:
+        if value.tzinfo is None or value.utcoffset() is None:
+            raise ValueError("attempted_at must include a timezone")
+        return value
 
     @model_validator(mode="after")
     def validate_resolution_state(self) -> ResolutionAttempt:
@@ -94,6 +152,16 @@ class ProvenanceRow(DomainModel):
     @classmethod
     def validate_raw_path(cls, value: str) -> str:
         return validate_portable_relative_path(value)
+
+    @model_validator(mode="after")
+    def validate_locator_fields(self) -> ProvenanceRow:
+        if self.source_snapshot_id != self.raw_locator.source_snapshot_id:
+            raise ValueError("raw_locator source_snapshot_id disagrees with provenance row")
+        if self.raw_object_id != self.raw_locator.raw_object_id:
+            raise ValueError("raw_locator raw_object_id disagrees with provenance row")
+        if self.raw_object_path != self.raw_locator.raw_object_path:
+            raise ValueError("raw_locator raw_object_path disagrees with provenance row")
+        return self
 
 
 class AuditRows(DomainModel):

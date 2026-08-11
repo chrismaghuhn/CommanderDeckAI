@@ -32,8 +32,8 @@ def test_parquet_output_is_deterministic_and_rebuildable(tmp_path: Path) -> None
     rows = [staging_record()]
     first_root = tmp_path / "first"
     second_root = tmp_path / "second"
-    first = ParquetTableWriter(first_root).write_table("staging", rows)
-    second = ParquetTableWriter(second_root).write_table("staging", rows)
+    first = ParquetTableWriter(first_root).write_table("staging", rows, layer="normalized")
+    second = ParquetTableWriter(second_root).write_table("staging", rows, layer="normalized")
 
     assert first.path == "normalized/staging.parquet"
     assert first.sha256 == second.sha256
@@ -74,11 +74,26 @@ def test_audit_rows_cannot_be_written_as_curated(tmp_path: Path) -> None:
     )
 
     with pytest.raises(ValueError, match="curated"):
-        ParquetTableWriter(tmp_path).write_table("curated", [audit])
+        ParquetTableWriter(tmp_path).write_table("curated", [audit], layer="curated")
+
+
+def test_parquet_persistence_requires_an_explicit_layer_mapping(tmp_path: Path) -> None:
+    with pytest.raises(ValueError, match="layer"):
+        ParquetTableWriter(tmp_path).write_table("audit", [])
+
+    with pytest.raises(ValueError, match="layer"):
+        ParquetTableWriter(tmp_path).write_table(
+            "quarantine", [], layer="audit"
+        )
+
+    with pytest.raises(ValueError, match="recognized"):
+        ParquetTableWriter(tmp_path).write_table(
+            "staging", [], layer="unknown"  # type: ignore[arg-type]
+        )
 
 
 def test_parquet_paths_are_root_relative_and_non_escaping(tmp_path: Path) -> None:
     with pytest.raises(ValueError):
         ParquetTableWriter(tmp_path).write_table(
-            "staging", [staging_record()], relative_path="../x"
+            "staging", [staging_record()], relative_path="../x", layer="normalized"
         )

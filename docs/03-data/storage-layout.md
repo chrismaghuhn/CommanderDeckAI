@@ -75,9 +75,11 @@ Alle tatsächlichen Artefaktpfade bleiben nichtleer, POSIX-artig, root-relativ u
 keinen Symlink- oder Traversal-Escape aus dem konfigurierten Root ermöglichen.
 Task-5 normalized outputs additionally contain separate rebuildable Parquet tables for
 staging observations, audit findings/resolution attempts, and quarantine rows. Each
-table is root-relative and hashed. `normalized-snapshot-manifest.v1` binds the
-normalized and audit artifacts directly; the quarantine artifact and all table hashes
-are included in the manifest's canonical content digest and producing run artifact
-references. The SQL migration `008_staging_audit_runs.sql` is only a local index and
-can be dropped and rebuilt from Raw manifests, Parquet, and the versioned normalized
-manifest.
+table is root-relative and carries an explicit layer in its Parquet metadata. The
+frozen `normalized-snapshot-manifest.v1` remains unchanged; the versioned
+`normalized-snapshot-manifest.v2` extension binds normalized, audit, and quarantine
+artifacts with portable paths, byte counts, hashes, row counts, quarantine references,
+and producing-run bindings. The read verifier checks the canonical manifest, detached
+digest, referenced run, raw snapshot, and every Parquet artifact before use. The SQL
+migration `008_staging_audit_runs.sql` is only a local index and can be dropped and
+rebuilt from Raw manifests, Parquet, and the versioned normalized manifest.

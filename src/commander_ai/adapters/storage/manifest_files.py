@@ -11,6 +11,7 @@ from commander_ai.data_pipeline.provenance.normalized_snapshot_manifests import 
     normalized_snapshot_manifest_bytes,
     normalized_snapshot_manifest_sha256,
     normalized_table_artifact_index_bytes,
+    validate_normalized_snapshot_manifest,
 )
 from commander_ai.data_pipeline.provenance.run_manifests import (
     RunManifest,
@@ -43,11 +44,18 @@ class ManifestFileWriter:
         manifest_path: str,
         configuration_snapshot: object,
     ) -> tuple[JsonArtifact, JsonArtifact]:
-        manifest_artifact = self.write_json(manifest_path, run_manifest_bytes(manifest))
+        configuration_payload = configuration_snapshot_bytes(configuration_snapshot)
+        configuration_hash = sha256_hex(configuration_payload)
+        if configuration_hash != manifest.configuration.sha256:
+            raise ValueError("configuration snapshot hash does not match run manifest")
+        manifest_payload = run_manifest_bytes(manifest)
+        if validate_portable_relative_path(manifest_path) == manifest.configuration.path:
+            raise ValueError("run manifest and configuration paths must differ")
         configuration = self.write_json(
             manifest.configuration.path,
-            configuration_snapshot_bytes(configuration_snapshot),
+            configuration_payload,
         )
+        manifest_artifact = self.write_json(manifest_path, manifest_payload)
         return manifest_artifact, configuration
 
     def write_normalized_manifest(
@@ -56,6 +64,7 @@ class ManifestFileWriter:
         *,
         manifest_path: str,
     ) -> tuple[JsonArtifact, JsonArtifact]:
+        validate_normalized_snapshot_manifest(build.manifest, build.table_artifacts)
         manifest_artifact = self.write_json(
             manifest_path,
             normalized_snapshot_manifest_bytes(build),

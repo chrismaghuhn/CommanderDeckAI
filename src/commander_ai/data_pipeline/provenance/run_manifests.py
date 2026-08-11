@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+import math
 import platform
 from collections.abc import Mapping, Sequence
 from datetime import UTC, datetime
+from pathlib import Path
 from typing import Literal
 
 from pydantic import Field, field_validator, model_validator
@@ -12,6 +15,12 @@ from pydantic import Field, field_validator, model_validator
 from commander_ai.domain.path_policy import validate_portable_relative_path
 from commander_ai.domain.provenance import DomainModel
 from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
+
+from .run_manifest_redaction import (
+    _safe_text,
+    configuration_snapshot_bytes,
+    redacted_configuration_snapshot,
+)
 
 
 class RunInputReference(DomainModel):
@@ -48,12 +57,33 @@ class RunConfiguration(DomainModel):
         return validate_portable_relative_path(value)
 
 
+class RunTool(DomainModel):
+    name: str = Field(min_length=1)
+    version: str = Field(min_length=1)
+
+    @field_validator("name", "version")
+    @classmethod
+    def sanitize_metadata(cls, value: str) -> str:
+        return _safe_text(value)
+
+
+class RunHardware(DomainModel):
+    cpu: str | None = Field(default=None, min_length=1)
+    accelerator: str | None = Field(default=None, min_length=1)
+    thread_count: int | None = Field(default=None, ge=1, strict=True)
+
+    @field_validator("cpu", "accelerator")
+    @classmethod
+    def sanitize_metadata(cls, value: str | None) -> str | None:
+        return None if value is None else _safe_text(value)
+
+
 class RunEnvironment(DomainModel):
     python_version: str = Field(min_length=1)
     platform: str = Field(min_length=1)
     dependency_lock_hash: str = Field(pattern=r"^[a-f0-9]{64}$")
-    tools: tuple[dict[str, str], ...] = Field(min_length=1)
-    hardware: dict[str, object] | None = None
+    tools: tuple[RunTool, ...] = Field(min_length=1)
+    hardware: RunHardware | None = None
 
 
 class RunManifest(DomainModel):
@@ -99,6 +129,37 @@ class RunManifest(DomainModel):
             raise ValueError("random seeds must be unique")
         return value
 
+    @field_validator("feature_spec_versions", "ruleset_versions")
+    @classmethod
+    def validate_unique_versions(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        if any(not isinstance(item, str) or not item for item in value):
+            raise ValueError("run version references must be non-empty strings")
+        if len(value) != len(set(value)):
+            raise ValueError("run version references must be unique")
+        return value
+
+    @field_validator("metrics")
+    @classmethod
+    def validate_metrics(cls, value: Mapping[str, float]) -> Mapping[str, float]:
+        if any(
+            not isinstance(key, str) or not key or not math.isfinite(metric)
+            for key, metric in value.items()
+        ):
+            raise ValueError("run metrics must have non-empty keys and finite numbers")
+        return dict(value)
+
+    @field_validator("checkpoint_selection_rule")
+    @classmethod
+    def redact_checkpoint_rule(cls, value: str | None) -> str | None:
+        return None if value is None else _safe_text(value)
+
+    @field_validator("warnings", mode="before")
+    @classmethod
+    def redact_warnings(cls, value: object) -> object:
+        if not isinstance(value, (tuple, list)):
+            raise ValueError("warnings must be a sequence")
+        return tuple(_safe_text(item) for item in value)
+
     @model_validator(mode="after")
     def validate_lifecycle_and_determinism(self) -> RunManifest:
         if self.status == "created" and (
@@ -113,6 +174,14 @@ class RunManifest(DomainModel):
             raise ValueError("finished runs require started_at and finished_at")
         if self.status == "cancelled" and self.finished_at is None:
             raise ValueError("cancelled runs require finished_at")
+        if self.started_at is not None and self.started_at < self.created_at:
+            raise ValueError("started_at must not precede created_at")
+        if (
+            self.finished_at is not None
+            and self.started_at is not None
+            and self.finished_at < self.started_at
+        ):
+            raise ValueError("finished_at must not precede started_at")
         if self.determinism == "STRICT" and self.git_dirty:
             raise ValueError("strict runs require a clean git worktree")
         if self.git_dirty and self.git_worktree_sha256 is None:
@@ -121,28 +190,16 @@ class RunManifest(DomainModel):
             raise ValueError("clean runs cannot bind a worktree hash")
         if self.git_dirty and not any(item.kind == "git_worktree_state" for item in self.artifacts):
             raise ValueError("dirty runs require a git_worktree_state artifact")
+        input_keys = [(item.kind, item.id) for item in self.inputs]
+        if len(input_keys) != len(set(input_keys)):
+            raise ValueError("run inputs must have unique kind/id pairs")
+        artifact_paths = [item.path for item in self.artifacts]
+        if len(artifact_paths) != len(set(artifact_paths)):
+            raise ValueError("run artifacts must have unique paths")
+        tool_keys = [(item.name, item.version) for item in self.environment.tools]
+        if len(tool_keys) != len(set(tool_keys)):
+            raise ValueError("run tools must be unique")
         return self
-
-
-def redacted_configuration_snapshot(value: object, *, key: str | None = None) -> object:
-    """Return a JSON-safe config projection with credential-shaped values removed."""
-
-    if key is not None and _is_secret_key(key):
-        return "[REDACTED]"
-    if isinstance(value, Mapping):
-        return {
-            str(item_key): redacted_configuration_snapshot(item, key=str(item_key))
-            for item_key, item in value.items()
-        }
-    if isinstance(value, (list, tuple)):
-        return [redacted_configuration_snapshot(item) for item in value]
-    if value is None or isinstance(value, (str, bool, int, float)):
-        return value
-    raise TypeError(f"unsupported configuration value: {type(value).__name__}")
-
-
-def configuration_snapshot_bytes(value: object) -> bytes:
-    return canonical_json_bytes(redacted_configuration_snapshot(value))
 
 
 def build_run_manifest(
@@ -173,12 +230,18 @@ def build_run_manifest(
     warnings: Sequence[str] = (),
 ) -> RunManifest:
     snapshot_bytes = configuration_snapshot_bytes(configuration_snapshot)
+    schema_values = _unique_strings(schema_versions, "schema versions")
+    mapper_values = _unique_strings(mapper_versions, "mapper versions")
+    transform_values = _unique_strings(transform_versions, "transform versions")
+    policy_values = _unique_strings(policy_versions, "policy versions")
+    ruleset_values = _unique_strings(ruleset_snapshot_ids, "ruleset versions")
+    seed_values = _unique_seeds(random_seeds)
     feature_versions = tuple(
         sorted(
-            {f"schema:{value}" for value in schema_versions}
-            | {f"mapper:{value}" for value in mapper_versions}
-            | {f"transform:{value}" for value in transform_versions}
-            | {f"policy:{value}" for value in policy_versions}
+            {f"schema:{value}" for value in schema_values}
+            | {f"mapper:{value}" for value in mapper_values}
+            | {f"transform:{value}" for value in transform_values}
+            | {f"policy:{value}" for value in policy_values}
         )
     )
     created_value = created_at or datetime.now(UTC)
@@ -200,9 +263,9 @@ def build_run_manifest(
                 sha256=sha256_hex(snapshot_bytes),
             ),
             feature_spec_versions=feature_versions,
-            ruleset_versions=tuple(sorted(set(ruleset_snapshot_ids))),
+            ruleset_versions=tuple(sorted(ruleset_values)),
             determinism=determinism,
-            random_seeds=tuple(sorted(set(random_seeds))),
+            random_seeds=tuple(sorted(seed_values)),
             environment=RunEnvironment(
                 python_version=platform.python_version(),
                 platform=platform.platform(aliased=True),
@@ -217,19 +280,20 @@ def build_run_manifest(
 
 
 def run_manifest_bytes(manifest: RunManifest) -> bytes:
-    payload = manifest.model_dump(mode="json", exclude_none=True)
+    validated = RunManifest.model_validate(manifest.model_dump(mode="json", exclude_none=True))
+    payload = validated.model_dump(mode="json", exclude_none=True)
     expected = sha256_hex(
         canonical_json_bytes({key: value for key, value in payload.items() if key != "sha256"})
     )
-    if expected != manifest.sha256:
+    if expected != validated.sha256:
         raise ValueError("run manifest digest does not match its canonical content")
     return canonical_json_bytes(payload)
 
 
 def validate_run_manifest_bytes(value: bytes) -> RunManifest:
-    import json
-
     payload = json.loads(value.decode("utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("run manifest must be a JSON object")
     if canonical_json_bytes(payload) != value:
         raise ValueError("run manifest serialization is not canonical")
     manifest = RunManifest.model_validate(payload)
@@ -241,6 +305,12 @@ def validate_run_manifest_bytes(value: bytes) -> RunManifest:
     return manifest
 
 
+def verify_run_manifest(root: Path | str, manifest_path: str) -> RunManifest:
+    from .run_manifest_verifier import verify_run_manifest as verify
+
+    return verify(root, manifest_path)
+
+
 def _with_manifest_digest(manifest: RunManifest) -> RunManifest:
     payload = manifest.model_dump(mode="json", exclude_none=True)
     digest = sha256_hex(
@@ -249,31 +319,31 @@ def _with_manifest_digest(manifest: RunManifest) -> RunManifest:
     return manifest.model_copy(update={"sha256": digest})
 
 
-def _is_secret_key(key: str) -> bool:
-    normalized = key.casefold().replace("-", "_")
-    return any(
-        marker in normalized
-        for marker in (
-            "api_key",
-            "apikey",
-            "authorization",
-            "cookie",
-            "password",
-            "secret",
-            "token",
-            "credential",
-            "auth",
-            "private_key",
-            "client_secret",
-        )
-    )
+def _unique_strings(values: Sequence[str], label: str) -> tuple[str, ...]:
+    selected = tuple(values)
+    if any(not isinstance(value, str) or not value for value in selected):
+        raise ValueError(f"{label} must be non-empty strings")
+    if len(selected) != len(set(selected)):
+        raise ValueError(f"{label} must be unique")
+    return selected
 
 
-def _tool_payload(tool: tuple[str, str] | Mapping[str, str]) -> dict[str, str]:
+def _unique_seeds(values: Sequence[int]) -> tuple[int, ...]:
+    selected = tuple(values)
+    if any(type(value) is not int or value < 0 for value in selected):
+        raise ValueError("random seeds must be non-negative integers")
+    if len(selected) != len(set(selected)):
+        raise ValueError("random seeds must be unique")
+    return selected
+
+
+def _tool_payload(tool: tuple[str, str] | Mapping[str, str]) -> RunTool:
     if isinstance(tool, Mapping):
-        return {"name": tool["name"], "version": tool["version"]}
+        if set(tool) != {"name", "version"}:
+            raise ValueError("tool metadata must contain only name and version")
+        return RunTool(name=tool["name"], version=tool["version"])
     name, version = tool
-    return {"name": name, "version": version}
+    return RunTool(name=name, version=version)
 
 
 build_run_provenance = build_run_manifest
@@ -285,8 +355,10 @@ __all__ = [
     "RunArtifactReference",
     "RunConfiguration",
     "RunEnvironment",
+    "RunHardware",
     "RunInputReference",
     "RunManifest",
+    "RunTool",
     "build_run_manifest",
     "build_run_provenance",
     "configuration_snapshot_bytes",
@@ -295,4 +367,5 @@ __all__ = [
     "serialize_run_manifest",
     "validate_run_manifest",
     "validate_run_manifest_bytes",
+    "verify_run_manifest",
 ]

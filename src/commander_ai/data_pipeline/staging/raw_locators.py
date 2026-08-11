@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from pydantic import Field, field_validator
 
 from commander_ai.domain.provenance import DomainModel, validate_portable_relative_path
+from commander_ai.domain.serialization import canonical_json_bytes
 
 
 class JsonPointerLocator(DomainModel):
@@ -72,13 +73,35 @@ class RawLocator(DomainModel):
     def validate_raw_object_path(cls, value: str) -> str:
         return validate_portable_relative_path(value)
 
+    @field_validator("archive_member")
+    @classmethod
+    def validate_archive_member(cls, value: str | None) -> str | None:
+        return None if value is None else validate_portable_relative_path(value)
+
     @property
     def exact_locator(self) -> str:
         if isinstance(self.location, JsonPointerLocator):
-            return f"json-pointer:{self.location.pointer}"
-        if isinstance(self.location, RecordIndexLocator):
-            return f"record-index:{self.location.index}"
-        return f"byte-range:{self.location.start}-{self.location.end}"
+            location: dict[str, object] = {
+                "kind": self.location.kind,
+                "pointer": self.location.pointer,
+            }
+        elif isinstance(self.location, RecordIndexLocator):
+            location = {"kind": self.location.kind, "index": self.location.index}
+        else:
+            location = {
+                "kind": self.location.kind,
+                "start": self.location.start,
+                "end": self.location.end,
+            }
+        return canonical_json_bytes(
+            {
+                "source_snapshot_id": self.source_snapshot_id,
+                "raw_object_id": self.raw_object_id,
+                "raw_object_path": self.raw_object_path,
+                "archive_member": self.archive_member,
+                "location": location,
+            }
+        ).decode("utf-8")
 
 
 RawObjectLocator = RawLocator

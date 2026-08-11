@@ -23,6 +23,14 @@ class Inspection:
     manifest: Any = None
 
 
+def verified_manifest(source_id: str = "fixture", snapshot_id: str = "snapshot-1") -> Any:
+    return type(
+        "Manifest",
+        (),
+        {"source_id": source_id, "source_snapshot_id": snapshot_id},
+    )()
+
+
 class Policy:
     def __init__(self, allowed: bool, code: str = "POLICY_CURRENT_USE_BLOCKED") -> None:
         self.allowed = allowed
@@ -78,10 +86,34 @@ def test_normalize_checks_current_use_separately_from_historical_snapshot_status
 
 
 def test_normalize_returns_verified_manifest_only_after_both_gates() -> None:
-    verifier = Verifier(Inspection("COMPLETE", True, (), manifest="verified"))
+    manifest = verified_manifest()
+    verifier = Verifier(Inspection("COMPLETE", True, (), manifest=manifest))
     result = NormalizationCoordinator(Policy(True), verifier).prepare("fixture", "snapshot-1")
 
-    assert result.manifest == "verified"
+    assert result.manifest == manifest
+
+
+def test_normalize_rejects_a_verified_manifest_with_the_wrong_requested_identity() -> None:
+    manifest = type(
+        "Manifest",
+        (),
+        {"source_id": "other-source", "source_snapshot_id": "snapshot-1"},
+    )()
+    verifier = Verifier(Inspection("COMPLETE", True, (), manifest=manifest))
+
+    with pytest.raises(NormalizationRejected) as error:
+        NormalizationCoordinator(Policy(True), verifier).prepare("fixture", "snapshot-1")
+
+    assert error.value.code == "INTEGRITY_MANIFEST_IDENTITY"
+
+
+def test_normalize_does_not_accept_consumable_without_manifest_identity() -> None:
+    verifier = Verifier(Inspection("COMPLETE", True, (), manifest="verified"))
+
+    with pytest.raises(NormalizationRejected) as error:
+        NormalizationCoordinator(Policy(True), verifier).prepare("fixture", "snapshot-1")
+
+    assert error.value.code == "INTEGRITY_MANIFEST_IDENTITY"
 
 
 def test_normalize_uses_full_raw_snapshot_verifier_before_parsing(tmp_path: Any) -> None:

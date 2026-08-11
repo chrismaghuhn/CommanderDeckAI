@@ -178,6 +178,12 @@ def redact_error_text(message: str) -> str:
     return _SECRET_TEXT.sub(lambda match: f"{match.group(1)}=[REDACTED]", safe)
 
 
+def redact_persisted_text(message: str) -> str:
+    """Redact credentials and remove all URL query/fragment material for storage."""
+
+    return _URL.sub(lambda match: sanitize_endpoint(match.group(0)), redact_error_text(message))
+
+
 def _redact_value(value: object, allowed_keys: Set[str] | None) -> object:
     if value is None or isinstance(value, (bool, int)):
         return value
@@ -199,6 +205,7 @@ __all__ = [
     "is_sensitive_request_header",
     "redact_error_text",
     "redact_parameters",
+    "redact_persisted_text",
     "redact_request_parameters",
     "sanitize_endpoint",
     "sanitize_headers",

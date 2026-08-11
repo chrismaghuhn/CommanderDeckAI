@@ -6,7 +6,7 @@ from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Literal, NoReturn, Self
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from commander_ai.domain.path_policy import (
     validate_portable_relative_path as validate_portable_relative_path,
@@ -111,11 +111,10 @@ class ProvenanceReference(DomainModel):
     source_snapshot_id: str = Field(min_length=1)
     source_object_id: str = Field(min_length=1)
     raw_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    retrieved_at: datetime | None = None
+    retrieved_at: AwareDatetime | None = None
     adapter_version: str | None = Field(default=None, min_length=1)
     mapper_version: str | None = Field(default=None, min_length=1)
     approval_status: ApprovalStatus | None = None
-
 
 class QuarantineReference(DomainModel):
     """Stable pointer to a record withheld from normalized output."""
@@ -177,7 +176,7 @@ class RawObjectReference(DomainModel):
 
     raw_object_id: str = Field(min_length=1)
     request_id: str = Field(min_length=1)
-    retrieved_at: datetime
+    retrieved_at: AwareDatetime
     path: str = Field(min_length=1)
     bytes: int = Field(ge=0)
     content_type: str | None = None
@@ -198,7 +197,6 @@ class RawObjectReference(DomainModel):
     def validate_path(cls, value: str) -> str:
         return validate_portable_relative_path(value)
 
-
 class SourceSnapshotManifest(DomainModel):
     """Authoritative v2 source snapshot provenance."""
 
@@ -208,8 +206,8 @@ class SourceSnapshotManifest(DomainModel):
     status: Literal["COMPLETE", "INCOMPLETE", "FAILED"]
     approval_status: ApprovalStatus
     adapter_version: str = Field(min_length=1)
-    started_at: datetime
-    completed_at: datetime | None
+    started_at: AwareDatetime
+    completed_at: AwareDatetime | None
     terms_reference: str | None = None
     usage_status: str = Field(min_length=1)
     request_parameters_redacted: RequestParametersSummary
@@ -243,6 +241,12 @@ class SourceSnapshotManifest(DomainModel):
         expected_summary = derive_request_parameters_summary(self.requests)
         if self.request_parameters_redacted != expected_summary:
             raise ValueError("request_parameters_redacted must equal the derived request summary")
+        if self.completed_at is not None and self.completed_at < self.started_at:
+            raise ValueError("completed_at must not precede started_at")
+        if self.status == "COMPLETE" and self.completed_at is None:
+            raise ValueError("COMPLETE snapshots require completed_at")
+        if self.status == "INCOMPLETE" and self.completed_at is not None:
+            raise ValueError("INCOMPLETE snapshots cannot have completed_at")
         return self
 
 
@@ -267,15 +271,27 @@ class NormalizedSnapshotManifest(DomainModel):
     finding_codes: tuple[str, ...] = Field(default_factory=tuple)
     quarantine_references: tuple[QuarantineReference, ...] = Field(default_factory=tuple)
     provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)
-    created_at: datetime
-    started_at: datetime
-    completed_at: datetime | None
+    created_at: AwareDatetime
+    started_at: AwareDatetime
+    completed_at: AwareDatetime | None
     normalized_content_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
 
     @field_validator("normalized_artifact_path", "audit_artifact_path")
     @classmethod
     def validate_artifact_path(cls, value: str) -> str:
         return validate_portable_relative_path(value)
+
+    @field_validator("counts")
+    @classmethod
+    def validate_counts(cls, value: Mapping[str, int]) -> Mapping[str, int]:
+        if not value:
+            raise ValueError("normalized manifest counts cannot be empty")
+        if any(
+            not isinstance(key, str) or not key or type(count) is not int or count < 0
+            for key, count in value.items()
+        ):
+            raise ValueError("normalized manifest counts must be non-negative integers")
+        return dict(sorted(value.items()))
 
     @model_validator(mode="after")
     def validate_provenance_scope(self) -> NormalizedSnapshotManifest:
@@ -286,6 +302,14 @@ class NormalizedSnapshotManifest(DomainModel):
                 raise ValueError(
                     "provenance source_snapshot_id must match input_source_snapshot_manifest_id"
                 )
+        if self.status == "COMPLETE" and self.completed_at is None:
+            raise ValueError("COMPLETE normalized manifests require completed_at")
+        if self.status == "INCOMPLETE" and self.completed_at is not None:
+            raise ValueError("INCOMPLETE normalized manifests cannot have completed_at")
+        if self.started_at > self.created_at:
+            raise ValueError("normalized started_at must not follow created_at")
+        if self.completed_at is not None and self.completed_at < self.started_at:
+            raise ValueError("normalized completed_at must not precede started_at")
         return self
 
 
