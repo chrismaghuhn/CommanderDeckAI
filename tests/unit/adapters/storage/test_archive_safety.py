@@ -30,7 +30,7 @@ def test_zip_inspection_and_atomic_extraction_preserve_derived_member_bytes(
     destination = tmp_path / "views"
 
     inspection = inspect_archive(archive_path)
-    result = extract_archive(archive_path, destination)
+    result = extract_archive(archive_path, destination, destination_root=tmp_path)
 
     assert [member.name for member in inspection.members] == ["nested/cards.json", "README.txt"]
     assert result.root == destination
@@ -49,7 +49,7 @@ def test_tar_extraction_stays_atomic_and_preserves_member_bytes(tmp_path: Path) 
     destination = tmp_path / "views"
 
     inspection = inspect_archive(archive_path)
-    result = extract_archive(archive_path, destination)
+    result = extract_archive(archive_path, destination, destination_root=tmp_path)
 
     assert inspection.uncompressed_bytes == len(content)
     assert result.files == (destination / "nested/cards.json",)
@@ -66,6 +66,11 @@ def test_tar_extraction_stays_atomic_and_preserves_member_bytes(tmp_path: Path) 
         "C:/outside.json",
         "\\\\server\\share\\outside.json",
         "nested/./file.json",
+        "safe.txt:secret",
+        "CON",
+        "con.txt",
+        "nested/COM1.log",
+        "trailing-space. ",
     ],
 )
 def test_archive_member_path_escapes_are_rejected(tmp_path: Path, member_name: str) -> None:
@@ -134,7 +139,14 @@ def test_limit_violation_during_extraction_leaves_no_partial_destination(tmp_pat
     limits = ArchiveLimits(max_uncompressed_bytes=1_000, max_file_bytes=1_000)
 
     with pytest.raises(ArchiveSafetyError):
-        extract_archive(archive_path, destination, limits=limits, chunk_bytes=8, runtime_limit=64)
+        extract_archive(
+            archive_path,
+            destination,
+            destination_root=tmp_path,
+            limits=limits,
+            chunk_bytes=8,
+            runtime_limit=64,
+        )
 
     assert not destination.exists()
     assert not list(tmp_path.glob(".extract-*"))
@@ -148,6 +160,34 @@ def test_existing_extraction_destination_is_never_overwritten(tmp_path: Path) ->
     (destination / "old.txt").write_bytes(b"old")
 
     with pytest.raises(ArchiveSafetyError) as error:
-        extract_archive(archive_path, destination)
+        extract_archive(archive_path, destination, destination_root=tmp_path)
     assert error.value.code == "SECURITY_EXTRACTION_DESTINATION_EXISTS"
     assert (destination / "old.txt").read_bytes() == b"old"
+
+
+def test_extraction_destination_must_be_below_configured_root(tmp_path: Path) -> None:
+    archive_path = tmp_path / "archive.zip"
+    _zip(archive_path, [("cards.json", b"derived")])
+    allowed_root = tmp_path / "allowed"
+    outside = tmp_path / "outside"
+
+    with pytest.raises(ArchiveSafetyError) as error:
+        extract_archive(archive_path, outside, destination_root=allowed_root)
+
+    assert error.value.code == "SECURITY_EXTRACTION_ROOT"
+    assert not outside.exists()
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("max_compressed_bytes", float("inf")),
+        ("max_uncompressed_bytes", float("nan")),
+        ("max_file_bytes", float("inf")),
+        ("max_compression_ratio", float("inf")),
+        ("max_compression_ratio", float("nan")),
+    ],
+)
+def test_archive_limits_reject_non_finite_values(field: str, value: float) -> None:
+    with pytest.raises(ValueError):
+        ArchiveLimits(**{field: value})

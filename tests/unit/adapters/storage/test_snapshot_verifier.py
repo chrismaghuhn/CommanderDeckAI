@@ -87,6 +87,92 @@ def test_verifier_returns_only_verified_manifest_and_paths(tmp_path: Path) -> No
     assert verified.record_count == 0
 
 
+def test_store_rejects_manifest_identity_mismatch_with_requested_snapshot_path(
+    tmp_path: Path,
+) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    payload["source_id"] = "other-source"
+    _rewrite_manifest(manifest_path, payload)
+
+    with pytest.raises(raw_snapshots.RawSnapshotError) as error:
+        raw_snapshots.RawSnapshotStore(tmp_path).load_manifest("fixture", "fixture-snapshot")
+
+    assert error.value.code == "ACQ_MANIFEST_IDENTITY"
+
+
+def test_verifier_rejects_manifest_identity_mismatch_with_requested_snapshot_path(
+    tmp_path: Path,
+) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    payload["source_snapshot_id"] = "other-snapshot"
+    _rewrite_manifest(manifest_path, payload)
+
+    with pytest.raises(SnapshotIntegrityError) as error:
+        verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
+
+    assert error.value.code == "INTEGRITY_MANIFEST_IDENTITY"
+
+
+def test_duplicate_object_paths_are_rejected_even_for_distinct_object_ids(
+    tmp_path: Path,
+) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    objects = copy.deepcopy(payload["objects"])
+    assert isinstance(objects, list)
+    duplicate = copy.deepcopy(objects[0])
+    duplicate["raw_object_id"] = "object-2"  # type: ignore[index]
+    objects.append(duplicate)
+    payload["objects"] = objects
+    _rewrite_manifest(manifest_path, payload)
+
+    with pytest.raises(SnapshotIntegrityError) as error:
+        verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
+
+    assert error.value.code == "INTEGRITY_DUPLICATE_OBJECT_PATH"
+
+
+@pytest.mark.parametrize(
+    "field_mutation",
+    [
+        lambda payload: payload["requests"][0].update(  # type: ignore[index]
+            {"sanitized_endpoint": "not-a-uri"}
+        ),
+        lambda payload: payload.update({"terms_reference": "not-a-uri"}),
+    ],
+)
+def test_verifier_rejects_invalid_v2_uri_semantics(tmp_path: Path, field_mutation: object) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    if field_mutation is not None:
+        field_mutation(payload)  # type: ignore[operator]
+    if payload["requests"][0]["sanitized_endpoint"] == "not-a-uri":  # type: ignore[index]
+        payload["request_parameters_redacted"]["endpoints"] = ["not-a-uri"]  # type: ignore[index]
+    _rewrite_manifest(manifest_path, payload)
+
+    with pytest.raises(SnapshotIntegrityError) as error:
+        verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
+
+    assert error.value.code == "INTEGRITY_MANIFEST_FORMAT"
+
+
+def test_verifier_rejects_object_symlink_before_resolving_containment(
+    tmp_path: Path,
+) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    object_dir = tmp_path / "raw/fixture/fixture-snapshot/objects"
+    symlink_path = object_dir / "link"
+    try:
+        symlink_path.symlink_to(object_dir / "object-1")
+    except OSError as error:
+        pytest.skip(f"symlink creation unavailable: {error}")
+    payload["objects"][0]["path"] = "objects/link"  # type: ignore[index]
+    _rewrite_manifest(manifest_path, payload)
+
+    with pytest.raises(SnapshotIntegrityError) as error:
+        verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
+
+    assert error.value.code == "INTEGRITY_OBJECT_PATH"
+
+
 def test_missing_object_is_rejected(tmp_path: Path) -> None:
     _manifest_path, _payload = _complete_snapshot(tmp_path)
     (tmp_path / "raw/fixture/fixture-snapshot/objects/object-1").unlink()

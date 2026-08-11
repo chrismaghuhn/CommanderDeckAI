@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 from types import MappingProxyType
+from urllib.parse import urlsplit
 
 from commander_ai.domain.provenance import SourceSnapshotManifest
 
@@ -55,7 +57,10 @@ class SnapshotVerifier:
         snapshot_dir = self._snapshot_dir(source_id, snapshot_id)
         paths: dict[str, Path] = {}
         for reference in inspection.manifest.objects:
-            paths[reference.raw_object_id] = resolve_under_root(snapshot_dir, reference.path)
+            try:
+                paths[reference.raw_object_id] = resolve_under_root(snapshot_dir, reference.path)
+            except ValueError as error:
+                raise SnapshotIntegrityError("INTEGRITY_OBJECT_PATH") from error
         return VerifiedSnapshot(
             manifest=inspection.manifest,
             snapshot_dir=snapshot_dir,
@@ -87,6 +92,11 @@ class SnapshotVerifier:
         except ValueError as error:
             code = _manifest_validation_code(str(error))
             return SnapshotInspection(status, False, (code,), None, 0)
+        if manifest.source_id != source_id or manifest.source_snapshot_id != snapshot_id:
+            return SnapshotInspection(status, False, ("INTEGRITY_MANIFEST_IDENTITY",), None, 0)
+        semantic_code = _manifest_semantic_code(manifest)
+        if semantic_code is not None:
+            return SnapshotInspection(status, False, (semantic_code,), manifest, 0)
         if manifest.status != "COMPLETE" or manifest.completed_at is None:
             return SnapshotInspection(
                 manifest.status,
@@ -227,6 +237,9 @@ def _duplicate_id_code(payload: Mapping[str, object]) -> str | None:
         ids = [item.get("raw_object_id") for item in objects if isinstance(item, dict)]
         if _has_duplicate(ids):
             return "INTEGRITY_DUPLICATE_OBJECT_ID"
+        paths = [item.get("path") for item in objects if isinstance(item, dict)]
+        if _has_duplicate(paths):
+            return "INTEGRITY_DUPLICATE_OBJECT_PATH"
     return None
 
 
@@ -238,6 +251,47 @@ def _manifest_validation_code(message: str) -> str:
     if "request" in message or "request_id" in message:
         return "INTEGRITY_REQUEST_OBJECT_LINEAGE"
     return "INTEGRITY_MANIFEST_INVALID"
+
+
+def _manifest_semantic_code(manifest: SourceSnapshotManifest) -> str | None:
+    if manifest.terms_reference is not None and not _safe_uri(manifest.terms_reference):
+        return "INTEGRITY_MANIFEST_FORMAT"
+    for request in manifest.requests:
+        if not re.fullmatch(r"[A-Z][A-Z0-9-]*", request.sanitized_method):
+            return "INTEGRITY_MANIFEST_FORMAT"
+        if not _safe_http_endpoint(request.sanitized_endpoint):
+            return "INTEGRITY_MANIFEST_FORMAT"
+    for endpoint in manifest.request_parameters_redacted.endpoints:
+        if not _safe_http_endpoint(endpoint):
+            return "INTEGRITY_MANIFEST_FORMAT"
+    return None
+
+
+def _safe_http_endpoint(value: str) -> bool:
+    if not _safe_uri(value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        return parsed.scheme.casefold() in {"http", "https"} and not parsed.query
+    except (TypeError, ValueError):
+        return False
+
+
+def _safe_uri(value: str) -> bool:
+    if not isinstance(value, str) or not value or any(char.isspace() for char in value):
+        return False
+    if "\\" in value or any(ord(char) < 0x20 for char in value):
+        return False
+    try:
+        parsed = urlsplit(value)
+        if not parsed.scheme or parsed.username is not None or parsed.password is not None:
+            return False
+        if parsed.scheme.casefold() in {"http", "https"} and parsed.hostname is None:
+            return False
+        _ = parsed.port
+        return True
+    except (TypeError, ValueError):
+        return False
 
 
 def _contains_symlink(path: Path, root: Path) -> bool:

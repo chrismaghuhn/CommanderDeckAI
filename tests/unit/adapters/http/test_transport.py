@@ -80,6 +80,97 @@ def test_redirect_to_non_allowlisted_host_is_rejected_before_following() -> None
     assert "secret" not in str(error.value)
 
 
+def test_injected_follow_redirects_client_cannot_bypass_manual_host_policy() -> None:
+    calls: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(str(request.url))
+        if len(calls) > 1:
+            return httpx.Response(200, stream=httpx.ByteStream(b"evil"), request=request)
+        return httpx.Response(
+            302,
+            headers={"Location": "https://evil.invalid/secret"},
+            request=request,
+        )
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        follow_redirects=True,
+    )
+    transport = HttpTransport(
+        allowed_hosts={"fixture.invalid"},
+        client=client,
+        rate_limit_per_minute=None,
+        user_agent="CommanderDeckAI/Test-1.0",
+    )
+
+    with pytest.raises(HttpTransportError) as error:
+        transport.request("GET", "https://fixture.invalid/start")
+
+    assert error.value.code == "SECURITY_REDIRECT_HOST"
+    assert calls == ["https://fixture.invalid/start"]
+
+
+def test_sensitive_request_headers_are_stripped_when_redirect_changes_origin() -> None:
+    observed: list[httpx.Headers] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        observed.append(request.headers)
+        if len(observed) == 1:
+            return httpx.Response(
+                302,
+                headers={"Location": "https://cdn.fixture.invalid/final"},
+                request=request,
+            )
+        return httpx.Response(200, stream=httpx.ByteStream(b"ok"), request=request)
+
+    client = httpx.Client(
+        transport=httpx.MockTransport(handler),
+        headers={
+            "Authorization": "Bearer client-secret",
+            "Cookie": "session=client-secret",
+        },
+        follow_redirects=True,
+    )
+    transport = HttpTransport(
+        allowed_hosts={"fixture.invalid", "cdn.fixture.invalid"},
+        client=client,
+        rate_limit_per_minute=None,
+        user_agent="CommanderDeckAI/Test-1.0",
+    )
+
+    response = transport.request(
+        "GET",
+        "https://fixture.invalid/start",
+        headers={
+            "Authorization": "Bearer request-secret",
+            "Cookie": "session=request-secret",
+            "X-API-Key": "api-secret",
+            "X-Signature": "signature-secret",
+        },
+    )
+
+    assert b"".join(response.iter_raw()) == b"ok"
+    assert observed[0].get("authorization") == "Bearer request-secret"
+    assert observed[0].get("cookie") == "session=request-secret"
+    for header in ("authorization", "cookie", "x-api-key", "x-signature"):
+        assert header not in observed[1]
+
+
+def test_blank_request_user_agent_cannot_override_validated_default() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.headers["user-agent"] == "CommanderDeckAI/Test-1.0"
+        return httpx.Response(200, stream=httpx.ByteStream(b"ok"), request=request)
+
+    response = _transport(handler).request(
+        "GET",
+        "https://fixture.invalid/ua",
+        headers={"User-Agent": "   "},
+    )
+
+    assert b"".join(response.iter_raw()) == b"ok"
+
+
 def test_request_metadata_is_an_explicit_safe_projection() -> None:
     transport = _transport(lambda request: httpx.Response(200, request=request))
 
@@ -191,6 +282,31 @@ def test_response_size_limit_is_enforced_while_iterating_raw_bytes() -> None:
     with pytest.raises(HttpTransportError) as error:
         list(response.iter_raw())
     assert error.value.code == "HTTP_RESPONSE_TOO_LARGE"
+
+
+def test_truncated_content_length_is_rejected_after_raw_stream_completion() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            headers={"Content-Length": "5"},
+            stream=httpx.ByteStream(b"123"),
+            request=request,
+        )
+
+    response = _transport(handler).request("GET", "https://fixture.invalid/truncated")
+    with pytest.raises(HttpTransportError) as error:
+        list(response.iter_raw())
+    assert error.value.code == "HTTP_ENTITY_TRUNCATED"
+
+
+def test_transport_error_text_is_sanitized_before_exposure() -> None:
+    error = HttpTransportError(
+        "HTTP_FAILURE",
+        "https://fixture.invalid/path?sig=url-secret Authorization: Bearer header-secret",
+    )
+
+    assert "url-secret" not in str(error)
+    assert "header-secret" not in str(error)
 
 
 def test_rate_limit_sleeps_between_requests_without_parallelism() -> None:

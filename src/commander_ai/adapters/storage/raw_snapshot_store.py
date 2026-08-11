@@ -27,7 +27,11 @@ class RawSnapshotStore:
 
     def __init__(self, root: Path | str, *, max_object_bytes: int = 20_000_000_000) -> None:
         self.root = Path(root).expanduser().resolve()
-        if max_object_bytes < 1:
+        if (
+            not isinstance(max_object_bytes, int)
+            or isinstance(max_object_bytes, bool)
+            or max_object_bytes < 1
+        ):
             raise ValueError("max_object_bytes must be positive")
         self.max_object_bytes = max_object_bytes
 
@@ -53,7 +57,7 @@ class RawSnapshotStore:
         selected_id = snapshot_id or self._generated_snapshot_id(source_id, adapter_version)
         selected_id = self._component(selected_id, "ACQ_SNAPSHOT_ID_INVALID")
         object_limit = self.max_object_bytes if max_object_bytes is None else max_object_bytes
-        if object_limit < 1:
+        if not isinstance(object_limit, int) or isinstance(object_limit, bool) or object_limit < 1:
             raise RawSnapshotError("ACQ_OBJECT_LIMIT_INVALID")
         snapshot_dir = self.snapshot_dir(source_id, selected_id)
         try:
@@ -95,10 +99,15 @@ class RawSnapshotStore:
     def load_manifest(self, source_id: str, snapshot_id: str) -> SourceSnapshotManifest:
         path = self.snapshot_dir(source_id, snapshot_id) / "manifest.json"
         try:
+            if path.is_symlink() or not path.is_file():
+                raise OSError("manifest path is not a regular file")
             payload = json.loads(path.read_text(encoding="utf-8"))
-            return SourceSnapshotManifest.model_validate(payload)
+            manifest = SourceSnapshotManifest.model_validate(payload)
         except (OSError, UnicodeError, json.JSONDecodeError, TypeError, ValueError) as error:
             raise RawSnapshotError("ACQ_MANIFEST_INVALID") from error
+        if manifest.source_id != source_id or manifest.source_snapshot_id != snapshot_id:
+            raise RawSnapshotError("ACQ_MANIFEST_IDENTITY")
+        return manifest
 
     def _generated_snapshot_id(self, source_id: str, adapter_version: str) -> str:
         stamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%S%fZ")

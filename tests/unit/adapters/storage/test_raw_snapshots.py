@@ -74,6 +74,79 @@ def test_streaming_object_uses_same_filesystem_temp_and_preserves_raw_bytes(
     )
 
 
+def test_finalize_rejects_open_object_writer_before_publishing_complete_manifest(
+    tmp_path: Path,
+) -> None:
+    writer = _start(tmp_path)
+    object_writer = writer.open_object(raw_object_id="object-1", request_id="request-1")
+
+    with pytest.raises(raw_snapshots.RawSnapshotError) as error:
+        writer.finalize()
+
+    assert error.value.code == "ACQ_OBJECTS_OPEN"
+    assert writer.state == "INCOMPLETE"
+    assert writer.manifest.status == "INCOMPLETE"
+    assert writer.manifest_path.read_text(encoding="utf-8").find('"status":"INCOMPLETE"') >= 0
+
+    object_writer.finalize()
+    writer.finalize()
+    assert writer.state == "COMPLETE"
+
+
+def test_object_directory_is_flushed_before_complete_state(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    writer = _start(tmp_path)
+    writer.write_object(raw_object_id="object-1", request_id="request-1", chunks=[b"raw"])
+    calls: list[Path] = []
+    monkeypatch.setattr(raw_snapshots, "fsync_directory", calls.append)
+
+    writer.finalize()
+
+    assert writer.objects_dir in calls
+    assert calls.index(writer.objects_dir) < calls.index(writer.snapshot_dir)
+
+
+def test_request_metadata_is_redacted_again_at_snapshot_persistence_boundary(
+    tmp_path: Path,
+) -> None:
+    writer = _start(tmp_path)
+    writer.add_request(
+        {
+            "request_id": "request-2",
+            "sanitized_method": "GET",
+            "sanitized_endpoint": "https://fixture.invalid/cards?sig=url-secret",
+            "format": "json",
+            "sanitized_parameters": {
+                "page": 2,
+                "format": "json",
+                "sig": "signature-secret",
+                "signature": "signature-secret-2",
+                "accessKey": "access-key-secret",
+                "nested": {
+                    "safe": "not-an-allowlisted-key",
+                    "token": "nested-secret",
+                },
+            },
+        }
+    )
+
+    persisted = writer.manifest.requests[-1]
+    assert persisted.sanitized_endpoint == "https://fixture.invalid/cards"
+    assert persisted.sanitized_parameters == {"format": "json", "page": 2}
+    serialized = writer.manifest_path.read_text(encoding="utf-8")
+    for secret in (
+        "url-secret",
+        "signature-secret",
+        "signature-secret-2",
+        "access-key-secret",
+        "nested-secret",
+    ):
+        assert secret not in serialized
+    for key in ("sig", "signature", "accessKey", "token"):
+        assert f'"{key}"' not in serialized
+
+
 def test_finalize_persists_distinct_snapshot_and_detached_manifest_digests(
     tmp_path: Path,
 ) -> None:
@@ -245,3 +318,13 @@ def test_write_system_failure_is_namespaced_and_non_consumable(
 
     assert error.value.code == "ACQ_WRITE_FAILED"
     assert writer.manifest.status == "FAILED"
+
+
+def test_raw_snapshot_error_detail_is_sanitized_before_exposure() -> None:
+    error = raw_snapshots.RawSnapshotError(
+        "ACQ_FAILURE",
+        "https://fixture.invalid/path?signature=secret Authorization: Bearer header-secret",
+    )
+
+    assert "secret" not in str(error)
+    assert "header-secret" not in str(error)

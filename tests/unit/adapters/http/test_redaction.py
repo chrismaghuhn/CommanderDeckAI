@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from commander_ai.adapters.http import redaction
 from commander_ai.adapters.http.redaction import (
     redact_error_text,
     redact_parameters,
@@ -56,3 +57,34 @@ def test_error_redaction_removes_credentials_from_text_and_urls() -> None:
     assert "header-secret" not in safe
     assert "session-cookie" not in safe
     assert "example.invalid/cards" in safe
+
+
+def test_request_parameter_allowlist_drops_signature_aliases_and_nested_secrets() -> None:
+    safe = redaction.redact_request_parameters(
+        {
+            "page": 2,
+            "format": "json",
+            "sig": "signature-secret",
+            "signature": "signature-secret-2",
+            "accessKey": "access-key-secret",
+            "nested": {
+                "page": 3,
+                "token": "nested-secret",
+            },
+        }
+    )
+
+    assert safe == {"format": "json", "page": 2}
+    serialized = repr(safe)
+    for secret in ("signature-secret", "signature-secret-2", "access-key-secret", "nested-secret"):
+        assert secret not in serialized
+
+
+def test_error_redaction_removes_signature_aliases() -> None:
+    safe = redact_error_text(
+        "sig=signature-secret signature: signature-secret-2 accessKey=access-key-secret"
+    )
+
+    assert "signature-secret" not in safe
+    assert "signature-secret-2" not in safe
+    assert "access-key-secret" not in safe

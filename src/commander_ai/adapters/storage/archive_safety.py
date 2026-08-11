@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import shutil
 import stat
@@ -12,6 +13,8 @@ import zipfile
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath, PureWindowsPath
 from typing import IO
+
+from .path_policy import resolve_under_root
 
 
 class ArchiveSafetyError(RuntimeError):
@@ -31,12 +34,17 @@ class ArchiveLimits:
 
     def __post_init__(self) -> None:
         if (
-            self.max_compressed_bytes < 1
-            or self.max_uncompressed_bytes < 1
-            or self.max_file_bytes < 1
+            not _positive_integer(self.max_compressed_bytes)
+            or not _positive_integer(self.max_uncompressed_bytes)
+            or not _positive_integer(self.max_file_bytes)
         ):
             raise ValueError("archive byte limits must be positive")
-        if self.max_compression_ratio <= 0:
+        if (
+            isinstance(self.max_compression_ratio, bool)
+            or not isinstance(self.max_compression_ratio, (int, float))
+            or not math.isfinite(self.max_compression_ratio)
+            or self.max_compression_ratio <= 0
+        ):
             raise ValueError("archive compression ratio must be positive")
 
 
@@ -86,17 +94,26 @@ def extract_archive(
     path: Path | str,
     destination: Path | str,
     *,
+    destination_root: Path | str | None = None,
     limits: ArchiveLimits | None = None,
     chunk_bytes: int = 1024 * 1024,
     runtime_limit: int | None = None,
 ) -> ArchiveExtraction:
     """Extract only validated regular members through a temporary root."""
 
-    if chunk_bytes < 1:
+    if not _positive_integer(chunk_bytes):
         raise ValueError("chunk_bytes must be positive")
+    if runtime_limit is not None and not _positive_integer(runtime_limit):
+        raise ValueError("runtime_limit must be positive")
     archive_path = _source_path(path)
-    destination_path = Path(destination).expanduser()
-    if destination_path.exists() or destination_path.is_symlink():
+    destination_input = Path(destination).expanduser()
+    configured_root = (
+        Path(destination_root).expanduser()
+        if destination_root is not None
+        else destination_input.parent
+    )
+    destination_path = _destination_under_root(destination_input, configured_root)
+    if os.path.lexists(destination_path):
         raise ArchiveSafetyError("SECURITY_EXTRACTION_DESTINATION_EXISTS")
     try:
         destination_parent = destination_path.parent.resolve()
@@ -292,15 +309,14 @@ def _check_member_limits(
 
 def _source_path(path: Path | str) -> Path:
     source = Path(path).expanduser()
-    if not source.is_file() or source.is_symlink():
+    if source.is_symlink() or not source.is_file():
         raise ArchiveSafetyError("SECURITY_ARCHIVE_SOURCE")
     return source.resolve()
 
 
 def _new_target(root: Path, name: str) -> Path:
-    target = (root / PurePosixPath(name)).resolve()
     try:
-        target.relative_to(root.resolve())
+        target = resolve_under_root(root, name)
     except ValueError as error:
         raise ArchiveSafetyError("SECURITY_ARCHIVE_PATH") from error
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -308,7 +324,7 @@ def _new_target(root: Path, name: str) -> Path:
 
 
 def _member_name(name: str) -> str:
-    if not isinstance(name, str) or not name or "\x00" in name or "\\" in name:
+    if not isinstance(name, str) or not name or "\x00" in name or "\\" in name or ":" in name:
         raise ArchiveSafetyError("SECURITY_ARCHIVE_PATH")
     if name.endswith("/"):
         name = name[:-1]
@@ -320,9 +336,37 @@ def _member_name(name: str) -> str:
     parts = PurePosixPath(name).parts
     if not parts or any(part in {"", ".", ".."} for part in parts):
         raise ArchiveSafetyError("SECURITY_ARCHIVE_PATH")
+    if any(_is_windows_device_name(part) or part.endswith((".", " ")) for part in parts):
+        raise ArchiveSafetyError("SECURITY_ARCHIVE_PATH")
     if PurePosixPath(name).as_posix() != name:
         raise ArchiveSafetyError("SECURITY_ARCHIVE_PATH")
     return name
+
+
+def _destination_under_root(destination: Path, root: Path) -> Path:
+    if any(part in {".", ".."} for part in destination.parts):
+        raise ArchiveSafetyError("SECURITY_EXTRACTION_ROOT")
+    destination_absolute = Path(os.path.abspath(os.fspath(destination)))
+    root_absolute = Path(os.path.abspath(os.fspath(root)))
+    try:
+        relative = destination_absolute.relative_to(root_absolute)
+    except ValueError as error:
+        raise ArchiveSafetyError("SECURITY_EXTRACTION_ROOT") from error
+    try:
+        return resolve_under_root(root_absolute, relative.as_posix())
+    except (TypeError, ValueError) as error:
+        raise ArchiveSafetyError("SECURITY_EXTRACTION_ROOT") from error
+
+
+def _is_windows_device_name(part: str) -> bool:
+    stem = part.rstrip(". ").split(".", maxsplit=1)[0].casefold()
+    if stem in {"con", "prn", "aux", "nul", "clock$", "conin$", "conout$"}:
+        return True
+    return len(stem) == 4 and stem[:3] in {"com", "lpt"} and stem[3] in "123456789"
+
+
+def _positive_integer(value: object) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 1
 
 
 __all__ = [

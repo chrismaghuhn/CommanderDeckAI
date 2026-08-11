@@ -69,7 +69,7 @@ class RedirectPolicy:
     @staticmethod
     def _parse(url: str, *, redirect: bool = False) -> SplitResult:
         try:
-            if "\\" in url:
+            if "\\" in url or any(char.isspace() or ord(char) < 0x20 for char in url):
                 raise RedirectPolicyError(
                     "SECURITY_REDIRECT_URL" if redirect else "SECURITY_ENDPOINT_URL"
                 )

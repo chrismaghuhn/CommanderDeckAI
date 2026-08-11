@@ -11,6 +11,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import BinaryIO, Literal, cast
 
+from commander_ai.adapters.http.redaction import redact_request_parameters, sanitize_endpoint
 from commander_ai.domain.provenance import (
     RawObjectReference,
     SourceSnapshotManifest,
@@ -75,12 +76,15 @@ class RawSnapshotWriter:
         self._redistribution_status = redistribution_status
         self._started_at = started_at
         self._terms_reference = terms_reference
-        self._pagination_state = pagination_state
+        self._pagination_state = (
+            None if pagination_state is None else redact_request_parameters(pagination_state)
+        )
         self._requests: list[SourceSnapshotRequest] = []
         self._objects: list[RawObjectReference] = []
         self._open_object_ids: set[str] = set()
         self._state: SnapshotState = "INCOMPLETE"
         self._detached_digest: str | None = None
+        self._complete_manifest_published = False
         self._manifest = self._build_manifest("INCOMPLETE", None)
         self._persist_manifest(self._manifest)
 
@@ -100,7 +104,16 @@ class RawSnapshotWriter:
         self._ensure_incomplete()
         try:
             value = SourceSnapshotRequest.model_validate(request)
-        except ValueError as error:
+            sanitized_endpoint = sanitize_endpoint(value.sanitized_endpoint)
+            if sanitized_endpoint == "[redacted-endpoint]":
+                raise ValueError("request endpoint is not a safe HTTP URI")
+            value = value.model_copy(
+                update={
+                    "sanitized_endpoint": sanitized_endpoint,
+                    "sanitized_parameters": redact_request_parameters(value.sanitized_parameters),
+                }
+            )
+        except (TypeError, ValueError) as error:
             self._fail("ACQ_REQUEST_INVALID", "request metadata is invalid")
             raise RawSnapshotError("ACQ_REQUEST_INVALID") from error
         if any(item.request_id == value.request_id for item in self._requests):
@@ -207,6 +220,8 @@ class RawSnapshotWriter:
 
     def finalize(self) -> SnapshotCommit:
         self._ensure_incomplete()
+        if self._open_object_ids:
+            raise RawSnapshotError("ACQ_OBJECTS_OPEN")
         try:
             for reference in self._objects:
                 path = resolve_under_root(self.snapshot_dir, reference.path)
@@ -214,6 +229,7 @@ class RawSnapshotWriter:
                     raise RawSnapshotError("ACQ_OBJECT_INTEGRITY", "final object metadata mismatch")
                 if sha256_file(path) != reference.sha256:
                     raise RawSnapshotError("ACQ_OBJECT_INTEGRITY", "final object digest mismatch")
+            fsync_directory(self.objects_dir)
             completed_at = datetime.now(UTC)
             complete_manifest = self._build_manifest("COMPLETE", completed_at)
             manifest_payload = complete_manifest.model_dump(mode="json")
@@ -225,6 +241,7 @@ class RawSnapshotWriter:
             )
             publish_new(sidecar_temp, self.detached_manifest_path)
             os.replace(manifest_temp, self.manifest_path)
+            self._complete_manifest_published = True
             fsync_directory(self.snapshot_dir)
             self._manifest = complete_manifest
             self._detached_digest = manifest_digest
@@ -244,6 +261,10 @@ class RawSnapshotWriter:
             raise RawSnapshotError("ACQ_FINALIZE_FAILED") from error
 
     def _register_object(self, reference: RawObjectReference) -> None:
+        if self._state != "INCOMPLETE" or self._complete_manifest_published:
+            raise RawSnapshotError("ACQ_SNAPSHOT_FINALIZED")
+        if any(item.path == reference.path for item in self._objects):
+            raise RawSnapshotError("ACQ_OBJECT_PATH_COLLISION")
         self._objects.append(reference)
         self._persist_manifest(self._build_manifest("INCOMPLETE", None))
 
@@ -256,6 +277,10 @@ class RawSnapshotWriter:
             raise RawSnapshotError("ACQ_ATOMIC_FINALIZE_FAILED") from error
 
     def _persist_manifest(self, manifest: SourceSnapshotManifest) -> None:
+        if self._complete_manifest_published or (
+            self._state == "COMPLETE" and manifest.status != "COMPLETE"
+        ):
+            raise RawSnapshotError("ACQ_SNAPSHOT_FINALIZED")
         payload = canonical_json_bytes(manifest.model_dump(mode="json"))
         try:
             temp_path = write_temp_file(self.snapshot_dir, ".manifest-write-", payload)
@@ -268,7 +293,7 @@ class RawSnapshotWriter:
         self._manifest = manifest
 
     def _fail(self, code: str, detail: str) -> None:
-        if self._state == "COMPLETE":
+        if self._state == "COMPLETE" or self._complete_manifest_published:
             return
         self._state = "FAILED"
         failed = self._build_manifest("FAILED", datetime.now(UTC))
@@ -307,6 +332,8 @@ class RawSnapshotWriter:
     def _ensure_incomplete(self) -> None:
         if self._state == "COMPLETE":
             raise RawSnapshotError("ACQ_SNAPSHOT_FINALIZED")
+        if self._complete_manifest_published:
+            raise RawSnapshotError("ACQ_SNAPSHOT_FINALIZING")
         if self._state == "FAILED":
             raise RawSnapshotError("ACQ_SNAPSHOT_FAILED")
 

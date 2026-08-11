@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import email.utils
+import math
 import time
 from collections.abc import Callable, Iterator, Mapping
 from dataclasses import dataclass
@@ -11,11 +12,18 @@ from typing import Literal
 
 import httpx
 
-from .redaction import redact_parameters, sanitize_endpoint, sanitize_headers
+from .entity_framing import parse_content_length
+from .origin import same_origin
+from .redaction import (
+    is_sensitive_request_header,
+    redact_error_text,
+    redact_request_parameters,
+    sanitize_endpoint,
+    sanitize_headers,
+)
 from .redirect_policy import RedirectPolicy, RedirectPolicyError
 
-HttpQueryScalar = str | int | float | bool | None
-HttpQueryValue = HttpQueryScalar | list[HttpQueryScalar]
+HttpQueryValue = str | int | float | bool | None | list[str | int | float | bool | None]
 
 
 class HttpTransportError(RuntimeError):
@@ -23,7 +31,8 @@ class HttpTransportError(RuntimeError):
 
     def __init__(self, code: str, detail: str = "") -> None:
         self.code = code
-        super().__init__(code if not detail else f"{code}: {detail}")
+        safe_detail = redact_error_text(detail)
+        super().__init__(code if not safe_detail else f"{code}: {safe_detail}")
 
 
 @dataclass(frozen=True, slots=True)
@@ -60,6 +69,14 @@ class SafeHttpResponse:
         self._response = response
         self._max_response_bytes = max_response_bytes
         self._read_bytes = 0
+        try:
+            self._expected_bytes = parse_content_length(response.headers.get("content-length"))
+        except ValueError as error:
+            response.close()
+            raise HttpTransportError("HTTP_ENTITY_INVALID") from error
+        if self._expected_bytes is not None and self._expected_bytes > max_response_bytes:
+            response.close()
+            raise HttpTransportError("HTTP_RESPONSE_TOO_LARGE")
         self.status_code = response.status_code
         self.method = method
         self.sanitized_endpoint = sanitize_endpoint(str(response.url))
@@ -74,7 +91,6 @@ class SafeHttpResponse:
 
     def iter_raw(self) -> Iterator[bytes]:
         """Yield HTTPX ``iter_raw`` chunks without content decoding."""
-
         try:
             for chunk in self._response.iter_raw():
                 if not isinstance(chunk, bytes):
@@ -83,6 +99,8 @@ class SafeHttpResponse:
                 if self._read_bytes > self._max_response_bytes:
                     raise HttpTransportError("HTTP_RESPONSE_TOO_LARGE")
                 yield chunk
+            if self._expected_bytes is not None and self._read_bytes != self._expected_bytes:
+                raise HttpTransportError("HTTP_ENTITY_TRUNCATED")
         except HttpTransportError:
             self.close()
             raise
@@ -123,9 +141,23 @@ class HttpTransport:
         sleeper: Callable[[float], None] = time.sleep,
         clock: Callable[[], float] = time.monotonic,
     ) -> None:
-        if timeout_seconds <= 0 or max_retries < 0 or max_response_bytes < 1:
+        if (
+            not math.isfinite(timeout_seconds)
+            or timeout_seconds <= 0
+            or not isinstance(max_retries, int)
+            or isinstance(max_retries, bool)
+            or max_retries < 0
+            or not isinstance(max_response_bytes, int)
+            or isinstance(max_response_bytes, bool)
+            or max_response_bytes < 1
+        ):
             raise ValueError("HTTP timeout, retry, and response limits are invalid")
-        if backoff_seconds < 0 or max_retry_delay_seconds < 0:
+        if (
+            not math.isfinite(backoff_seconds)
+            or not math.isfinite(max_retry_delay_seconds)
+            or backoff_seconds < 0
+            or max_retry_delay_seconds < 0
+        ):
             raise ValueError("HTTP retry delays cannot be negative")
         if rate_limit_per_minute is not None and rate_limit_per_minute < 1:
             raise ValueError("rate_limit_per_minute must be positive or None")
@@ -140,7 +172,7 @@ class HttpTransport:
         self._max_retry_delay = max_retry_delay_seconds
         self._interval = None if rate_limit_per_minute is None else 60.0 / rate_limit_per_minute
         self._next_request_at = 0.0
-        self._user_agent = user_agent
+        self._user_agent = user_agent.strip()
         self._sleeper = sleeper
         self._clock = clock
         self._client = client or httpx.Client(follow_redirects=False, timeout=timeout_seconds)
@@ -169,12 +201,14 @@ class HttpTransport:
         current_parameters = parameters
         current_method = normalized_method
         redirects_followed = 0
+        strip_sensitive_headers = False
         while True:
             response = self._request_with_retries(
                 current_method,
                 current_url,
                 parameters=current_parameters,
                 headers=headers,
+                strip_sensitive_headers=strip_sensitive_headers,
             )
             if response.status_code not in {301, 302, 303, 307, 308}:
                 if response.status_code >= 400:
@@ -195,6 +229,8 @@ class HttpTransport:
                 )
             except RedirectPolicyError as error:
                 raise HttpTransportError(error.code) from error
+            if not same_origin(str(response.url), next_url):
+                strip_sensitive_headers = True
             current_method = _redirect_method(current_method, response.status_code)
             current_url = next_url
             current_parameters = None
@@ -216,7 +252,7 @@ class HttpTransport:
             "sanitized_endpoint": sanitize_endpoint(url),
             "api_version": api_version,
             "format": format,
-            "sanitized_parameters": redact_parameters(parameters or {}),
+            "sanitized_parameters": redact_request_parameters(parameters or {}),
         }
 
     def close(self) -> None:
@@ -230,9 +266,20 @@ class HttpTransport:
         *,
         parameters: Mapping[str, object] | None,
         headers: Mapping[str, str] | None,
+        strip_sensitive_headers: bool,
     ) -> httpx.Response:
         request_headers = {str(key): str(value) for key, value in (headers or {}).items()}
-        request_headers.setdefault("User-Agent", self._user_agent)
+        if not any(
+            value.strip()
+            for key, value in request_headers.items()
+            if key.casefold() == "user-agent"
+        ):
+            request_headers = {
+                key: value
+                for key, value in request_headers.items()
+                if key.casefold() != "user-agent"
+            }
+            request_headers["User-Agent"] = self._user_agent
         for attempt in range(self._max_retries + 1):
             self._wait_for_rate_limit()
             try:
@@ -243,7 +290,16 @@ class HttpTransport:
                     headers=request_headers,
                     timeout=self._timeout_seconds,
                 )
-                response = self._client.send(request, stream=True)
+                if strip_sensitive_headers:
+                    for key in list(request.headers):
+                        if is_sensitive_request_header(key):
+                            del request.headers[key]
+                response = self._client.send(
+                    request,
+                    stream=True,
+                    auth=None if strip_sensitive_headers else httpx.USE_CLIENT_DEFAULT,
+                    follow_redirects=False,
+                )
             except httpx.TimeoutException as error:
                 if attempt >= self._max_retries:
                     raise HttpTransportError("HTTP_TIMEOUT") from error
@@ -300,7 +356,7 @@ def _query_parameters(
             result[str(key)] = value
             continue
         if isinstance(value, (list, tuple)):
-            values: list[HttpQueryScalar] = []
+            values: list[str | int | float | bool | None] = []
             for item in value:
                 if not (item is None or isinstance(item, (str, int, float, bool))):
                     raise HttpTransportError("HTTP_PARAMETERS_INVALID")

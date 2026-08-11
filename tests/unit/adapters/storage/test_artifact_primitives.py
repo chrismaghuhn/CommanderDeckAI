@@ -256,7 +256,9 @@ def test_portable_path_policy_rejects_symlink_escape(tmp_path: Path) -> None:
         to_portable_relative_path(root / "escape" / "artifact.json", root)
 
 
-def test_portable_path_policy_resolves_symlink_that_stays_inside_root(tmp_path: Path) -> None:
+def test_portable_path_policy_rejects_symlink_even_when_target_stays_inside_root(
+    tmp_path: Path,
+) -> None:
     root = tmp_path / "artifact-root"
     inside = root / "inside"
     root.mkdir()
@@ -267,4 +269,5 @@ def test_portable_path_policy_resolves_symlink_that_stays_inside_root(tmp_path: 
     except OSError as error:
         pytest.skip(f"symlink creation unavailable: {error}")
 
-    assert resolve_under_root(root, "link/artifact.json") == (inside / "artifact.json").resolve()
+    with pytest.raises(ValueError):
+        resolve_under_root(root, "link/artifact.json")

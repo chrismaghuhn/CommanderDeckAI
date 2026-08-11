@@ -26,6 +26,7 @@ def test_redirect_policy_allows_only_explicit_hosts_for_each_hop() -> None:
         "https://user:password@allowed.example/private",
         "\\\\server\\share\\private",
         "https://allowed.example/../private",
+        "https://allowed.example/unsafe\x00path",
     ],
 )
 def test_redirect_policy_rejects_unsafe_destinations(location: str) -> None:
