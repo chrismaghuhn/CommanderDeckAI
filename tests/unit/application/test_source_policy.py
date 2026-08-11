@@ -169,6 +169,58 @@ def test_source_adapter_configuration_is_gated_by_explicit_review_record() -> No
 
 
 @pytest.mark.parametrize(
+    ("settings_update", "historical_update"),
+    [
+        ({"attribution_required": True}, {}),
+        ({"raw_storage": "allowed_local"}, {}),
+        ({"redistribution": "review_required"}, {"redistribution_derived": "approved"}),
+    ],
+)
+def test_source_adapter_configuration_rejects_unreviewed_metadata(
+    settings_update: dict[str, object],
+    historical_update: dict[str, object],
+) -> None:
+    entry = registry_for(SourceApprovalStatus.APPROVED_LOCAL).lookup("example_source")
+    registry = SourceRegistry(
+        entries=(
+            entry.model_copy(
+                update={
+                    "settings": entry.settings.model_copy(update=settings_update),
+                    "historical_approval": entry.historical_approval.model_copy(
+                        update=historical_update
+                    ),
+                }
+            ),
+        )
+    )
+
+    with pytest.raises(SourcePolicyError) as error:
+        SourcePolicy(registry).adapter_configuration("example_source")
+
+    assert error.value.code == "POLICY_SOURCE_METADATA_MISMATCH"
+
+
+def test_source_adapter_configuration_rejects_review_path_mismatch() -> None:
+    entry = registry_for(SourceApprovalStatus.APPROVED_LOCAL).lookup("example_source")
+    registry = SourceRegistry(
+        entries=(
+            entry.model_copy(
+                update={
+                    "settings": entry.settings.model_copy(
+                        update={"review_path": "docs/03-data/source-reviews/other.md"}
+                    )
+                }
+            ),
+        )
+    )
+
+    with pytest.raises(SourcePolicyError) as error:
+        SourcePolicy(registry).adapter_configuration("example_source")
+
+    assert error.value.code == "POLICY_SOURCE_REVIEW_MISMATCH"
+
+
+@pytest.mark.parametrize(
     "status",
     [
         SourceApprovalStatus.PROPOSED,

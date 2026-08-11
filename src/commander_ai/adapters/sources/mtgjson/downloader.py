@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 
 from commander_ai.adapters.http.transport import HttpTransportError
@@ -57,21 +58,20 @@ class MTGJSONDownloader:
             self.settings.source.source_id,
             PolicyOperation.SOURCE_SYNC,
         )
+        historical = configuration.historical_approval
         writer = self.store.start_snapshot(
             source_id=self.settings.source.source_id,
             snapshot_id=snapshot_id,
-            approval_status=self.settings.source.approval_status.value,
+            approval_status=historical.approval_status.value,
             adapter_version=self.settings.adapter_version,
             usage_status=decision.code,
-            attribution_required=self.settings.source.attribution_required,
+            attribution_required=historical.attribution_required,
             redistribution_status=(
                 "approved"
-                if self.settings.source.approval_status.value == "APPROVED_REDISTRIBUTION"
+                if historical.approval_status.value == "APPROVED_REDISTRIBUTION"
                 else "derived_only"
             ),
-            terms_reference=(
-                self.settings.terms_reference or configuration.historical_approval.terms_reference
-            ),
+            terms_reference=historical.terms_reference,
             pagination_state={"products": [product.value for product in self.settings.products]},
             max_object_bytes=self.settings.source.max_download_bytes,
         )
@@ -131,7 +131,10 @@ class MTGJSONDownloader:
         if checksum_url is None:
             return None
         request_id = f"mtgjson-{product.value}-checksum"
-        raw_object_id = f"{self.settings.archive_filename(product)}.sha256"
+        checksum_suffix = self.settings.checksum_suffix
+        if checksum_suffix is None:
+            return None
+        raw_object_id = f"{self.settings.archive_filename(product)}{checksum_suffix}"
         writer.add_request(
             {
                 "request_id": request_id,
@@ -140,7 +143,7 @@ class MTGJSONDownloader:
         )
         response = self.client.fetch_checksum(product)
         try:
-            body = b"".join(response.iter_raw())
+            body = _read_bounded_checksum(response.iter_raw(), self.settings.checksum_max_bytes)
             content_type = response.metadata.content_type
         finally:
             response.close()
@@ -162,6 +165,19 @@ class MTGJSONDownloader:
     def _fail_if_open(writer: RawSnapshotWriter, code: str) -> None:
         if writer.state == "INCOMPLETE":
             writer._fail(code, "MTGJSON acquisition failed")
+
+
+def _read_bounded_checksum(chunks: Iterable[object], max_bytes: int) -> bytes:
+    if not isinstance(max_bytes, int) or isinstance(max_bytes, bool) or max_bytes < 1:
+        raise MTGJSONDownloadError("MTGJSON_CHECKSUM_LIMIT_INVALID")
+    body = bytearray()
+    for chunk in chunks:
+        if not isinstance(chunk, bytes):
+            raise MTGJSONDownloadError("MTGJSON_CHECKSUM_INVALID")
+        if len(body) + len(chunk) > max_bytes:
+            raise MTGJSONDownloadError("MTGJSON_CHECKSUM_TOO_LARGE")
+        body.extend(chunk)
+    return bytes(body)
 
 
 def _parse_checksum(body: bytes) -> str:

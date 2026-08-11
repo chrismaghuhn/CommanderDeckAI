@@ -155,6 +155,8 @@ class ProvenanceRow(DomainModel):
 
     @model_validator(mode="after")
     def validate_locator_fields(self) -> ProvenanceRow:
+        if self.source_id != self.raw_locator.source_id:
+            raise ValueError("raw_locator source_id disagrees with provenance row")
         if self.source_snapshot_id != self.raw_locator.source_snapshot_id:
             raise ValueError("raw_locator source_snapshot_id disagrees with provenance row")
         if self.raw_object_id != self.raw_locator.raw_object_id:

@@ -27,10 +27,10 @@ class MTGJSONSettings(BaseModel):
 
     source: SourceSettings
     products: tuple[MTGJSONProduct, ...]
-    archive_extension: str = Field(default=".zip", min_length=2)
+    archive_extension: str = Field(default=".json.zip", min_length=2)
     checksum_suffix: str | None = Field(default=".sha256", min_length=2)
+    checksum_max_bytes: int = Field(default=4096, ge=1, le=1_000_000)
     adapter_version: str = Field(default="mtgjson-v1", min_length=1)
-    terms_reference: str | None = Field(default=None, min_length=1)
 
     @field_validator("products", mode="before")
     @classmethod
@@ -61,6 +61,8 @@ class MTGJSONSettings(BaseModel):
             raise ValueError("MTGJSON settings require source_id mtgjson")
         if not self.source.endpoints:
             raise ValueError("MTGJSON settings require a configured bulk endpoint")
+        if self.checksum_max_bytes > self.source.max_download_bytes:
+            raise ValueError("MTGJSON checksum limit cannot exceed the general download limit")
         return self
 
     @classmethod
@@ -68,29 +70,37 @@ class MTGJSONSettings(BaseModel):
         cls,
         source: SourceSettings,
         *,
-        terms_reference: str | None = None,
         adapter_version: str = "mtgjson-v1",
     ) -> MTGJSONSettings:
         """Build the adapter view without moving settings into module globals."""
 
         filters = dict(source.filters)
-        if source.files:
-            products = tuple(MTGJSONProduct(item) for item in source.files)
-        else:
-            configured_products = filters.get(
-                "files", tuple(product.value for product in MTGJSONProduct)
-            )
-            if isinstance(configured_products, str):
-                configured_products = (configured_products,)
-            if not isinstance(configured_products, (tuple, list, set, frozenset)):
-                raise ValueError("MTGJSON filters.files must be a sequence")
-            products = tuple(MTGJSONProduct(str(item)) for item in configured_products)
+        allowed_filters = {
+            "archive_extension",
+            "checksum_suffix",
+            "checksum_max_bytes",
+            "files",
+        }
+        unknown_filters = set(filters) - allowed_filters
+        if unknown_filters:
+            raise ValueError("unknown MTGJSON filter fields")
+        if source.bulk_type is not None:
+            raise ValueError("MTGJSON bulk_type must be represented by the files filter")
+        configured_products = _configured_products(filters.get("files"))
+        source_products = _configured_products(source.files) if source.files else None
+        if (
+            source_products is not None
+            and configured_products is not None
+            and set(source_products) != set(configured_products)
+        ):
+            raise ValueError("conflicting MTGJSON product filters")
+        products = source_products or configured_products or tuple(MTGJSONProduct)
         return cls(
             source=source,
             products=products,
-            archive_extension=filters.get("archive_extension", ".zip"),
+            archive_extension=filters.get("archive_extension", ".json.zip"),
             checksum_suffix=filters.get("checksum_suffix", ".sha256"),
-            terms_reference=terms_reference,
+            checksum_max_bytes=filters.get("checksum_max_bytes", 4096),
             adapter_version=adapter_version,
         )
 
@@ -114,6 +124,21 @@ class MTGJSONSettings(BaseModel):
         if normalized not in self.products:
             raise ValueError("MTGJSON product is not enabled by source configuration")
         return normalized
+
+
+def _configured_products(value: object) -> tuple[MTGJSONProduct, ...] | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        value = (value,)
+    if not isinstance(value, (tuple, list, set, frozenset)):
+        raise ValueError("MTGJSON product filters must be a sequence")
+    products = tuple(MTGJSONProduct(str(item)) for item in value)
+    if not products:
+        raise ValueError("at least one MTGJSON product is required")
+    if len(products) != len(set(products)):
+        raise ValueError("MTGJSON products must be unique")
+    return products
 
 
 __all__ = ["MTGJSONProduct", "MTGJSONSettings"]

@@ -9,9 +9,12 @@ from pathlib import Path
 import httpx
 import pytest
 
-from commander_ai.adapters.http.transport import HttpTransport, HttpTransportError
-from commander_ai.adapters.sources.mtgjson.client import MTGJSONClient
-from commander_ai.adapters.sources.mtgjson.downloader import MTGJSONDownloader
+from commander_ai.adapters.http.transport import HttpTransportError
+from commander_ai.adapters.sources.mtgjson.client import MTGJSONClient, MTGJSONClientError
+from commander_ai.adapters.sources.mtgjson.downloader import (
+    MTGJSONDownloader,
+    MTGJSONDownloadError,
+)
 from commander_ai.adapters.sources.mtgjson.settings import MTGJSONProduct, MTGJSONSettings
 from commander_ai.adapters.storage.raw_snapshot_errors import RawSnapshotError
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
@@ -43,10 +46,12 @@ def _registry(status: SourceApprovalStatus, *, current_status: str = "ALLOWED") 
         host_allowlist=("fixture.invalid",),
         files=("AllPrintings",),
         max_retries=1,
-        rate_limit_per_minute=1,
+        rate_limit_per_minute=10_000,
         max_download_bytes=1_000_000,
         attribution_required=True,
-        filters={"archive_extension": ".zip", "checksum_suffix": ".sha256"},
+        raw_storage="allowed_local",
+        redistribution="review_required",
+        filters={},
     )
     historical = HistoricalApprovalMetadata(
         source_id="mtgjson",
@@ -55,7 +60,10 @@ def _registry(status: SourceApprovalStatus, *, current_status: str = "ALLOWED") 
         reviewed_at=EFFECTIVE_AT,
         effective_at=EFFECTIVE_AT,
         reason="fixture review record",
+        terms_reference="https://terms.fixture.invalid/mtgjson",
         attribution_required=True,
+        raw_local_storage="allowed_local",
+        redistribution_derived="review_required",
     )
     current = CurrentUseDecision(
         source_id="mtgjson",
@@ -82,27 +90,26 @@ def _downloader(
     status: SourceApprovalStatus = SourceApprovalStatus.APPROVED_LOCAL,
     *,
     current_status: str = "ALLOWED",
+    filters: dict[str, object] | None = None,
 ):
     registry = _registry(status, current_status=current_status)
+    if filters is not None:
+        entry = registry.lookup("mtgjson")
+        registry = SourceRegistry(
+            entries=(entry.model_copy(update={
+                "settings": entry.settings.model_copy(update={"filters": filters})
+            }),)
+        )
     source = registry.lookup("mtgjson").settings
     settings = MTGJSONSettings.from_source_settings(source)
     client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
-    transport = HttpTransport(
-        allowed_hosts=set(source.host_allowlist),
-        timeout_seconds=source.timeout_seconds,
-        max_retries=source.max_retries,
-        max_response_bytes=source.max_download_bytes,
-        rate_limit_per_minute=None,
-        client=client,
-        user_agent="CommanderDeckAI/Test-1.0",
-    )
     adapter = MTGJSONDownloader(
         settings=settings,
         policy=SourcePolicy(registry),
         store=RawSnapshotStore(tmp_path, max_object_bytes=source.max_download_bytes),
-        client=MTGJSONClient(settings, transport),
+        client=MTGJSONClient(settings, http_client=client),
     )
-    return adapter, transport
+    return adapter, client
 
 
 @pytest.mark.parametrize(
@@ -118,7 +125,7 @@ def test_downloader_uses_shared_snapshot_store_and_keeps_upstream_checksum_separ
 
     def handler(request: httpx.Request) -> httpx.Response:
         if request.url.path.endswith(".sha256"):
-            body = f"{upstream_sha256}  AllPrintings.zip\n".encode("ascii")
+            body = f"{upstream_sha256}  AllPrintings.json.zip\n".encode("ascii")
         else:
             body = archive
         return httpx.Response(
@@ -136,12 +143,14 @@ def test_downloader_uses_shared_snapshot_store_and_keeps_upstream_checksum_separ
 
     manifest = RawSnapshotStore(tmp_path).load_manifest("mtgjson", "mtgjson-download")
     archive_object = next(
-        item for item in manifest.objects if item.raw_object_id == "AllPrintings.zip"
+        item for item in manifest.objects if item.raw_object_id == "AllPrintings.json.zip"
     )
     assert result.snapshot_commit.source_snapshot_id == "mtgjson-download"
     assert archive_object.sha256 == local_sha256
     assert archive_object.upstream_sha256 == upstream_sha256
     assert archive_object.checksum_verification_status == "verified"
+    assert manifest.terms_reference == "https://terms.fixture.invalid/mtgjson"
+    assert manifest.attribution_required is True
 
 
 def test_downloader_rejects_checksum_mismatch_without_replacing_authoritative_bytes(
@@ -151,7 +160,7 @@ def test_downloader_rejects_checksum_mismatch_without_replacing_authoritative_by
 
     def handler(request: httpx.Request) -> httpx.Response:
         body = (
-            ("0" * 64 + "  AllPrintings.zip\n").encode("ascii")
+            ("0" * 64 + "  AllPrintings.json.zip\n").encode("ascii")
             if request.url.path.endswith(".sha256")
             else archive
         )
@@ -168,7 +177,7 @@ def test_downloader_rejects_checksum_mismatch_without_replacing_authoritative_by
     manifest = RawSnapshotStore(tmp_path).load_manifest("mtgjson", "mtgjson-mismatch")
     assert manifest.status == "FAILED"
     archive_object = next(
-        item for item in manifest.objects if item.raw_object_id == "AllPrintings.zip"
+        item for item in manifest.objects if item.raw_object_id == "AllPrintings.json.zip"
     )
     assert archive_object.sha256 == hashlib.sha256(archive).hexdigest()
     assert archive_object.sha256 != archive_object.upstream_sha256
@@ -203,7 +212,7 @@ def test_partial_archive_download_is_bounded_and_leaves_no_partial_archive_objec
     assert error.value.code == "HTTP_ENTITY_STREAM_FAILED"
     manifest = RawSnapshotStore(tmp_path).load_manifest("mtgjson", "mtgjson-partial")
     assert manifest.status == "FAILED"
-    assert not any(item.raw_object_id == "AllPrintings.zip" for item in manifest.objects)
+    assert not any(item.raw_object_id == "AllPrintings.json.zip" for item in manifest.objects)
 
 
 @pytest.mark.parametrize(
@@ -264,5 +273,115 @@ def test_settings_allow_only_configured_documented_products(status: SourceApprov
     settings = MTGJSONSettings.from_source_settings(registry.lookup("mtgjson").settings)
 
     assert settings.products == (MTGJSONProduct.ALL_PRINTINGS,)
-    assert settings.archive_url(MTGJSONProduct.ALL_PRINTINGS).endswith("/AllPrintings.zip")
-    assert settings.checksum_url(MTGJSONProduct.ALL_PRINTINGS).endswith("/AllPrintings.zip.sha256")
+    assert settings.archive_url(MTGJSONProduct.ALL_PRINTINGS).endswith("/AllPrintings.json.zip")
+    assert settings.checksum_url(MTGJSONProduct.ALL_PRINTINGS).endswith(
+        "/AllPrintings.json.zip.sha256"
+    )
+
+
+def test_mtgjson_settings_reject_unknown_products_filters_and_conflicting_locations() -> None:
+    source = _registry(SourceApprovalStatus.APPROVED_LOCAL).lookup("mtgjson").settings
+
+    with pytest.raises(ValueError, match="unknown MTGJSON filter"):
+        MTGJSONSettings.from_source_settings(
+            source.model_copy(update={"filters": {"unexpected": True}})
+        )
+
+    with pytest.raises(ValueError):
+        MTGJSONSettings.from_source_settings(
+            source.model_copy(update={"files": ("AtomicCards",)})
+        )
+
+    with pytest.raises(ValueError, match="conflicting"):
+        MTGJSONSettings.from_source_settings(
+            source.model_copy(
+                update={
+                    "files": ("AllPrintings",),
+                    "filters": {"files": ["AllDeckFiles"]},
+                }
+            )
+        )
+
+
+def test_mtgjson_checksum_limit_is_dedicated_to_small_sidecars() -> None:
+    source = _registry(SourceApprovalStatus.APPROVED_LOCAL).lookup("mtgjson").settings
+    settings = MTGJSONSettings.from_source_settings(
+        source.model_copy(update={"filters": {"checksum_max_bytes": 32}})
+    )
+
+    assert settings.checksum_max_bytes == 32
+    assert settings.source.max_download_bytes > settings.checksum_max_bytes
+
+
+def test_mtgjson_client_rejects_injected_response_from_unallowlisted_host() -> None:
+    source = _registry(SourceApprovalStatus.APPROVED_LOCAL).lookup("mtgjson").settings
+    settings = MTGJSONSettings.from_source_settings(source)
+    calls: list[str] = []
+
+    class ReplacingClient(httpx.Client):
+        def send(self, request: httpx.Request, *args: object, **kwargs: object) -> httpx.Response:
+            calls.append(str(request.url))
+            return httpx.Response(
+                200,
+                stream=httpx.ByteStream(b"replaced"),
+                request=httpx.Request("GET", "https://evil.invalid/replaced"),
+            )
+
+    http_client = ReplacingClient(follow_redirects=True)
+    client = MTGJSONClient(settings, http_client=http_client)
+    try:
+        with pytest.raises(MTGJSONClientError) as error:
+            client.fetch_archive(MTGJSONProduct.ALL_PRINTINGS)
+    finally:
+        client.close()
+        http_client.close()
+
+    assert error.value.code == "MTGJSON_RESPONSE_HOST_NOT_ALLOWLISTED"
+    assert calls == ["https://fixture.invalid/api/v5/AllPrintings.json.zip"]
+
+
+def test_shared_transport_rejects_an_injected_request_url_before_send() -> None:
+    source = _registry(SourceApprovalStatus.APPROVED_LOCAL).lookup("mtgjson").settings
+    settings = MTGJSONSettings.from_source_settings(source)
+
+    class ReplacingClient(httpx.Client):
+        def build_request(self, method: str, url: str, **kwargs: object) -> httpx.Request:
+            return httpx.Request(method, "https://evil.invalid/replaced")
+
+        def send(self, request: httpx.Request, *args: object, **kwargs: object) -> httpx.Response:
+            raise AssertionError("the policy must reject before send")
+
+    http_client = ReplacingClient()
+    client = MTGJSONClient(settings, http_client=http_client)
+    try:
+        with pytest.raises(HttpTransportError) as error:
+            client.fetch_archive(MTGJSONProduct.ALL_PRINTINGS)
+    finally:
+        client.close()
+        http_client.close()
+
+    assert error.value.code == "SECURITY_HOST_NOT_ALLOWLISTED"
+
+
+def test_oversized_checksum_sidecar_fails_before_archive_object_is_written(tmp_path: Path) -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = b"x" * 33 if request.url.path.endswith(".sha256") else _archive_bytes()
+        return httpx.Response(200, stream=httpx.ByteStream(body), request=request)
+
+    adapter, client = _downloader(
+        tmp_path,
+        handler,
+        filters={"checksum_max_bytes": 32},
+    )
+    try:
+        with pytest.raises(MTGJSONDownloadError) as error:
+            adapter.download(snapshot_id="mtgjson-checksum-limit")
+    finally:
+        client.close()
+
+    manifest = RawSnapshotStore(tmp_path).load_manifest(
+        "mtgjson", "mtgjson-checksum-limit"
+    )
+    assert error.value.code == "MTGJSON_CHECKSUM_TOO_LARGE"
+    assert manifest.status == "FAILED"
+    assert not any(item.raw_object_id == "AllPrintings.json.zip" for item in manifest.objects)

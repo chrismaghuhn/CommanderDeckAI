@@ -22,6 +22,12 @@ class SourceRecordDTO(DomainModel):
     raw_locator: RawLocator
     original_source_values: object
 
+    @model_validator(mode="after")
+    def validate_locator_source(self) -> SourceRecordDTO:
+        if self.source_id != self.raw_locator.source_id:
+            raise ValueError("raw_locator source_id must match source_id")
+        return self
+
 
 class StagingRecord(DomainModel):
     """Lossless source observation; canonical identity is intentionally absent."""
@@ -49,6 +55,8 @@ class StagingRecord(DomainModel):
 
     @model_validator(mode="after")
     def validate_status_findings(self) -> StagingRecord:
+        if self.source_id != self.raw_locator.source_id:
+            raise ValueError("raw_locator source_id must match source_id")
         namespaces = {code.split(".", maxsplit=1)[0] for code in self.finding_codes}
         if self.status == "OBSERVED" and self.finding_codes:
             raise ValueError("OBSERVED staging records cannot carry findings")

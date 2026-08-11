@@ -31,6 +31,16 @@
 9. **Interval and user agent:** Use explicit, infrequent bulk retrieval rather than polling. The client must identify itself with the project user agent when required and respect current source guidance and configured limits.
 10. **Necessary fields/recommended use:** The necessary fields are the configured `AllDeckFiles` and the card/identifier data needed to resolve documented deck and product provenance. Recommended use is local card/deck provenance, not a general price feed or unrestricted content mirror.
 
+## Konfigurierte Bulk-Dateien
+
+Die konfigurierte MTGJSON-v5-Basis ist `https://mtgjson.com/api/v5/`.
+Verwendet werden ausschließlich die veröffentlichten Dateinamen
+`AllPrintings.json.zip` und `AllPrintings.json.zip.sha256` sowie die analogen
+`AllDeckFiles`-Dateien. Andere Dateinamen oder Endpunkte sind nicht Teil dieses
+Reviews. Die Checksum-Seitendatei wird als eigener Raw-Download unter einem
+dedizierten Limit von 4096 Bytes gespeichert; sie ersetzt weder die exakten
+Archivbytes noch deren lokal berechneten Digest.
+
 ## Hinweis
 
 Die MIT-Lizenz des MTGJSON-Projekts wird getrennt von Rechten an zugrunde liegenden Magic-Inhalten behandelt. Attribution und aktuelle Lizenz-/Termsseiten werden im Source-Manifest referenziert. Dies ist keine rechtliche Freigabe.

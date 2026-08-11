@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
+import tarfile
+import zipfile
 from pathlib import Path
 
 from commander_ai.adapters.storage.archive_safety import (
     ArchiveLimits,
     ArchiveSafetyError,
     extract_archive,
+    inspect_archive,
 )
 from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
 from commander_ai.data_pipeline.staging.raw_locators import JsonPointerLocator, RawLocator
@@ -49,7 +53,7 @@ class MTGJSONParser:
         destination: Path | str,
         product: MTGJSONProduct,
     ) -> MTGJSONParseResult:
-        verified_snapshot.assert_consistent()
+        self._require_mtgjson_snapshot(verified_snapshot)
         raw_path = verified_snapshot.object_paths.get(raw_object_id)
         if raw_path is None or raw_object_id not in verified_snapshot.object_index:
             raise MTGJSONParseError("INTEGRITY_OBJECT_MISSING")
@@ -83,9 +87,15 @@ class MTGJSONParser:
         verified_snapshot: VerifiedSourceSnapshot,
         raw_object_id: str,
         archive_member: str,
-        member_bytes: bytes,
+        member_bytes: bytes | None = None,
         product: MTGJSONProduct,
     ) -> tuple[MTGJSONParsedRecord, ...]:
+        verified_member_bytes = self._read_verified_member(
+            verified_snapshot, raw_object_id, archive_member
+        )
+        if member_bytes is not None and member_bytes != verified_member_bytes:
+            raise MTGJSONParseError("INTEGRITY_ARCHIVE_MEMBER_MISMATCH")
+        member_bytes = verified_member_bytes
         locator = self._locator(verified_snapshot, raw_object_id, archive_member, "")
         try:
             payload = json.loads(
@@ -128,12 +138,64 @@ class MTGJSONParser:
         if reference is None:
             raise MTGJSONParseError("INTEGRITY_OBJECT_MISSING")
         return RawLocator(
+            source_id=verified_snapshot.manifest.source_id,
             source_snapshot_id=verified_snapshot.manifest.source_snapshot_id,
             raw_object_id=raw_object_id,
             raw_object_path=reference.path,
             archive_member=archive_member,
             location=JsonPointerLocator(pointer=pointer),
         )
+
+    @staticmethod
+    def _require_mtgjson_snapshot(verified_snapshot: VerifiedSourceSnapshot) -> None:
+        try:
+            verified_snapshot.assert_consistent()
+        except ValueError:
+            raise MTGJSONParseError("INTEGRITY_SNAPSHOT_INVALID") from None
+        if verified_snapshot.manifest.source_id != "mtgjson":
+            raise MTGJSONParseError("INTEGRITY_SOURCE_MISMATCH")
+
+    def _read_verified_member(
+        self,
+        verified_snapshot: VerifiedSourceSnapshot,
+        raw_object_id: str,
+        archive_member: str,
+    ) -> bytes:
+        self._require_mtgjson_snapshot(verified_snapshot)
+        raw_path = verified_snapshot.object_paths.get(raw_object_id)
+        if raw_path is None or raw_object_id not in verified_snapshot.object_index:
+            raise MTGJSONParseError("INTEGRITY_OBJECT_MISSING")
+        reference = verified_snapshot.object_index[raw_object_id]
+        try:
+            digest = hashlib.sha256()
+            actual_bytes = 0
+            with raw_path.open("rb") as raw_stream:
+                while chunk := raw_stream.read(1024 * 1024):
+                    actual_bytes += len(chunk)
+                    digest.update(chunk)
+            if actual_bytes != reference.bytes or digest.hexdigest() != reference.sha256:
+                raise MTGJSONParseError("INTEGRITY_OBJECT_HASH_MISMATCH")
+            inspection = inspect_archive(raw_path, limits=self._archive_limits)
+            if not any(
+                item.name == archive_member and not item.is_dir for item in inspection.members
+            ):
+                raise MTGJSONParseError("INTEGRITY_ARCHIVE_MEMBER_MISSING")
+            if zipfile.is_zipfile(raw_path):
+                with zipfile.ZipFile(raw_path) as archive:
+                    return archive.read(archive_member)
+            with tarfile.open(raw_path, mode="r:*") as archive:
+                member = archive.getmember(archive_member)
+                member_stream = archive.extractfile(member)
+                if member_stream is None:
+                    raise MTGJSONParseError("INTEGRITY_ARCHIVE_MEMBER_MISSING")
+                with member_stream:
+                    return member_stream.read()
+        except MTGJSONParseError:
+            raise
+        except ArchiveSafetyError as error:
+            raise MTGJSONParseError(error.code) from None
+        except (OSError, tarfile.TarError, zipfile.BadZipFile, KeyError, ValueError):
+            raise MTGJSONParseError("INTEGRITY_ARCHIVE_MEMBER_MISSING") from None
 
 
 def _pairs_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:

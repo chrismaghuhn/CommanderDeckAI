@@ -44,6 +44,7 @@ def staging_record() -> StagingRecord:
             source_id="fixture",
             record_type="deck",
             raw_locator=RawLocator(
+                source_id="fixture",
                 source_snapshot_id="snapshot-1",
                 raw_object_id="object-1",
                 raw_object_path="objects/object-1",

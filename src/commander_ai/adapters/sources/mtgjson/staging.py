@@ -22,7 +22,7 @@ class MTGJSONStagingMapper:
 
     def map_record(self, record: MTGJSONParsedRecord) -> StagingRecord:
         dto = SourceRecordDTO(
-            source_id="mtgjson",
+            source_id=record.raw_locator.source_id,
             record_type=record.record_type,
             raw_locator=record.raw_locator,
             original_source_values=record.source_values,

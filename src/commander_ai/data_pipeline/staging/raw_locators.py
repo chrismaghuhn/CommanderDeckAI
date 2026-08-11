@@ -65,6 +65,7 @@ RawLocation = Annotated[
 class RawLocator(DomainModel):
     """Source snapshot/object identity plus one exact logical-record locator."""
 
+    source_id: str = Field(min_length=1)
     source_snapshot_id: str = Field(min_length=1)
     raw_object_id: str = Field(min_length=1)
     raw_object_path: str = Field(min_length=1)
@@ -98,6 +99,7 @@ class RawLocator(DomainModel):
             }
         return canonical_json_bytes(
             {
+                "source_id": self.source_id,
                 "source_snapshot_id": self.source_snapshot_id,
                 "raw_object_id": self.raw_object_id,
                 "raw_object_path": self.raw_object_path,
@@ -128,6 +130,8 @@ def validate_raw_locator_against_snapshot(
         raise ValueError("verified raw snapshot evidence is required for raw locators")
     verified_snapshot.assert_consistent()
     manifest = verified_snapshot.manifest
+    if locator.source_id != manifest.source_id:
+        raise ValueError("raw locator source_id does not match verified snapshot")
     if source_id is not None and source_id != manifest.source_id:
         raise ValueError("raw locator source_id does not match verified snapshot")
     if locator.source_snapshot_id != manifest.source_snapshot_id:

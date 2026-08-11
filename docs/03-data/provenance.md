@@ -21,6 +21,18 @@ Jede normalisierte Zeile muss auf mindestens ein Source-Objekt zurückführbar s
 Datasetmanifeste listen alle Input-Snapshots und SQL-/Codeversionen. Modellmanifeste referenzieren genau ein Datasetmanifest. Optimizer-Ergebnisse referenzieren einen Score-Snapshot und ein Ruleset.
 
 Ohne vollständige Linie gilt ein Artefakt als nicht releasefähig.
+
+## Exakte Raw-Locators
+
+Ein Staging-/Audit-Locator bindet immer `source_id`,
+`source_snapshot_id`, `raw_object_id`, den verifizierten Raw-Pfad, optional den
+Archivmember sowie JSON-Pointer, Record-Index oder Bytebereich. Der MTGJSON-
+Parser liest den benannten Member erneut aus dem verifizierten komprimierten
+Raw-Objekt und vergleicht optional angelieferte Bytes bytegenau; fremde Bytes
+werden verworfen. Ein Locator aus einem anderen Source-Snapshot oder mit einer
+anderen `source_id` ist ungültig. Extrahierte Dateien sind nur eine abgeleitete
+Ansicht und keine neue Raw-Identität.
+
 ## Operation runs and normalized snapshots
 
 `run-manifest.v1` is reused for `source_sync`, `normalize`, `validate`, `report`, and

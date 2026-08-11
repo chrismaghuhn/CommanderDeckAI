@@ -6,13 +6,34 @@ from collections.abc import Mapping
 
 from pydantic import ConfigDict, Field
 
-from commander_ai.domain.provenance import DomainModel
+from commander_ai.domain.provenance import DomainModel, FrozenDict
 
 
 class MTGJSONModel(DomainModel):
     """Immutable DTO projection that retains unknown source fields."""
 
     model_config = ConfigDict(extra="allow", frozen=True, populate_by_name=True)
+
+    def model_post_init(self, __context: object) -> None:
+        super().model_post_init(__context)
+        if self.model_extra:
+            object.__setattr__(
+                self,
+                "__pydantic_extra__",
+                FrozenDict(
+                    {str(key): _freeze_extra(value) for key, value in self.model_extra.items()}
+                ),
+            )
+
+
+def _freeze_extra(value: object) -> object:
+    if isinstance(value, Mapping):
+        return FrozenDict({str(key): _freeze_extra(item) for key, item in value.items()})
+    if isinstance(value, (list, tuple)):
+        return tuple(_freeze_extra(item) for item in value)
+    if isinstance(value, (set, frozenset)):
+        return frozenset(_freeze_extra(item) for item in value)
+    return value
 
 
 class MTGJSONCardFace(MTGJSONModel):

@@ -5,12 +5,14 @@ import json
 import zipfile
 from pathlib import Path
 
+import pytest
+
 from commander_ai.adapters.sources.mtgjson.dto import (
     MTGJSONCard,
     MTGJSONCardFace,
     MTGJSONDeckProduct,
 )
-from commander_ai.adapters.sources.mtgjson.parser import MTGJSONParser
+from commander_ai.adapters.sources.mtgjson.parser import MTGJSONParseError, MTGJSONParser
 from commander_ai.adapters.sources.mtgjson.settings import MTGJSONProduct
 from commander_ai.adapters.sources.mtgjson.staging import MTGJSONStagingMapper
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
@@ -27,10 +29,15 @@ def _zip_members(members: dict[str, bytes]) -> bytes:
     return output.getvalue()
 
 
-def _verified_snapshot(tmp_path: Path, archive_bytes: bytes):
+def _verified_snapshot(
+    tmp_path: Path,
+    archive_bytes: bytes,
+    *,
+    source_id: str = "mtgjson",
+):
     store = RawSnapshotStore(tmp_path)
     writer = store.start_snapshot(
-        source_id="mtgjson",
+        source_id=source_id,
         snapshot_id="mtgjson-fixture",
         approval_status="APPROVED_LOCAL",
         adapter_version="mtgjson-v1",
@@ -42,20 +49,20 @@ def _verified_snapshot(tmp_path: Path, archive_bytes: bytes):
         {
             "request_id": "archive-request",
             "sanitized_method": "GET",
-            "sanitized_endpoint": "https://fixture.invalid/api/v5/AllPrintings.zip",
+            "sanitized_endpoint": "https://fixture.invalid/api/v5/AllPrintings.json.zip",
             "format": "binary",
             "sanitized_parameters": {},
         }
     )
     writer.write_object(
-        raw_object_id="AllPrintings.zip",
+        raw_object_id="AllPrintings.json.zip",
         request_id="archive-request",
         chunks=[archive_bytes],
         content_type="application/zip",
         source_object_id="AllPrintings",
     )
     writer.finalize()
-    return SnapshotVerifier(tmp_path).verify_complete_snapshot("mtgjson", "mtgjson-fixture")
+    return SnapshotVerifier(tmp_path).verify_complete_snapshot(source_id, "mtgjson-fixture")
 
 
 def test_parser_preserves_cards_printings_faces_and_required_source_fields(tmp_path: Path) -> None:
@@ -64,7 +71,7 @@ def test_parser_preserves_cards_printings_faces_and_required_source_fields(tmp_p
 
     result = MTGJSONParser().parse_archive(
         verified,
-        raw_object_id="AllPrintings.zip",
+        raw_object_id="AllPrintings.json.zip",
         destination=tmp_path / "derived" / "all-printings",
         product=MTGJSONProduct.ALL_PRINTINGS,
     )
@@ -108,8 +115,8 @@ def test_parser_preserves_cards_printings_faces_and_required_source_fields(tmp_p
         "normal-printing-1",
         "normal-printing-2",
     }
-    assert verified.object_paths["AllPrintings.zip"].read_bytes() == archive
-    assert result.extracted_root != verified.object_paths["AllPrintings.zip"]
+    assert verified.object_paths["AllPrintings.json.zip"].read_bytes() == archive
+    assert result.extracted_root != verified.object_paths["AllPrintings.json.zip"]
     assert (result.extracted_root / "AllPrintings.json").is_file()
 
 
@@ -121,7 +128,7 @@ def test_parser_preserves_deck_product_commander_and_precon_metadata(tmp_path: P
 
     result = MTGJSONParser().parse_archive(
         verified,
-        raw_object_id="AllPrintings.zip",
+        raw_object_id="AllPrintings.json.zip",
         destination=tmp_path / "derived" / "decks",
         product=MTGJSONProduct.ALL_DECK_FILES,
     )
@@ -154,7 +161,7 @@ def test_malformed_records_are_retained_with_namespaced_findings_and_exact_locat
     verified = _verified_snapshot(tmp_path, archive)
     result = MTGJSONParser().parse_archive(
         verified,
-        raw_object_id="AllPrintings.zip",
+        raw_object_id="AllPrintings.json.zip",
         destination=tmp_path / "derived" / "malformed",
         product=MTGJSONProduct.ALL_PRINTINGS,
     )
@@ -165,8 +172,9 @@ def test_malformed_records_are_retained_with_namespaced_findings_and_exact_locat
     assert malformed[0].finding_codes == ("parse.missing_required_field",)
     assert malformed[0].raw_locator.archive_member == "AllPrintings.json"
     assert malformed[0].raw_locator.location.pointer == "/data/BAD/cards/0"
-    assert malformed[0].raw_locator.raw_object_id == "AllPrintings.zip"
-    assert malformed[0].raw_locator.raw_object_path == "objects/AllPrintings.zip"
+    assert malformed[0].raw_locator.source_id == "mtgjson"
+    assert malformed[0].raw_locator.raw_object_id == "AllPrintings.json.zip"
+    assert malformed[0].raw_locator.raw_object_path == "objects/AllPrintings.json.zip"
     assert malformed[1].finding_codes == ("parse.record_not_object",)
     assert malformed[1].raw_locator.location.pointer == "/data/BAD/cards/1"
 
@@ -175,3 +183,51 @@ def test_malformed_records_are_retained_with_namespaced_findings_and_exact_locat
     assert {row.status for row in invalid} == {"STRUCTURAL_INVALID", "PARSE_FAILED"}
     assert all(row.raw_locator.source_snapshot_id == "mtgjson-fixture" for row in invalid)
     assert all(row.finding_codes for row in invalid)
+
+
+def test_parser_rejects_member_bytes_that_do_not_match_verified_archive(
+    tmp_path: Path,
+) -> None:
+    archive = _zip_members({"AllPrintings.json": b'{"meta":{},"data":{}}'})
+    verified = _verified_snapshot(tmp_path, archive)
+
+    with pytest.raises(MTGJSONParseError) as error:
+        MTGJSONParser().parse_member(
+            verified_snapshot=verified,
+            raw_object_id="AllPrintings.json.zip",
+            archive_member="AllPrintings.json",
+            member_bytes=b'{"meta":{},"data":{"evil":true}}',
+            product=MTGJSONProduct.ALL_PRINTINGS,
+        )
+
+    assert error.value.code == "INTEGRITY_ARCHIVE_MEMBER_MISMATCH"
+
+
+def test_parser_rejects_a_verified_snapshot_from_a_different_source(tmp_path: Path) -> None:
+    archive = _zip_members({"AllPrintings.json": b'{"meta":{},"data":{}}'})
+    verified = _verified_snapshot(tmp_path, archive, source_id="other-source")
+
+    with pytest.raises(MTGJSONParseError) as error:
+        MTGJSONParser().parse_archive(
+            verified,
+            raw_object_id="AllPrintings.json.zip",
+            destination=tmp_path / "derived" / "wrong-source",
+            product=MTGJSONProduct.ALL_PRINTINGS,
+        )
+
+    assert error.value.code == "INTEGRITY_SOURCE_MISMATCH"
+
+
+def test_mtgjson_dto_keeps_forward_fields_but_freezes_nested_values() -> None:
+    card = MTGJSONCard.model_validate(
+        {
+            "uuid": "future-card",
+            "name": "Future Card",
+            "futureField": {"values": [1, 2]},
+        }
+    )
+
+    future_field = card.model_extra["futureField"]
+    assert card.model_dump(mode="json")["futureField"] == {"values": [1, 2]}
+    with pytest.raises(TypeError):
+        future_field["values"] = (3,)  # type: ignore[index]

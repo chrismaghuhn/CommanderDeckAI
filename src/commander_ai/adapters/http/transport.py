@@ -303,6 +303,7 @@ class HttpTransport:
                     headers=request_headers,
                     timeout=self._timeout_seconds,
                 )
+                self._policy.validate(str(request.url))
                 if strip_sensitive_headers:
                     for key in list(request.headers):
                         if is_sensitive_request_header(key):
@@ -318,7 +319,9 @@ class HttpTransport:
                     raise HttpTransportError("HTTP_TIMEOUT") from None
                 self._sleeper(self._retry_delay(attempt, None))
                 continue
-            except httpx.RequestError:
+            except (httpx.RequestError, RedirectPolicyError) as error:
+                if isinstance(error, RedirectPolicyError):
+                    raise HttpTransportError(error.code) from None
                 if attempt >= self._max_retries:
                     raise HttpTransportError("HTTP_CONNECTION_FAILED") from None
                 self._sleeper(self._retry_delay(attempt, None))

@@ -19,6 +19,7 @@ attribution_required: true
 raw_storage: allowed_local
 redistribution: review_required
 filters:
-  archive_extension: .zip
+  archive_extension: .json.zip
   checksum_suffix: .sha256
+  checksum_max_bytes: 4096
   files: [AllDeckFiles, AllPrintings]

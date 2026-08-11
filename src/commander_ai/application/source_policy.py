@@ -201,9 +201,32 @@ class SourcePolicy:
                 current_status=entry.current_use.status if entry.current_use else None,
             )
             raise SourcePolicyError(decision)
+        historical = entry.historical_approval
+        reviewed_redistribution = (
+            historical.redistribution_derived
+            or historical.redistribution_raw
+            or "not_approved"
+        )
+        metadata_pairs = (
+            ("attribution", entry.settings.attribution_required, historical.attribution_required),
+            ("raw_storage", entry.settings.raw_storage, historical.raw_local_storage or "unknown"),
+            ("redistribution", entry.settings.redistribution, reviewed_redistribution),
+        )
+        for field_name, configured, reviewed in metadata_pairs:
+            if configured != reviewed:
+                decision = SourcePolicyDecision(
+                    source_id=normalized,
+                    operation=PolicyOperation.SOURCE_SYNC,
+                    allowed=False,
+                    code="POLICY_SOURCE_METADATA_MISMATCH",
+                    reason=f"source {field_name} metadata is not equal to reviewed policy",
+                    historical_status=historical.approval_status,
+                    current_status=entry.current_use.status if entry.current_use else None,
+                )
+                raise SourcePolicyError(decision)
         return SourceAdapterConfiguration(
             source=entry.settings,
-            historical_approval=entry.historical_approval,
+            historical_approval=historical,
         )
 
     @staticmethod

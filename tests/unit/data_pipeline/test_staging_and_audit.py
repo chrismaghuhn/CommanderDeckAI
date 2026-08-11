@@ -21,6 +21,7 @@ from commander_ai.data_pipeline.staging.records import SourceRecordDTO, StagingR
 
 def raw_locator() -> RawLocator:
     return RawLocator(
+        source_id="fixture",
         source_snapshot_id="fixture-snapshot",
         raw_object_id="object-1",
         raw_object_path="objects/object-1.json",
@@ -200,8 +201,19 @@ def test_provenance_top_level_locator_fields_must_match_raw_locator() -> None:
         )
 
 
+def test_records_reject_a_locator_from_a_different_source() -> None:
+    with pytest.raises(ValueError, match="source_id"):
+        SourceRecordDTO(
+            source_id="other-source",
+            record_type="deck",
+            raw_locator=raw_locator(),
+            original_source_values={},
+        )
+
+
 def test_archive_member_is_portable_and_part_of_exact_locator() -> None:
     first = RawLocator(
+        source_id="fixture",
         source_snapshot_id="fixture-snapshot",
         raw_object_id="archive-1",
         raw_object_path="objects/archive-1.zip",
@@ -209,8 +221,10 @@ def test_archive_member_is_portable_and_part_of_exact_locator() -> None:
         archive_member="nested/cards.json",
     )
     second = first.model_copy(update={"archive_member": "other/cards.json"})
+    other_source = first.model_copy(update={"source_id": "other-source"})
 
     assert first.exact_locator != second.exact_locator
+    assert first.exact_locator != other_source.exact_locator
     with pytest.raises(ValueError):
         first.model_copy(update={"archive_member": "nested\\cards.json"})
 
