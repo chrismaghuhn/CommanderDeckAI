@@ -20,6 +20,7 @@ from commander_ai.config.source_settings import SourceApprovalStatus, SourceSett
 from commander_ai.config.yaml_loader import (
     ConfigurationError,
     load_dataset_settings,
+    load_runtime_config,
     load_source_settings,
     redact_text,
     serialize_config,
@@ -139,6 +140,35 @@ def test_serialized_repository_root_uses_a_non_path_marker() -> None:
 
     assert serialized["data_root"] == "<repository-root>"
     assert serialized["artifact_root"] == "<repository-root>"
+
+
+@pytest.mark.parametrize(
+    ("field_name", "marker"),
+    [
+        ("data_root", "<external-root>"),
+        ("artifact_root", "<repository-root>"),
+    ],
+)
+def test_runtime_rejects_non_reloadable_snapshot_root_markers(field_name: str, marker: str) -> None:
+    with pytest.raises(ValidationError, match="snapshot-only"):
+        RuntimeConfig(**{field_name: Path(marker)})
+
+
+@pytest.mark.parametrize(
+    ("field_name", "marker"),
+    [
+        ("data_root", "<external-root>"),
+        ("artifact_root", "<repository-root>"),
+    ],
+)
+def test_yaml_runtime_loader_rejects_non_reloadable_snapshot_root_markers(
+    tmp_path: Path, field_name: str, marker: str
+) -> None:
+    config_path = tmp_path / "runtime.yaml"
+    config_path.write_text(f"{field_name}: {marker}\n", encoding="utf-8")
+
+    with pytest.raises(ConfigurationError, match="snapshot-only"):
+        load_runtime_config(config_path)
 
 
 def test_source_ids_and_statuses_are_normalized() -> None:
@@ -304,6 +334,81 @@ def test_redact_text_removes_url_userinfo_and_credential_bearing_forms() -> None
     assert "https://[REDACTED]@example.com" in redacted
 
 
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (
+            "http://alice:password@example.com/path",
+            "http://[REDACTED]@example.com/path",
+        ),
+        (
+            "https://alice:password@example.com/path",
+            "https://[REDACTED]@example.com/path",
+        ),
+        (
+            "ftp://alice:password@example.com/path",
+            "ftp://[REDACTED]@example.com/path",
+        ),
+        (
+            "ssh://alice:password@example.com:22/path",
+            "ssh://[REDACTED]@example.com:22/path",
+        ),
+        (
+            "//alice:password@example.com/path",
+            "//[REDACTED]@example.com/path",
+        ),
+        (
+            "ssh://alice:password@[2001:db8::1]:22/path",
+            "ssh://[REDACTED]@[2001:db8::1]:22/path",
+        ),
+    ],
+)
+def test_redact_text_redacts_userinfo_for_network_uri_forms(value: str, expected: str) -> None:
+    redacted = redact_text(value)
+
+    assert redacted == expected
+    assert redact_text(redacted) == redacted
+    assert "alice" not in redacted
+    assert "password" not in redacted
+
+
+def test_redact_text_preserves_noncredential_double_slash_path_text() -> None:
+    value = "https://example.com/path//public@example.com"
+
+    assert redact_text(value) == value
+
+
+def test_redact_text_handles_credential_suffixes_and_is_idempotent() -> None:
+    value = (
+        "https://user:pass@example.com/path?token=query-secret]]}&safe=1; "
+        "Authorization: Bearer bearer-secret]]}#bearer-suffix; "
+        "Basic basic-secret)]}; api_key=assignment-secret]]}#assignment-suffix"
+    )
+
+    redacted = redact_text(value)
+
+    assert "user" not in redacted
+    assert "pass" not in redacted
+    assert "query-secret" not in redacted
+    assert "bearer-secret" not in redacted
+    assert "bearer-suffix" not in redacted
+    assert "basic-secret" not in redacted
+    assert "assignment-secret" not in redacted
+    assert "assignment-suffix" not in redacted
+    assert "safe=1" in redacted
+    assert "[REDACTED]]" not in redacted
+    assert redact_text(redacted) == redacted
+
+
+def test_redact_text_does_not_reprocess_marker_with_known_secret_values() -> None:
+    secrets = ("actual-secret", "REDACTED")
+
+    redacted = redact_text("message actual-secret", secret_values=secrets)
+
+    assert redacted == "message [REDACTED]"
+    assert redact_text(redacted, secret_values=secrets) == redacted
+
+
 def test_current_use_takedown_reference_is_redacted_in_direct_dumps_and_snapshots() -> None:
     decision = CurrentUseDecision(
         source_id="example_source",
@@ -334,6 +439,44 @@ def test_current_use_takedown_reference_dump_is_safe_after_unvalidated_model_cop
 
     assert "user" not in str(decision.model_dump())
     assert "pass" not in str(decision.model_dump())
+
+
+def test_current_use_sensitive_fields_are_safe_in_all_direct_dumps_after_model_copy_update() -> (
+    None
+):
+    reason = (
+        "keep this explanation; https://user:pass@example.com/path?token=query-secret "
+        "Authorization: Bearer bearer-secret; api_key=assignment-secret"
+    )
+    takedown_reference = (
+        "ssh://reference-user:reference-pass@example.com/takedown"
+        "?access_token=reference-query-secret"
+    )
+    decision = CurrentUseDecision(
+        source_id="example_source",
+        status="TAKEDOWN",
+        reason="safe initial reason",
+        effective_at=datetime(2026, 8, 10, tzinfo=UTC),
+    ).model_copy(update={"reason": reason, "takedown_reference": takedown_reference})
+
+    direct_dump = decision.model_dump()
+    direct_json = decision.model_dump_json()
+
+    for secret in (
+        "user",
+        "pass",
+        "query-secret",
+        "bearer-secret",
+        "assignment-secret",
+        "reference-user",
+        "reference-pass",
+        "reference-query-secret",
+    ):
+        assert secret not in str(direct_dump)
+        assert secret not in direct_json
+    assert "keep this explanation" in direct_dump["reason"]
+    assert "[REDACTED]" in direct_dump["reason"]
+    assert "[REDACTED]" in direct_dump["takedown_reference"]
 
 
 def test_current_use_reason_redacts_bearer_and_other_credential_forms() -> None:

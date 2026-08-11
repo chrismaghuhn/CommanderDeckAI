@@ -21,20 +21,28 @@ from .source_settings import SourceSettings, is_credential_key, is_environment_n
 if TYPE_CHECKING:
     from commander_ai.application.configuration import OperationConfig
 
-_SECRET_ASSIGNMENT = re.compile(
-    r"(?i)(api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)"
-    r"(\s*[:=]\s*)([^,\s;}&\]\)\"']+)"
+_REDACTION_MARKER = "[REDACTED]"
+_URI_USERINFO = re.compile(
+    r"(?<![A-Za-z0-9+._-])"
+    r"(?P<prefix>(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)"
+    r"(?P<userinfo>[^/\s?#]+)@"
 )
 _BEARER_BASIC_VALUE = re.compile(
     r"(?i)(?<![\w-])"
     r"(?P<label>(?:(?:proxy-)?authorization\s*[:=]\s*)?)"
-    r"(?P<scheme>bearer|basic)\s+(?P<value>[^,\s;}&\]\)\"']+)"
+    r"(?P<scheme>bearer|basic)\s+(?P<value>[^,\s;&]+)"
 )
 _SECRET_QUERY_PARAMETER = re.compile(
-    r"(?i)([?&](?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)=)"
-    r"[^&#\s,;}&\]\)\"']+"
+    r"(?i)(?P<prefix>[?&](?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)=)"
+    r"(?!(?:bearer|basic)\s+)"
+    r"(?P<value>[^&#\s,;]+)"
 )
-_URL_USERINFO = re.compile(r"(?i)(?P<scheme>\bhttps?://)(?P<userinfo>[^/\s?#@]+)@")
+_SECRET_ASSIGNMENT = re.compile(
+    r"(?i)(?P<label>api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)"
+    r"(?P<separator>\s*[:=]\s*)"
+    r"(?!(?:bearer|basic)\s+)"
+    r"(?P<value>[^,\s;&]+)"
+)
 _SOURCE_SETTINGS_ENV_FIELDS = frozenset({"api_key_env", "credential_env_vars", "user_agent_env"})
 _MISSING = object()
 
@@ -198,13 +206,19 @@ def redact_text(text: str, secret_values: Sequence[str] = ()) -> str:
     """Remove known secret values and common credential assignments from text."""
 
     redacted = text
-    for secret in secret_values:
-        if secret:
-            redacted = redacted.replace(secret, "[REDACTED]")
-    redacted = _URL_USERINFO.sub(r"\g<scheme>[REDACTED]@", redacted)
-    redacted = _BEARER_BASIC_VALUE.sub(r"\g<label>\g<scheme> [REDACTED]", redacted)
-    redacted = _SECRET_QUERY_PARAMETER.sub(r"\1[REDACTED]", redacted)
-    redacted = _SECRET_ASSIGNMENT.sub(r"\1[REDACTED]", redacted)
+    for secret in sorted(
+        (value for value in secret_values if value),
+        key=len,
+        reverse=True,
+    ):
+        redacted = _REDACTION_MARKER.join(
+            fragment.replace(secret, _REDACTION_MARKER)
+            for fragment in redacted.split(_REDACTION_MARKER)
+        )
+    redacted = _URI_USERINFO.sub(rf"\g<prefix>{_REDACTION_MARKER}@", redacted)
+    redacted = _BEARER_BASIC_VALUE.sub(rf"\g<label>\g<scheme> {_REDACTION_MARKER}", redacted)
+    redacted = _SECRET_QUERY_PARAMETER.sub(rf"\g<prefix>{_REDACTION_MARKER}", redacted)
+    redacted = _SECRET_ASSIGNMENT.sub(rf"\g<label>\g<separator>{_REDACTION_MARKER}", redacted)
     return redacted
 
 

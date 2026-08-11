@@ -85,6 +85,10 @@ class CurrentUseDecision(BaseModel):
     def redact_sensitive_text(cls, value: str) -> str:
         return redact_text(value)
 
+    @field_serializer("reason")
+    def serialize_reason(self, value: str) -> str:
+        return redact_text(value)
+
     @field_serializer("takedown_reference")
     def serialize_takedown_reference(self, value: str | None) -> str | None:
         return None if value is None else redact_text(value)

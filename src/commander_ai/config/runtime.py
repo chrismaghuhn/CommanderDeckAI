@@ -11,6 +11,7 @@ from commander_ai.domain.provenance import validate_portable_relative_path
 
 _REPOSITORY_ROOT_MARKER = "<repository-root>"
 _EXTERNAL_ROOT_MARKER = "<external-root>"
+_NON_RELOADABLE_ROOT_MARKERS = frozenset({_REPOSITORY_ROOT_MARKER, _EXTERNAL_ROOT_MARKER})
 
 
 class RuntimeConfig(BaseModel):
@@ -47,6 +48,11 @@ class RuntimeConfig(BaseModel):
 
     @staticmethod
     def _resolve_root(path: Path, repository_root: Path) -> Path:
+        if path.as_posix() in _NON_RELOADABLE_ROOT_MARKERS:
+            raise ValueError(
+                "portable snapshot root markers are snapshot-only and cannot be loaded "
+                "as filesystem roots"
+            )
         expanded = path.expanduser()
         if not expanded.is_absolute():
             expanded = repository_root / expanded
