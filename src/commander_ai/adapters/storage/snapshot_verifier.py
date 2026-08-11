@@ -8,6 +8,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from pathlib import Path
 
+from pydantic import ValidationError
+
 from commander_ai.application.normalize_snapshot import RawSnapshotVerificationError
 from commander_ai.application.verified_source_snapshot import (
     _VERIFIER_TOKEN,
@@ -95,8 +97,8 @@ class SnapshotVerifier:
             return SnapshotInspection(status, False, (duplicate_code,), None, 0)
         try:
             manifest = SourceSnapshotManifest.model_validate(payload)
-        except ValueError as error:
-            code = _manifest_validation_code(str(error))
+        except ValidationError as error:
+            code = _manifest_validation_code(error)
             return SnapshotInspection(status, False, (code,), None, 0)
         if manifest.source_id != source_id or manifest.source_snapshot_id != snapshot_id:
             return SnapshotInspection(status, False, ("INTEGRITY_MANIFEST_IDENTITY",), None, 0)
@@ -254,10 +256,14 @@ def _has_duplicate(values: list[object]) -> bool:
     return any(value == prior for index, value in enumerate(values) for prior in values[:index])
 
 
-def _manifest_validation_code(message: str) -> str:
-    if "request" in message or "request_id" in message:
+def _manifest_validation_code(error: ValidationError) -> str:
+    if any(
+        detail["loc"] == ()
+        and detail["msg"].startswith("Value error, objects reference unknown request_id values:")
+        for detail in error.errors()
+    ):
         return "INTEGRITY_REQUEST_OBJECT_LINEAGE"
-    return "INTEGRITY_MANIFEST_INVALID"
+    return "INTEGRITY_MANIFEST_FORMAT"
 
 
 def _contains_symlink(path: Path, root: Path) -> bool:
