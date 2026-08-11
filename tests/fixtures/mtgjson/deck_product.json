@@ -1,0 +1,15 @@
+{
+  "name": "Task Test Commander Deck",
+  "fileName": "TST-commander.json",
+  "code": "TST",
+  "releaseDate": "2026-08-10",
+  "type": "commander",
+  "identifiers": {"cardKingdomId": "deck-123"},
+  "commander": [{"name": "Test Adept", "count": 1}],
+  "mainBoard": [{"name": "Test Adept", "count": 1}],
+  "sideBoard": [],
+  "sourceProducts": [{"name": "Task Test Commander Deck", "productType": "precon"}],
+  "sealedProductContents": [{"name": "Task Test Commander Deck", "count": 1}],
+  "partner": {"name": "Partner Fixture"},
+  "background": {"name": "Background Fixture"}
+}

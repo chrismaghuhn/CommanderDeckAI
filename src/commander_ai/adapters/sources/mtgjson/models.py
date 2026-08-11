@@ -1,0 +1,96 @@
+"""Immutable MTGJSON parse findings and logical-record result contracts."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+
+from pydantic import Field, field_validator
+
+from commander_ai.data_pipeline.quality.finding_codes import validate_finding_code
+from commander_ai.data_pipeline.staging.raw_locators import RawLocator
+from commander_ai.domain.provenance import DomainModel
+
+from .dto import MTGJSONModel
+
+
+class MTGJSONFinding(DomainModel):
+    """A source parse/structural finding retaining the exact raw locator."""
+
+    code: str = Field(min_length=1)
+    message: str = Field(min_length=1)
+    raw_locator: RawLocator
+
+    @field_validator("code")
+    @classmethod
+    def validate_parse_namespace(cls, value: str) -> str:
+        code = validate_finding_code(value)
+        if code.split(".", maxsplit=1)[0] not in {"parse", "integrity"}:
+            raise ValueError("MTGJSON findings must use parse or integrity namespaces")
+        return code
+
+
+class MTGJSONParsedRecord(DomainModel):
+    """One source observation, including malformed values and its DTO projection."""
+
+    record_type: str = Field(min_length=1)
+    raw_locator: RawLocator
+    source_values: object
+    dto: object | None = None
+    finding_codes: tuple[str, ...] = Field(default_factory=tuple)
+    findings: tuple[MTGJSONFinding, ...] = Field(default_factory=tuple)
+
+    @field_validator("finding_codes")
+    @classmethod
+    def validate_codes(cls, value: tuple[str, ...]) -> tuple[str, ...]:
+        normalized = tuple(validate_finding_code(code) for code in value)
+        if any(code.split(".", maxsplit=1)[0] not in {"parse", "integrity"} for code in normalized):
+            raise ValueError("MTGJSON record findings must use parse or integrity namespaces")
+        if len(normalized) != len(set(normalized)):
+            raise ValueError("MTGJSON record findings must be unique")
+        return tuple(sorted(normalized))
+
+
+@dataclass(frozen=True, slots=True)
+class MTGJSONParseResult:
+    records: tuple[MTGJSONParsedRecord, ...]
+    extracted_root: Path
+
+
+def record_with_findings(
+    record_type: str,
+    locator: RawLocator,
+    source_values: object,
+    dto: MTGJSONModel | None,
+    findings: list[MTGJSONFinding],
+) -> MTGJSONParsedRecord:
+    codes = tuple(sorted({finding.code for finding in findings}))
+    return MTGJSONParsedRecord(
+        record_type=record_type,
+        raw_locator=locator,
+        source_values=source_values,
+        dto=dto,
+        finding_codes=codes,
+        findings=tuple(sorted(findings, key=lambda finding: (finding.code, finding.message))),
+    )
+
+
+def finding_record(
+    record_type: str,
+    locator: RawLocator,
+    source_values: object,
+    *,
+    code: str,
+    message: str,
+) -> MTGJSONParsedRecord:
+    finding = MTGJSONFinding(code=code, message=message, raw_locator=locator)
+    return record_with_findings(record_type, locator, source_values, None, [finding])
+
+
+__all__ = [
+    "MTGJSONFinding",
+    "MTGJSONParseResult",
+    "MTGJSONParsedRecord",
+    "finding_record",
+    "record_with_findings",
+]

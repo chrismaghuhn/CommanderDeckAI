@@ -3,7 +3,7 @@ approval_status: APPROVED_LOCAL
 access_method: bulk_file
 review_path: docs/03-data/source-reviews/mtgjson.md
 endpoints:
-  - https://mtgjson.com/downloads/all-files/
+  - https://mtgjson.com/api/v5/
 host_allowlist: [mtgjson.com]
 timeout_seconds: 60
 max_retries: 2
@@ -19,4 +19,6 @@ attribution_required: true
 raw_storage: allowed_local
 redistribution: review_required
 filters:
+  archive_extension: .zip
+  checksum_suffix: .sha256
   files: [AllDeckFiles, AllPrintings]
