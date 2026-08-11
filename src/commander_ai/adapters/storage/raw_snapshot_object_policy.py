@@ -26,4 +26,34 @@ def consistent_checksum_status(status: object, upstream_sha256: str | None) -> b
     )
 
 
-__all__ = ["consistent_checksum_status", "valid_upstream_checksum"]
+def checksum_metadata_code(status: object, upstream_sha256: str | None) -> str | None:
+    """Classify persisted checksum metadata before any object is consumed."""
+
+    if status in {"verified", "mismatch"} and (
+        upstream_sha256 is None or not valid_upstream_checksum(upstream_sha256)
+    ):
+        return "INTEGRITY_CHECKSUM_PROVENANCE"
+    return None
+
+
+def checksum_integrity_code(
+    status: object, upstream_sha256: str | None, local_sha256: str
+) -> str | None:
+    """Classify checksum status against the freshly computed local digest."""
+
+    metadata_code = checksum_metadata_code(status, upstream_sha256)
+    if metadata_code is not None:
+        return metadata_code
+    if status == "verified" and upstream_sha256 != local_sha256:
+        return "INTEGRITY_UPSTREAM_CHECKSUM_MISMATCH"
+    if status == "mismatch":
+        return "INTEGRITY_UPSTREAM_CHECKSUM_MISMATCH"
+    return None
+
+
+__all__ = [
+    "checksum_integrity_code",
+    "checksum_metadata_code",
+    "consistent_checksum_status",
+    "valid_upstream_checksum",
+]

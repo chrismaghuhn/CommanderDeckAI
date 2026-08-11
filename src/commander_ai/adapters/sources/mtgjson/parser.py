@@ -25,6 +25,7 @@ from .models import (
     finding_record,
 )
 from .record_parser import MTGJSONMemberParser
+from .scalar_safety import malformed_json_constant
 from .settings import MTGJSONProduct
 
 
@@ -109,6 +110,7 @@ class MTGJSONParser:
             payload = json.loads(
                 member_bytes.decode("utf-8"),
                 object_pairs_hook=_pairs_without_duplicates,
+                parse_constant=malformed_json_constant,
             )
         except _DuplicateJsonKey:
             return (

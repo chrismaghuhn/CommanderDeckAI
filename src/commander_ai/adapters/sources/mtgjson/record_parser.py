@@ -13,6 +13,7 @@ from .models import (
     finding_record,
     record_with_findings,
 )
+from .scalar_safety import find_malformed_scalars, sanitize_json_scalars
 from .settings import MTGJSONProduct
 
 
@@ -23,6 +24,7 @@ class MTGJSONMemberParser:
         self._locator = locator_factory
 
     def parse(self, payload: object, product: MTGJSONProduct) -> tuple[MTGJSONParsedRecord, ...]:
+        payload = sanitize_json_scalars(payload)
         if product is MTGJSONProduct.ALL_PRINTINGS:
             return self._parse_printings(payload)
         return self._parse_decks(payload)
@@ -65,11 +67,17 @@ class MTGJSONMemberParser:
                 )
                 continue
             set_findings = _required_findings(set_value, ("code", "name"), set_locator)
-            try:
-                set_dto = MTGJSONSet.model_validate(set_value)
-            except ValueError:
+            scalar_finding = _malformed_scalar_finding(set_value, set_locator)
+            if scalar_finding is not None:
+                set_findings.append(scalar_finding)
+            if scalar_finding is not None:
                 set_dto = None
-                set_findings.append(_shape_finding("set", set_locator))
+            else:
+                try:
+                    set_dto = MTGJSONSet.model_validate(set_value)
+                except ValueError:
+                    set_dto = None
+                    set_findings.append(_shape_finding("set", set_locator))
             records.append(
                 record_with_findings("set", set_locator, set_value, set_dto, set_findings)
             )
@@ -103,21 +111,33 @@ class MTGJSONMemberParser:
                 ),
             )
         findings = _required_findings(value, ("uuid", "name"), locator)
-        try:
-            dto = MTGJSONCard.model_validate(value)
-        except ValueError:
+        scalar_finding = _malformed_scalar_finding(value, locator)
+        if scalar_finding is not None:
+            findings.append(scalar_finding)
+        if scalar_finding is not None:
             dto = None
-            findings.append(_shape_finding("card", locator))
+        else:
+            try:
+                dto = MTGJSONCard.model_validate(value)
+            except ValueError:
+                dto = None
+                findings.append(_shape_finding("card", locator))
         records = [record_with_findings("card", locator, value, dto, findings)]
         if "faceName" in value or "side" in value:
             face_pointer = f"{pointer}/faceName" if "faceName" in value else f"{pointer}/side"
             face_locator = self._locator(face_pointer)
             face_findings = _required_findings(value, ("name",), face_locator)
-            try:
-                face_dto = MTGJSONCardFace.model_validate(value)
-            except ValueError:
+            face_scalar_finding = _malformed_scalar_finding(value, face_locator)
+            if face_scalar_finding is not None:
+                face_findings.append(face_scalar_finding)
+            if face_scalar_finding is not None:
                 face_dto = None
-                face_findings.append(_shape_finding("card face", face_locator))
+            else:
+                try:
+                    face_dto = MTGJSONCardFace.model_validate(value)
+                except ValueError:
+                    face_dto = None
+                    face_findings.append(_shape_finding("card face", face_locator))
             records.append(
                 record_with_findings("card_face", face_locator, value, face_dto, face_findings)
             )
@@ -161,11 +181,17 @@ class MTGJSONMemberParser:
             ("code", "name", "mainBoard", "sideBoard", "type"),
             locator,
         )
-        try:
-            dto = MTGJSONDeckProduct.model_validate(value)
-        except ValueError:
+        scalar_finding = _malformed_scalar_finding(value, locator)
+        if scalar_finding is not None:
+            findings.append(scalar_finding)
+        if scalar_finding is not None:
             dto = None
-            findings.append(_shape_finding("deck product", locator))
+        else:
+            try:
+                dto = MTGJSONDeckProduct.model_validate(value)
+            except ValueError:
+                dto = None
+                findings.append(_shape_finding("deck product", locator))
         return record_with_findings("deck_product", locator, value, dto, findings)
 
 
@@ -187,6 +213,20 @@ def _shape_finding(record_name: str, locator: RawLocator) -> MTGJSONFinding:
     return MTGJSONFinding(
         code="parse.invalid_record_shape",
         message=f"{record_name} fields do not match the source DTO shape",
+        raw_locator=locator,
+    )
+
+
+def _malformed_scalar_finding(
+    value: Mapping[str, object], locator: RawLocator
+) -> MTGJSONFinding | None:
+    malformed = find_malformed_scalars(value)
+    if not malformed:
+        return None
+    locations = ", ".join(path for path, _scalar in malformed)
+    return MTGJSONFinding(
+        code="parse.malformed_scalar",
+        message=f"source record contains malformed JSON scalar(s) at {locations}",
         raw_locator=locator,
     )
 

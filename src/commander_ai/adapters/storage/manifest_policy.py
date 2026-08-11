@@ -9,6 +9,7 @@ from commander_ai.adapters.http.redaction import redact_request_parameters
 from commander_ai.domain.provenance import SourceSnapshotManifest
 
 from .raw_snapshot_metadata import sanitize_snapshot_request, sanitize_terms_reference
+from .raw_snapshot_object_policy import checksum_metadata_code
 
 
 def manifest_semantic_code(manifest: SourceSnapshotManifest) -> str | None:
@@ -27,6 +28,13 @@ def manifest_semantic_code(manifest: SourceSnapshotManifest) -> str | None:
                 return "INTEGRITY_MANIFEST_FORMAT"
         except (TypeError, ValueError):
             return "INTEGRITY_MANIFEST_FORMAT"
+    for raw_object in manifest.objects:
+        checksum_code = checksum_metadata_code(
+            raw_object.checksum_verification_status,
+            raw_object.upstream_sha256,
+        )
+        if checksum_code is not None:
+            return checksum_code
     for request in manifest.requests:
         if not re.fullmatch(r"[A-Z][A-Z0-9-]*", request.sanitized_method):
             return "INTEGRITY_MANIFEST_FORMAT"

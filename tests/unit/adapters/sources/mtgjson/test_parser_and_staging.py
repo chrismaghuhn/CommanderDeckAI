@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import io
 import json
 import zipfile
@@ -15,9 +16,13 @@ from commander_ai.adapters.sources.mtgjson.dto import (
 from commander_ai.adapters.sources.mtgjson.parser import MTGJSONParseError, MTGJSONParser
 from commander_ai.adapters.sources.mtgjson.settings import MTGJSONProduct
 from commander_ai.adapters.sources.mtgjson.staging import MTGJSONStagingMapper
-from commander_ai.adapters.storage.parquet_tables import ParquetTableWriter
+from commander_ai.adapters.storage.parquet_tables import (
+    ParquetTableWriter,
+    validate_parquet_table_rows,
+)
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
 from commander_ai.adapters.storage.snapshot_verifier import SnapshotVerifier
+from commander_ai.data_pipeline.provenance.rows import AuditRecord
 from commander_ai.data_pipeline.staging.raw_locators import (
     JsonPointerLocator,
     RawLocator,
@@ -220,6 +225,92 @@ def test_malformed_records_are_retained_with_namespaced_findings_and_exact_locat
     assert {row.status for row in invalid} == {"STRUCTURAL_INVALID", "PARSE_FAILED"}
     assert all(row.raw_locator.source_snapshot_id == "mtgjson-fixture" for row in invalid)
     assert all(row.finding_codes for row in invalid)
+
+
+@pytest.mark.parametrize(
+    ("field_name", "raw_scalar", "scalar_type", "expected_raw"),
+    [
+        ("manaValue", b"NaN", "non_finite_number", b"NaN"),
+        ("manaValue", b"Infinity", "non_finite_number", b"Infinity"),
+        ("manaValue", b"-Infinity", "non_finite_number", b"-Infinity"),
+        ("name", b'"\\ud800"', "invalid_unicode_scalar", b'"\\ud800"'),
+    ],
+)
+def test_malformed_json_scalars_are_retained_as_structural_staging_findings(
+    tmp_path: Path,
+    field_name: str,
+    raw_scalar: bytes,
+    scalar_type: str,
+    expected_raw: bytes,
+) -> None:
+    if field_name == "name":
+        card = b'{"uuid":"malformed-card","name":' + raw_scalar + b"}"
+    else:
+        card = (
+            b'{"uuid":"malformed-card","name":"Malformed Card","'
+            + field_name.encode("ascii")
+            + b'":'
+            + raw_scalar
+            + b"}"
+        )
+    member = (
+        b'{"meta":{},"data":{"BAD":{"code":"BAD","name":"Malformed Set","cards":[' + card + b"]}}}"
+    )
+    verified = _verified_snapshot(tmp_path, _zip_members({"AllPrintings.json": member}))
+
+    result = MTGJSONParser().parse_archive(
+        verified,
+        raw_object_id="AllPrintings.json.zip",
+        destination=tmp_path / "derived" / "malformed-scalars",
+        product=MTGJSONProduct.ALL_PRINTINGS,
+    )
+
+    card_record = next(record for record in result.records if record.record_type == "card")
+    assert card_record.dto is None
+    assert card_record.finding_codes == ("parse.malformed_scalar",)
+    envelope = card_record.source_values[field_name]
+    assert envelope["encoding"] == "base64"
+    assert envelope["scalar_type"] == scalar_type
+    assert base64.b64decode(envelope["data"]) == expected_raw
+
+    staging = MTGJSONStagingMapper().map_records((card_record,))
+    row = staging[0]
+    assert row.status == "STRUCTURAL_INVALID"
+    assert row.finding_codes == ("parse.malformed_scalar",)
+    assert row.has_canonical_identity is False
+    row.model_dump(mode="json")
+
+    audit = AuditRecord(
+        audit_id="audit-malformed-scalar",
+        entity_id=row.staging_record_id,
+        stage="parse",
+        finding_code="parse.malformed_scalar",
+        raw_locator=row.raw_locator,
+        details={"original_source_values": row.original_source_values},
+    )
+    writer = ParquetTableWriter(tmp_path / "artifacts")
+    staging_artifact = writer.write_table(
+        "staging",
+        [row],
+        layer="normalized",
+        row_contract=StagingRecord,
+        verified_snapshot=verified,
+    )
+    audit_artifact = writer.write_table(
+        "audit",
+        [audit],
+        layer="audit",
+        row_contract=AuditRecord,
+        verified_snapshot=verified,
+    )
+
+    persisted_staging = writer.read_table(staging_artifact.path)
+    assert persisted_staging == [row.model_dump(mode="json")]
+    validate_parquet_table_rows(
+        tmp_path / "artifacts" / audit_artifact.path,
+        layer="audit",
+        verified_snapshot=verified,
+    )
 
 
 def test_parser_rejects_member_bytes_that_do_not_match_verified_archive(

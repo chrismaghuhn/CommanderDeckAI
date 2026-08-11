@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import copy
+import hashlib
 import json
 from datetime import UTC, datetime
 from pathlib import Path
@@ -9,7 +10,10 @@ import pytest
 
 from commander_ai.adapters.storage import raw_snapshots
 from commander_ai.adapters.storage.canonical_json import canonical_json_bytes
-from commander_ai.adapters.storage.digests import detached_manifest_sha256
+from commander_ai.adapters.storage.digests import (
+    detached_manifest_sha256,
+    snapshot_content_sha256,
+)
 from commander_ai.adapters.storage.snapshot_verifier import (
     SnapshotIntegrityError,
     SnapshotVerifier,
@@ -57,6 +61,23 @@ def _rewrite_manifest(
         )
 
 
+def _rewrite_checksum_metadata(
+    manifest_path: Path,
+    payload: dict[str, object],
+    *,
+    upstream_sha256: str | None,
+    checksum_verification_status: str,
+) -> None:
+    objects = payload["objects"]
+    assert isinstance(objects, list)
+    object_payload = objects[0]
+    assert isinstance(object_payload, dict)
+    object_payload["upstream_sha256"] = upstream_sha256
+    object_payload["checksum_verification_status"] = checksum_verification_status
+    payload["snapshot_content_sha256"] = snapshot_content_sha256(objects)
+    _rewrite_manifest(manifest_path, payload)
+
+
 @pytest.mark.parametrize(
     ("status", "expected_code"),
     [
@@ -86,6 +107,78 @@ def test_verifier_returns_only_verified_manifest_and_paths(tmp_path: Path) -> No
     assert verified.manifest_sha256 == detached_manifest_sha256(payload)
     assert verified.object_paths["object-1"].read_bytes() == b"exact raw bytes"
     assert verified.record_count == 0
+
+
+def test_verifier_rejects_verified_checksum_without_upstream_digest(tmp_path: Path) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    _rewrite_checksum_metadata(
+        manifest_path,
+        payload,
+        upstream_sha256=None,
+        checksum_verification_status="verified",
+    )
+
+    with pytest.raises(SnapshotIntegrityError) as error:
+        verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
+
+    assert error.value.code == "INTEGRITY_CHECKSUM_PROVENANCE"
+
+
+def test_verifier_rejects_persisted_checksum_mismatch(tmp_path: Path) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    _rewrite_checksum_metadata(
+        manifest_path,
+        payload,
+        upstream_sha256="0" * 64,
+        checksum_verification_status="mismatch",
+    )
+
+    with pytest.raises(SnapshotIntegrityError) as error:
+        verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
+
+    assert error.value.code == "INTEGRITY_UPSTREAM_CHECKSUM_MISMATCH"
+
+
+def test_verifier_accepts_verified_checksum_when_upstream_matches_local_digest(
+    tmp_path: Path,
+) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    local_sha256 = hashlib.sha256(b"exact raw bytes").hexdigest()
+    _rewrite_checksum_metadata(
+        manifest_path,
+        payload,
+        upstream_sha256=local_sha256,
+        checksum_verification_status="verified",
+    )
+
+    verified = verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
+
+    reference = verified.manifest.objects[0]
+    assert reference.sha256 == local_sha256
+    assert reference.upstream_sha256 == local_sha256
+    assert reference.checksum_verification_status == "verified"
+
+
+@pytest.mark.parametrize(
+    "checksum_verification_status",
+    ["not_provided", "not_checked", "not_applicable"],
+)
+def test_verifier_preserves_unverified_checksum_states(
+    tmp_path: Path, checksum_verification_status: str
+) -> None:
+    manifest_path, payload = _complete_snapshot(tmp_path)
+    _rewrite_checksum_metadata(
+        manifest_path,
+        payload,
+        upstream_sha256=None,
+        checksum_verification_status=checksum_verification_status,
+    )
+
+    verified = verify_complete_snapshot(tmp_path, "fixture", "fixture-snapshot")
+
+    reference = verified.manifest.objects[0]
+    assert reference.upstream_sha256 is None
+    assert reference.checksum_verification_status == checksum_verification_status
 
 
 def test_store_rejects_manifest_identity_mismatch_with_requested_snapshot_path(

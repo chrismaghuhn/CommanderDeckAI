@@ -21,6 +21,7 @@ from .canonical_json import canonical_json_bytes
 from .digests import detached_manifest_sha256, snapshot_content_sha256
 from .manifest_policy import manifest_semantic_code
 from .path_policy import resolve_under_root, validate_portable_relative_path
+from .raw_snapshot_object_policy import checksum_integrity_code
 
 
 class SnapshotIntegrityError(RawSnapshotVerificationError):
@@ -168,7 +169,8 @@ class SnapshotVerifier:
                     manifest,
                     0,
                 )
-            if _sha256_file(object_path) != reference.sha256:
+            local_sha256 = _sha256_file(object_path)
+            if local_sha256 != reference.sha256:
                 return SnapshotInspection(
                     manifest.status,
                     False,
@@ -176,6 +178,13 @@ class SnapshotVerifier:
                     manifest,
                     0,
                 )
+            checksum_code = checksum_integrity_code(
+                reference.checksum_verification_status,
+                reference.upstream_sha256,
+                local_sha256,
+            )
+            if checksum_code is not None:
+                return SnapshotInspection(manifest.status, False, (checksum_code,), manifest, 0)
             object_paths[reference.raw_object_id] = object_path
             record_count += reference.logical_record_count or 0
 

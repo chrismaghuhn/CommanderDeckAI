@@ -15,6 +15,11 @@ from commander_ai.data_pipeline.staging.raw_locators import RawLocator
 from commander_ai.domain.provenance import DomainModel
 
 from .dto import MTGJSONModel
+from .scalar_safety import (
+    MalformedJSONScalar,
+    sanitize_json_scalars,
+    scalar_envelope,
+)
 
 
 class MTGJSONFinding(DomainModel):
@@ -96,6 +101,9 @@ def finding_record(
 
 
 def _json_safe_source_value(value: object) -> object:
+    value = sanitize_json_scalars(value)
+    if isinstance(value, MalformedJSONScalar):
+        return scalar_envelope(value)
     if isinstance(value, (bytes, bytearray, memoryview)):
         raw = bytes(value)
         return {
