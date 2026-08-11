@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 from datetime import UTC, datetime
 
 import pytest
@@ -189,6 +190,303 @@ def test_persisted_card_collections_reject_empty_values() -> None:
             released_at="2026-08-10",
             face_ids=("face-empty",),
             provenance=(),
+        )
+
+
+def test_persisted_uuid_fields_reject_non_uuid_values() -> None:
+    with pytest.raises(ValidationError):
+        CardFace(
+            face_id="face-invalid-uuid",
+            oracle_id="not-a-uuid",
+            face_index=0,
+            name="Fixture Card",
+            provenance=(provenance("fixture", "face-invalid-uuid"),),
+        )
+
+    with pytest.raises(ValidationError):
+        Printing(
+            printing_id="not-a-uuid",
+            oracle_id=ORACLE_A,
+            card_snapshot_id="cards-fixture",
+            set_code="FIX",
+            collector_number="1",
+            released_at="2026-08-10",
+            face_ids=("face-a",),
+            provenance=(provenance("fixture", "printing-invalid-uuid"),),
+        )
+
+    with pytest.raises(ValidationError):
+        Printing(
+            printing_id=PRINTING_A,
+            oracle_id="not-a-uuid",
+            card_snapshot_id="cards-fixture",
+            set_code="FIX",
+            collector_number="1",
+            released_at="2026-08-10",
+            face_ids=("face-a",),
+            provenance=(provenance("fixture", "printing-invalid-oracle"),),
+        )
+
+    with pytest.raises(ValidationError):
+        CardResolutionCandidate(oracle_id="not-a-uuid")
+
+    with pytest.raises(ValidationError):
+        CardResolution(
+            resolution_id="resolution-invalid-uuid",
+            source_id="fixture",
+            source_snapshot_id="snapshot-1",
+            source_object_id="object-1",
+            original_value="Fixture Card",
+            raw_locator="cards[0].name",
+            method="exact_name",
+            status="resolved",
+            canonical_oracle_id="not-a-uuid",
+            resolver_version="resolver-v1",
+            normalization_policy_version="name-v1",
+            alias_catalog_version="aliases-v1",
+            alias_catalog_sha256="1" * 64,
+            card_catalog_snapshot_id="cards-1",
+        )
+
+    with pytest.raises(ValidationError):
+        Combo(
+            combo_id="combo-invalid-uuid",
+            required_cards=("not-a-uuid",),
+            requirements=("Card is available.",),
+            results=("Generate mana.",),
+            provenance=(provenance("fixture", "combo-invalid-uuid"),),
+        )
+
+    with pytest.raises(ValidationError):
+        CommandZoneRelationship(kind="partner", card_ids=("not-a-uuid", ORACLE_B))
+
+
+@pytest.mark.parametrize(
+    "invalid_uuid",
+    (
+        "11111111111141118111111111111111",
+        "{11111111-1111-4111-8111-111111111111}",
+        "urn:uuid:11111111-1111-4111-8111-111111111111",
+    ),
+)
+def test_uuid_fields_reject_non_schema_uuid_forms(invalid_uuid: str) -> None:
+    with pytest.raises(ValidationError):
+        CardFace(
+            face_id="face-non-schema-uuid",
+            oracle_id=invalid_uuid,
+            face_index=0,
+            name="Fixture Card",
+            provenance=(provenance("fixture", "face-non-schema-uuid"),),
+        )
+
+
+def test_persisted_card_collections_enforce_schema_unique_and_max_items() -> None:
+    face_values = {
+        "face_id": "face-duplicate-values",
+        "oracle_id": ORACLE_A,
+        "face_index": 0,
+        "name": "Fixture Card",
+        "provenance": (provenance("fixture", "face-duplicate-values"),),
+    }
+    with pytest.raises(ValidationError):
+        CardFace.model_validate({**face_values, "colors": ("U", "U")})
+    with pytest.raises(ValidationError):
+        CardFace.model_validate({**face_values, "colors": ("W", "U", "B", "R", "G", "W")})
+    with pytest.raises(ValidationError):
+        CardFace.model_validate({**face_values, "types": ("Artifact", "Artifact")})
+    with pytest.raises(ValidationError):
+        CardFace.model_validate({**face_values, "types": ("",)})
+
+    printing_values = {
+        "printing_id": PRINTING_A,
+        "oracle_id": ORACLE_A,
+        "card_snapshot_id": "cards-fixture",
+        "set_code": "FIX",
+        "collector_number": "1",
+        "released_at": "2026-08-10",
+        "provenance": (provenance("fixture", "printing-duplicate-values"),),
+    }
+    with pytest.raises(ValidationError):
+        Printing.model_validate({**printing_values, "face_ids": ("face-a", "face-a")})
+    with pytest.raises(ValidationError):
+        Printing.model_validate({**printing_values, "face_ids": ("",)})
+
+    candidate = CardResolutionCandidate(oracle_id=ORACLE_A)
+    resolution_values = {
+        "resolution_id": "resolution-duplicate-candidates",
+        "source_id": "fixture",
+        "source_snapshot_id": "snapshot-1",
+        "source_object_id": "object-1",
+        "original_value": "Fixture Card",
+        "raw_locator": "cards[0].name",
+        "method": "exact_name",
+        "status": "resolved",
+        "candidates": (candidate, candidate),
+        "resolver_version": "resolver-v1",
+        "normalization_policy_version": "name-v1",
+        "alias_catalog_version": "aliases-v1",
+        "alias_catalog_sha256": "1" * 64,
+        "card_catalog_snapshot_id": "cards-1",
+    }
+    with pytest.raises(ValidationError):
+        CardResolution.model_validate(resolution_values)
+
+
+def test_persisted_number_fields_reject_non_finite_values() -> None:
+    face_values = {
+        "face_id": "face-non-finite-number",
+        "oracle_id": ORACLE_A,
+        "face_index": 0,
+        "name": "Fixture Card",
+        "provenance": (provenance("fixture", "face-non-finite-number"),),
+    }
+    for value in (math.nan, math.inf):
+        with pytest.raises(ValidationError):
+            CardFace.model_validate({**face_values, "mana_value": value})
+
+    with pytest.raises(ValidationError):
+        DeckQualityEvaluation(
+            canonical_deck_id="d" * 64,
+            evaluated_at=datetime(2026, 8, 10, tzinfo=UTC),
+            quality_status="accepted",
+            metrics={"win_rate": math.nan},
+        )
+
+
+@pytest.mark.parametrize(
+    "field_name",
+    ("required_cards", "optional_cards", "requirements", "results"),
+)
+def test_combo_collections_reject_duplicate_schema_items(field_name: str) -> None:
+    values: dict[str, object] = {
+        "combo_id": "combo-duplicate-values",
+        "required_cards": (ORACLE_A,),
+        "optional_cards": (ORACLE_B,),
+        "requirements": ("Card is available.",),
+        "results": ("Generate mana.",),
+        "provenance": (provenance("fixture", "combo-duplicate-values"),),
+    }
+    values[field_name] = (
+        (ORACLE_A, ORACLE_A)
+        if field_name.endswith("cards")
+        else (
+            "Card is available.",
+            "Card is available.",
+        )
+    )
+
+    with pytest.raises(ValidationError):
+        Combo.model_validate(values)
+
+
+def test_command_zone_relationship_rejects_duplicate_card_ids() -> None:
+    with pytest.raises(ValidationError):
+        CommandZoneRelationship(kind="partner", card_ids=(ORACLE_A, ORACLE_A))
+
+
+def test_evaluations_enforce_namespaced_unique_finding_codes() -> None:
+    legality_values = {
+        "canonical_deck_id": "d" * 64,
+        "ruleset_version": "commander-2026-01",
+        "evaluated_at": datetime(2026, 8, 10, tzinfo=UTC),
+        "legal_status": "illegal",
+    }
+    with pytest.raises(ValidationError):
+        DeckLegalityEvaluation.model_validate(
+            {**legality_values, "finding_codes": ("quality.bad",)}
+        )
+    with pytest.raises(ValidationError):
+        DeckLegalityEvaluation.model_validate(
+            {**legality_values, "finding_codes": ("legality.bad", "legality.bad")}
+        )
+
+    quality_values = {
+        "canonical_deck_id": "d" * 64,
+        "evaluated_at": datetime(2026, 8, 10, tzinfo=UTC),
+        "quality_status": "quarantined",
+    }
+    with pytest.raises(ValidationError):
+        DeckQualityEvaluation.model_validate({**quality_values, "finding_codes": ("legality.bad",)})
+    with pytest.raises(ValidationError):
+        DeckQualityEvaluation.model_validate(
+            {**quality_values, "finding_codes": ("quality.bad", "quality.bad")}
+        )
+
+
+def test_quality_evaluation_requires_quality_quarantine_reason_codes() -> None:
+    with pytest.raises(ValidationError):
+        DeckQualityEvaluation(
+            canonical_deck_id="d" * 64,
+            evaluated_at=datetime(2026, 8, 10, tzinfo=UTC),
+            quality_status="quarantined",
+            quarantine_references=(
+                QuarantineReference(
+                    quarantine_id="quarantine-1",
+                    reason_code="integrity.bad",
+                ),
+            ),
+        )
+
+
+@pytest.mark.parametrize(
+    "endpoint",
+    (
+        "not a uri",
+        "/relative/path",
+        "",
+        "https://example.invalid/a b",
+        "https://example.invalid/a\\b",
+        "https://example.invalid/a|b",
+    ),
+)
+def test_source_snapshot_request_rejects_invalid_uri(endpoint: str) -> None:
+    with pytest.raises(ValidationError):
+        SourceSnapshotRequest(
+            request_id="request-invalid-uri",
+            sanitized_method="GET",
+            sanitized_endpoint=endpoint,
+            format="json",
+        )
+
+
+def test_persisted_request_parameters_reject_non_json_values() -> None:
+    with pytest.raises(ValidationError):
+        SourceSnapshotRequest(
+            request_id="request-non-json-value",
+            sanitized_method="GET",
+            sanitized_endpoint="https://example.invalid/cards",
+            format="json",
+            sanitized_parameters={"unsupported": object()},
+        )
+
+
+def test_persisted_evaluation_and_observation_timestamps_require_timezone() -> None:
+    with pytest.raises(ValidationError):
+        DeckLegalityEvaluation(
+            canonical_deck_id="d" * 64,
+            ruleset_version="commander-2026-01",
+            evaluated_at=datetime(2026, 8, 10),
+            legal_status="legal",
+        )
+    with pytest.raises(ValidationError):
+        DeckQualityEvaluation(
+            canonical_deck_id="d" * 64,
+            evaluated_at=datetime(2026, 8, 10),
+            quality_status="accepted",
+        )
+    with pytest.raises(ValidationError):
+        EventDeckObservation(
+            observation_id="observation-naive-time",
+            event_id="event-1",
+            canonical_deck_id="d" * 64,
+            observed_at=datetime(2026, 8, 10),
+            participant_reference=None,
+            participant_reference_scope="none",
+            aggregate_wins=0,
+            aggregate_losses=0,
+            aggregate_draws=0,
+            source_result_semantics="fixture standings",
+            provenance=(provenance("fixture", "event-1"),),
         )
 
 

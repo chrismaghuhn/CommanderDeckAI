@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from .contract_validation import UniqueTuple, UUIDString
 from .provenance import DomainModel, ProvenanceReference
 from .serialization import canonical_json_bytes, sha256_hex
 
@@ -14,9 +15,9 @@ from .serialization import canonical_json_bytes, sha256_hex
 class CardQuantity(DomainModel):
     """A quantity of one oracle identity in a named structural zone."""
 
-    oracle_id: str = Field(min_length=1)
+    oracle_id: UUIDString
     quantity: int = Field(ge=1)
-    printing_id: str | None = Field(default=None, min_length=1)
+    printing_id: UUIDString | None = None
 
 
 class CommandZoneEntry(CardQuantity):
@@ -38,7 +39,7 @@ class CommandZoneRelationship(DomainModel):
     """Source-declared relationship evidence, not an independent legality rule."""
 
     kind: Literal["partner", "background"]
-    card_ids: tuple[str, ...] = Field(min_length=2)
+    card_ids: UniqueTuple[UUIDString] = Field(min_length=2)
 
 
 class CardZone(DomainModel):

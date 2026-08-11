@@ -254,6 +254,130 @@ def test_affected_domain_models_round_trip_through_their_contract(
         assert round_trip["outputs"][0]["bytes"] == 256  # type: ignore[index]
 
 
+def test_persisted_domain_models_dump_json_that_matches_their_schema() -> None:
+    persisted_models: tuple[tuple[str, type[object]], ...] = (
+        ("card-resolution.v1", CardResolution),
+        ("dataset-manifest.v2", DatasetManifest),
+        ("source-snapshot-manifest.v2", SourceSnapshotManifest),
+        ("normalized-snapshot-manifest.v1", NormalizedSnapshotManifest),
+        ("canonical-deck.v1", CanonicalDeck),
+        ("deck-legality-evaluation.v1", DeckLegalityEvaluation),
+        ("deck-quality-evaluation.v1", DeckQualityEvaluation),
+        ("card-face.v1", CardFace),
+        ("printing.v1", Printing),
+        ("event-deck-observation.v1", EventDeckObservation),
+        ("participant-reference.v1", ParticipantReference),
+        ("combo.v1", Combo),
+        ("combo-card.v1", ComboCard),
+    )
+
+    for stem, model_type in persisted_models:
+        schema, example = load_contract(stem)
+        model = model_type.model_validate(example)  # type: ignore[attr-defined]
+        payload = model.model_dump(mode="json")  # type: ignore[attr-defined]
+
+        assert json.loads(json.dumps(payload, ensure_ascii=False, allow_nan=False)) == payload
+        errors = validation_errors(schema, payload)
+        assert not errors, f"{stem}: " + "\n".join(
+            error.message
+            for error in errors  # type: ignore[attr-defined]
+        )
+
+
+@pytest.mark.parametrize(
+    ("stem", "field", "model_type"),
+    (
+        ("source-snapshot-manifest.v2", "started_at", SourceSnapshotManifest),
+        ("deck-legality-evaluation.v1", "evaluated_at", DeckLegalityEvaluation),
+        ("deck-quality-evaluation.v1", "evaluated_at", DeckQualityEvaluation),
+        ("event-deck-observation.v1", "observed_at", EventDeckObservation),
+        ("dataset-manifest.v2", "created_at", DatasetManifest),
+    ),
+)
+def test_persisted_date_time_fields_reject_naive_timestamps(
+    stem: str, field: str, model_type: type[object]
+) -> None:
+    schema, example = load_contract(stem)
+    candidate = copy.deepcopy(example)
+    candidate[field] = "2026-08-10T18:00:30"
+
+    assert validation_errors(schema, candidate)
+    with pytest.raises(ValidationError):
+        model_type.model_validate(candidate)  # type: ignore[attr-defined]
+
+
+def test_source_snapshot_manifest_rejects_invalid_terms_uri() -> None:
+    schema, example = load_contract("source-snapshot-manifest.v2")
+    candidate = copy.deepcopy(example)
+    candidate["terms_reference"] = "not a uri"
+
+    assert validation_errors(schema, candidate)
+    with pytest.raises(ValidationError):
+        SourceSnapshotManifest.model_validate(candidate)
+
+
+@pytest.mark.parametrize(
+    "field",
+    (
+        "schema_versions",
+        "transform_versions",
+        "policy_versions",
+        "ruleset_versions",
+        "card_snapshot_ids",
+        "source_snapshots",
+        "random_seeds",
+    ),
+)
+def test_dataset_manifest_rejects_duplicate_or_invalid_unique_collections(field: str) -> None:
+    schema, example = load_contract("dataset-manifest.v2")
+    candidate = copy.deepcopy(example)
+    if field == "random_seeds":
+        candidate[field] = [0, 0]
+    else:
+        values = candidate[field]
+        candidate[field] = [values[0], values[0]]
+
+    assert validation_errors(schema, candidate)
+    with pytest.raises(ValidationError):
+        DatasetManifest.model_validate(candidate)
+
+
+def test_dataset_manifest_rejects_negative_counts_and_random_seeds() -> None:
+    schema, example = load_contract("dataset-manifest.v2")
+
+    negative_count = copy.deepcopy(example)
+    negative_count["counts"] = {"train": -1}
+    assert validation_errors(schema, negative_count)
+    with pytest.raises(ValidationError):
+        DatasetManifest.model_validate(negative_count)
+
+    negative_seed = copy.deepcopy(example)
+    negative_seed["random_seeds"] = [-1]
+    assert validation_errors(schema, negative_seed)
+    with pytest.raises(ValidationError):
+        DatasetManifest.model_validate(negative_seed)
+
+
+@pytest.mark.parametrize("field", ("pagination_state",))
+def test_source_snapshot_manifest_rejects_non_json_mapping_values(field: str) -> None:
+    _, example = load_contract("source-snapshot-manifest.v2")
+    candidate = copy.deepcopy(example)
+    candidate[field] = {"unsupported": object()}
+
+    with pytest.raises(ValidationError):
+        SourceSnapshotManifest.model_validate(candidate)
+
+
+@pytest.mark.parametrize("field", ("filters", "split_policy"))
+def test_dataset_manifest_rejects_non_json_mapping_values(field: str) -> None:
+    _, example = load_contract("dataset-manifest.v2")
+    candidate = copy.deepcopy(example)
+    candidate[field] = {"unsupported": object()}
+
+    with pytest.raises(ValidationError):
+        DatasetManifest.model_validate(candidate)
+
+
 @pytest.mark.parametrize(
     ("stem", "field", "model_type"),
     (

@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from datetime import datetime
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import AwareDatetime, Field, model_validator
 
 from .provenance import DomainModel, ProvenanceReference
 
@@ -46,7 +45,7 @@ class EventDeckObservation(DomainModel):
     observation_id: str = Field(min_length=1)
     event_id: str = Field(min_length=1)
     canonical_deck_id: str = Field(pattern=r"^[a-f0-9]{64}$")
-    observed_at: datetime
+    observed_at: AwareDatetime
     participant_reference: ParticipantReference | None = None
     participant_reference_scope: Literal["source", "event", "snapshot_object", "none"]
     final_placement: int | None = Field(default=None, ge=1)

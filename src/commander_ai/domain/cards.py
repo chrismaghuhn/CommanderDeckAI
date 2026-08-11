@@ -7,13 +7,14 @@ from typing import Literal
 
 from pydantic import Field, model_validator
 
+from .contract_validation import FiniteFloat, NonEmptyString, UniqueTuple, UUIDString
 from .provenance import DomainModel, ProvenanceReference
 
 
 class CardIdentity(DomainModel):
     """Stable game identity shared by all printings of a card."""
 
-    oracle_id: str = Field(min_length=1)
+    oracle_id: UUIDString
     name: str = Field(min_length=1)
     normalized_name: str | None = Field(default=None, min_length=1)
     card_snapshot_id: str | None = Field(default=None, min_length=1)
@@ -24,19 +25,23 @@ class CardFace(DomainModel):
 
     schema_version: Literal["card-face.v1"] = "card-face.v1"
     face_id: str = Field(min_length=1)
-    oracle_id: str = Field(min_length=1)
+    oracle_id: UUIDString
     face_index: int = Field(ge=0)
     name: str = Field(min_length=1)
     normalized_name: str = Field(min_length=1)
     layout: str = Field(default="normal", min_length=1)
-    mana_value: float | None = Field(default=None, ge=0)
+    mana_value: FiniteFloat | None = Field(default=None, ge=0)
     mana_cost: str | None = None
-    colors: tuple[Literal["W", "U", "B", "R", "G"], ...] = Field(default_factory=tuple)
-    color_identity: tuple[Literal["W", "U", "B", "R", "G"], ...] = Field(default_factory=tuple)
-    supertypes: tuple[str, ...] = Field(default_factory=tuple)
-    types: tuple[str, ...] = Field(default_factory=tuple)
-    subtypes: tuple[str, ...] = Field(default_factory=tuple)
-    keywords: tuple[str, ...] = Field(default_factory=tuple)
+    colors: UniqueTuple[Literal["W", "U", "B", "R", "G"]] = Field(
+        default_factory=tuple, max_length=5
+    )
+    color_identity: UniqueTuple[Literal["W", "U", "B", "R", "G"]] = Field(
+        default_factory=tuple, max_length=5
+    )
+    supertypes: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    types: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    subtypes: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    keywords: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
     oracle_text: str | None = None
     power: str | None = None
     toughness: str | None = None
@@ -58,8 +63,8 @@ class Printing(DomainModel):
     """A collectible release attached to one oracle identity."""
 
     schema_version: Literal["printing.v1"] = "printing.v1"
-    printing_id: str = Field(min_length=1)
-    oracle_id: str = Field(min_length=1)
+    printing_id: UUIDString
+    oracle_id: UUIDString
     card_snapshot_id: str = Field(min_length=1)
     set_code: str = Field(min_length=1)
     collector_number: str = Field(min_length=1)
@@ -68,15 +73,15 @@ class Printing(DomainModel):
     rarity: str | None = Field(default=None, min_length=1)
     is_foil: bool | None = None
     is_promo: bool | None = None
-    face_ids: tuple[str, ...] = Field(min_length=1)
+    face_ids: UniqueTuple[NonEmptyString] = Field(min_length=1)
     provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)
 
 
 class CardResolutionCandidate(DomainModel):
     """One deterministic candidate returned by a resolution attempt."""
 
-    oracle_id: str = Field(min_length=1)
-    printing_id: str | None = Field(default=None, min_length=1)
+    oracle_id: UUIDString
+    printing_id: UUIDString | None = None
     face_id: str | None = Field(default=None, min_length=1)
 
 
@@ -99,9 +104,9 @@ class CardResolution(DomainModel):
         "none",
     ]
     status: Literal["resolved", "ambiguous", "unresolved", "rejected"]
-    candidates: tuple[CardResolutionCandidate, ...] = Field(default_factory=tuple)
-    canonical_oracle_id: str | None = Field(default=None, min_length=1)
-    canonical_printing_id: str | None = Field(default=None, min_length=1)
+    candidates: UniqueTuple[CardResolutionCandidate] = Field(default_factory=tuple)
+    canonical_oracle_id: UUIDString | None = None
+    canonical_printing_id: UUIDString | None = None
     canonical_face_id: str | None = Field(default=None, min_length=1)
     resolver_version: str = Field(min_length=1)
     normalization_policy_version: str = Field(min_length=1)

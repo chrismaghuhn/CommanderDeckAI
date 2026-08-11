@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from datetime import datetime
 from typing import Any, Literal, NoReturn, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -13,6 +12,15 @@ from commander_ai.domain.path_policy import (
 )
 from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
 
+from .contract_validation import (
+    JSONMapping,
+    NonEmptyCounts,
+    NonEmptyString,
+    NonNegativeCounts,
+    NonNegativeInt,
+    UniqueTuple,
+    URIString,
+)
 from .normalized_snapshot_validation import (
     validate_finding_codes as validate_normalized_finding_codes,
 )
@@ -144,21 +152,21 @@ class SourceSnapshotRequest(DomainModel):
 
     request_id: str = Field(min_length=1)
     sanitized_method: str = Field(min_length=1)
-    sanitized_endpoint: str = Field(min_length=1)
+    sanitized_endpoint: URIString
     api_version: str | None = Field(default=None, min_length=1)
     format: str = Field(min_length=1)
-    sanitized_parameters: Mapping[str, object] = Field(default_factory=dict)
+    sanitized_parameters: JSONMapping = Field(default_factory=dict)
 
 
 class RequestParametersSummary(DomainModel):
     """Deterministic v1-compatible summary derived from request records."""
 
-    request_ids: tuple[str, ...]
-    methods: tuple[str, ...]
-    endpoints: tuple[str, ...]
-    formats: tuple[str, ...]
-    api_versions: tuple[str, ...]
-    parameter_keys: tuple[str, ...]
+    request_ids: UniqueTuple[str]
+    methods: UniqueTuple[str]
+    endpoints: UniqueTuple[URIString]
+    formats: UniqueTuple[str]
+    api_versions: UniqueTuple[str]
+    parameter_keys: UniqueTuple[str]
 
 
 def derive_request_parameters_summary(
@@ -218,12 +226,12 @@ class SourceSnapshotManifest(DomainModel):
     adapter_version: str = Field(min_length=1)
     started_at: AwareDatetime
     completed_at: AwareDatetime | None
-    terms_reference: str | None = None
+    terms_reference: URIString | None = None
     usage_status: str = Field(min_length=1)
     request_parameters_redacted: RequestParametersSummary
     requests: tuple[SourceSnapshotRequest, ...]
     objects: tuple[RawObjectReference, ...]
-    pagination_state: Mapping[str, object] | None = None
+    pagination_state: JSONMapping | None = None
     attribution_required: bool
     redistribution_status: Literal["not_approved", "derived_only", "approved"]
     snapshot_content_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
@@ -277,7 +285,7 @@ class NormalizedSnapshotManifest(DomainModel):
     normalized_artifact_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
     audit_artifact_path: str = Field(min_length=1)
     audit_artifact_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    counts: Mapping[str, int]
+    counts: NonEmptyCounts
     finding_codes: tuple[str, ...] = Field(default_factory=tuple)
     quarantine_references: tuple[QuarantineReference, ...] = Field(default_factory=tuple)
     provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)
@@ -290,18 +298,6 @@ class NormalizedSnapshotManifest(DomainModel):
     @classmethod
     def validate_artifact_path(cls, value: str) -> str:
         return validate_portable_relative_path(value)
-
-    @field_validator("counts")
-    @classmethod
-    def validate_counts(cls, value: Mapping[str, int]) -> Mapping[str, int]:
-        if not value:
-            raise ValueError("normalized manifest counts cannot be empty")
-        if any(
-            not isinstance(key, str) or not key or type(count) is not int or count < 0
-            for key, count in value.items()
-        ):
-            raise ValueError("normalized manifest counts must be non-negative integers")
-        return dict(sorted(value.items()))
 
     @field_validator("finding_codes")
     @classmethod
@@ -368,31 +364,31 @@ class DatasetOutputReference(DomainModel):
 class DatasetExclusion(DomainModel):
     code: str = Field(pattern=r"^[a-z][a-z0-9_]*(\.[a-z0-9_]+)+$")
     count: int = Field(ge=0)
-    references: tuple[str, ...] = Field(default_factory=tuple)
+    references: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
 
 
 class DatasetManifest(DomainModel):
     schema_version: Literal["dataset-manifest.v2"] = "dataset-manifest.v2"
     dataset_id: str = Field(min_length=1)
-    created_at: datetime
+    created_at: AwareDatetime
     builder_version: str = Field(min_length=1)
     code_commit: str = Field(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")
     dependency_lock_hash: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
-    input_manifests: tuple[DatasetInputReference, ...] = Field(min_length=1)
-    schema_versions: tuple[str, ...] = Field(min_length=1)
-    transform_versions: tuple[str, ...] = Field(min_length=1)
-    policy_versions: tuple[str, ...] = Field(min_length=1)
-    ruleset_versions: tuple[str, ...] = Field(default_factory=tuple)
-    card_snapshot_ids: tuple[str, ...] = Field(default_factory=tuple)
-    source_snapshots: tuple[str, ...] = Field(default_factory=tuple)
-    filters: Mapping[str, object] = Field(default_factory=dict)
-    split_policy: Mapping[str, object] = Field(default_factory=dict)
+    input_manifests: UniqueTuple[DatasetInputReference] = Field(min_length=1)
+    schema_versions: UniqueTuple[NonEmptyString] = Field(min_length=1)
+    transform_versions: UniqueTuple[NonEmptyString] = Field(min_length=1)
+    policy_versions: UniqueTuple[NonEmptyString] = Field(min_length=1)
+    ruleset_versions: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    card_snapshot_ids: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    source_snapshots: UniqueTuple[NonEmptyString] = Field(default_factory=tuple)
+    filters: JSONMapping = Field(default_factory=dict)
+    split_policy: JSONMapping = Field(default_factory=dict)
     exclusions: tuple[DatasetExclusion, ...] = Field(default_factory=tuple)
-    counts: Mapping[str, int]
-    outputs: tuple[DatasetOutputReference, ...] = Field(min_length=1)
+    counts: NonNegativeCounts
+    outputs: UniqueTuple[DatasetOutputReference] = Field(min_length=1)
     quality_report: DatasetOutputReference | None = None
     leakage_report: DatasetOutputReference | None = None
-    random_seeds: tuple[int, ...] = Field(default_factory=tuple)
+    random_seeds: UniqueTuple[NonNegativeInt] = Field(default_factory=tuple)
     redistribution_status: Literal["local_only", "derived_only", "redistributable"] = "local_only"
     dataset_content_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
     manifest_sha256: Sha256 = Field(pattern=r"^[a-f0-9]{64}$")
