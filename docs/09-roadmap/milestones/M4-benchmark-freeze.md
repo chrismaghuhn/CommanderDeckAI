@@ -24,9 +24,11 @@ Vor dem Exit von M3 wird ein versioniertes Freeze-Profil committed. Es bindet mi
 - Temporal-Cutoffs und minimale Split-/Segment-Samplecounts;
 - Maskenregime und Candidate-Pool-Policy;
 - primäre/sekundäre Metriken;
-- G0/G1-Margins und geschützte Segmentgrenzen;
+- G0/G1/G2-Margins und geschützte Segmentgrenzen;
 - Bootstrap-/Unsicherheitsmethode;
 - Experimentbudgets.
+
+G2 wird erst in M5 ausgeführt, seine Vergleichsregel wird aber bereits mit Benchmark v1 preregistriert. Dadurch kann die Schwelle nicht nach Sichtung der Matrix-Factorization-Ergebnisse verschoben werden.
 
 Sobald diese Mindestbedingungen erfüllt sind, wird Benchmark v1 eingefroren. Zusätzliche Quellen, schönere Reports, größere historische Coverage oder weitere Plattform-Infrastruktur dürfen den Freeze dann nicht verschieben.
 
@@ -38,11 +40,12 @@ Falls eine Mindestbedingung nicht erfüllt ist, gilt nur Arbeit als M4-blockiere
 
 M4 entscheidet nicht nur, welcher Baseline-Score höher ist. Es prüft stufenweise:
 
-1. `G0`: schlagen einfache Popularitäts-/Commander-Signale Random Legal belastbar?
-2. `G1`: liefert der sichtbare Deckkontext gegenüber Commander-only Ranking zusätzlichen Predictive Value?
-3. gibt es unakzeptierte Temporal-/Cold-/Long-Tail-Regressionsmuster?
+1. `G0a`: schlägt Global Popularity Random Legal belastbar?
+2. `G0b`: liefert Commander-spezifische Evidenz gegenüber Global Popularity Zusatznutzen?
+3. `G1`: liefert der sichtbare Deckkontext gegenüber Commander-only Ranking zusätzlichen Predictive Value?
+4. gibt es unakzeptierte Temporal-/Cold-/Long-Tail-Regressionsmuster?
 
-Das Ergebnis wird als `GREEN`, `YELLOW` oder `RED` dokumentiert. `YELLOW` erlaubt nur ein begrenztes Diagnosebudget; `RED` blockiert das blinde Hochskalieren zu komplexeren Modellen.
+Das M4-Ergebnis wird als `GREEN`, `YELLOW` oder `RED` dokumentiert. `YELLOW` erlaubt nur ein begrenztes Diagnosebudget; `RED` blockiert das blinde Hochskalieren zu komplexeren Modellen. G2 wird anschließend in M5 gegen dieselbe preregistrierte Benchmarkversion ergänzt.
 
 ## Exit-Kriterien
 
@@ -50,7 +53,7 @@ Das Ergebnis wird als `GREEN`, `YELLOW` oder `RED` dokumentiert. `YELLOW` erlaub
 - jede Metrik mit Samplecounts und Unsicherheitsangabe;
 - Baselines auf identischen Pools;
 - Testset nicht für Tuning verwendet;
-- Freeze-Profil und Gate-Margins vor entscheidenden Validation-Ergebnissen committed;
+- Freeze-Profil und G0/G1/G2-Margins vor entscheidenden Validation-Ergebnissen committed;
 - B0–B5 gegen die eingefrorene Learnability-Leiter ausgewertet;
 - GREEN/YELLOW/RED-Entscheidung mit Segmentbelegen dokumentiert;
 - Dokumentation ausreichend für unabhängige Reproduktion.
