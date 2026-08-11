@@ -7,7 +7,11 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from commander_ai.domain.provenance import validate_portable_relative_path
+from commander_ai.domain.path_policy import (
+    resolve_under_root,
+    to_portable_relative_path,
+    validate_portable_relative_path,
+)
 
 _REPOSITORY_ROOT_MARKER = "<repository-root>"
 _EXTERNAL_ROOT_MARKER = "<external-root>"
@@ -61,28 +65,22 @@ class RuntimeConfig(BaseModel):
     def resolve_artifact_path(self, relative_path: str) -> Path:
         """Resolve a portable artifact path while keeping it below ``artifact_root``."""
 
-        portable = validate_portable_relative_path(relative_path)
-        candidate = (self.artifact_root / Path(*portable.split("/"))).resolve()
-        self._require_below_root(candidate, self.artifact_root)
-        return candidate
+        return resolve_under_root(self.artifact_root, relative_path)
 
     def resolve_data_path(self, relative_path: str) -> Path:
         """Resolve a portable data path while keeping it below ``data_root``."""
 
-        portable = validate_portable_relative_path(relative_path)
-        candidate = (self.data_root / Path(*portable.split("/"))).resolve()
-        self._require_below_root(candidate, self.data_root)
-        return candidate
+        return resolve_under_root(self.data_root, relative_path)
 
     def portable_artifact_path(self, path: Path | str) -> str:
         """Return a validated POSIX path relative to the configured artifact root."""
 
-        return self._portable_path(path, self.artifact_root)
+        return to_portable_relative_path(path, self.artifact_root)
 
     def portable_data_path(self, path: Path | str) -> str:
         """Return a validated POSIX path relative to the configured data root."""
 
-        return self._portable_path(path, self.data_root)
+        return to_portable_relative_path(path, self.data_root)
 
     def portable_snapshot(self) -> dict[str, object]:
         """Return the runtime config with portable, non-machine-specific root values."""
@@ -111,22 +109,3 @@ class RuntimeConfig(BaseModel):
         if relative == Path("."):
             return _REPOSITORY_ROOT_MARKER
         return validate_portable_relative_path(relative.as_posix())
-
-    @staticmethod
-    def _require_below_root(candidate: Path, root: Path) -> None:
-        try:
-            candidate.relative_to(root)
-        except ValueError as error:
-            raise ValueError("configured path escapes its runtime root") from error
-
-    @classmethod
-    def _portable_path(cls, path: Path | str, root: Path) -> str:
-        candidate = Path(path).expanduser()
-        if not candidate.is_absolute() and "\\" in str(path):
-            raise ValueError("portable persisted paths must use POSIX separators")
-        if not candidate.is_absolute():
-            candidate = root / candidate
-        resolved = candidate.resolve()
-        cls._require_below_root(resolved, root)
-        relative = resolved.relative_to(root).as_posix()
-        return validate_portable_relative_path(relative)

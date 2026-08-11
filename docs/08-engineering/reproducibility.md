@@ -24,6 +24,24 @@
 
 Das Top-Level-Feld `sha256` ist der SHA-256-Hash der kanonischen UTF-8-JSON-Serialisierung desselben Manifests **ohne** das Top-Level-Feld `sha256`. Die Serialisierung verwendet lexikografisch sortierte Schlüssel, `ensure_ascii=false`, die Trenner `,` und `:` ohne zusätzliche Leerzeichen oder abschließenden Zeilenumbruch. Der resultierende Hash wird als kleingeschriebene Hexadezimalzeichenkette gespeichert. Beim Verifizieren wird genau diese Projektion ohne `sha256` erneut serialisiert und verglichen; verschachtelte Hashfelder bleiben Bestandteil der Eingabe.
 
+Diese bestehende `run-manifest.v1`-Konvention bleibt unverändert. Für Raw-Snapshots und
+deren abhängige Manifeste gelten drei getrennte Digest-Domänen:
+
+1. `objects[].sha256` hasht die exakten Raw-Objektbytes;
+2. `snapshot_content_sha256` hasht die kanonischen UTF-8-Bytes des ausschließlich aus
+   `bytes`, `raw_object_id` und `sha256` bestehenden `objects`-Dokuments, dessen Objekte
+   nach `raw_object_id` in Unicode-Codepoint-Reihenfolge sortiert sind;
+3. der detached `manifest.sha256`-Sidecar hasht die kanonischen Manifestbytes nach dem
+   Entfernen nur des explizit dokumentierten `manifest_sha256`-Feldes.
+
+Für alle drei Formen gelten sortierte Objekt-Schlüssel, `ensure_ascii=false`, `,`/`:` als
+Trenner und kein abschließender Zeilenumbruch. Listenreihenfolge wird nicht stillschweigend
+sortiert. Request-Metadaten werden aus dem Snapshot-Content-Payload ausgeschlossen; der
+detached Manifest-Digest ist weder ein Raw-Objekt- noch ein Snapshot-Content-Digest.
+Die Digest-Funktionen bilden eine neue Payload-Projektion, ohne das Eingabeobjekt zu
+mutieren. Die genauen Snapshot- und Manifest-Anmerkungen bleiben in den versionierten
+Schemas und Beispielen maßgeblich.
+
 ## Dirty-Worktree-Zustandsdigest
 
 `git_worktree_sha256` ist **kein** Hash eines normalen `git diff`. Er ist der SHA-256-Hash eines separaten, reproduzierbaren `git-worktree-state.v1`-Datensatzes. Dieser Datensatz enthält genau:

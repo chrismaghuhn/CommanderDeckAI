@@ -2,16 +2,18 @@
 
 from __future__ import annotations
 
-import hashlib
-import json
-import re
 from collections.abc import Mapping, Sequence
 from datetime import datetime
 from typing import Any, Literal, NoReturn, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-_DRIVE_PREFIX = re.compile(r"^[A-Za-z]:")
+from commander_ai.domain.path_policy import (
+    validate_portable_relative_path as validate_portable_relative_path,
+)
+from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
+
+DETACHED_MANIFEST_DIGEST_FIELD = "manifest_sha256"
 
 
 class FrozenDict(dict[str, object]):
@@ -52,18 +54,6 @@ def _freeze(value: object) -> object:
     return value
 
 
-def validate_portable_relative_path(value: str) -> str:
-    """Require a root-relative POSIX path with no traversal or host syntax."""
-
-    if not value or value.startswith("/") or "\\" in value or _DRIVE_PREFIX.match(value):
-        raise ValueError("path must be a portable root-relative POSIX path")
-
-    segments = value.split("/")
-    if any(segment in {"", ".", ".."} for segment in segments):
-        raise ValueError("path must not contain empty, '.', or '..' segments")
-    return value
-
-
 def detached_manifest_sha256(manifest: Mapping[str, object]) -> str:
     """Return the SHA-256 stored in a detached ``manifest.sha256`` sidecar.
 
@@ -72,15 +62,10 @@ def detached_manifest_sha256(manifest: Mapping[str, object]) -> str:
     Persisted source and normalized manifests do not contain that key.
     """
 
-    payload = {key: value for key, value in manifest.items() if key != "manifest_sha256"}
-    canonical = json.dumps(
-        payload,
-        ensure_ascii=False,
-        sort_keys=True,
-        separators=(",", ":"),
-        allow_nan=False,
-    ).encode("utf-8")
-    return hashlib.sha256(canonical).hexdigest()
+    payload = {
+        key: value for key, value in manifest.items() if key != DETACHED_MANIFEST_DIGEST_FIELD
+    }
+    return sha256_hex(canonical_json_bytes(payload))
 
 
 class DomainModel(BaseModel):
