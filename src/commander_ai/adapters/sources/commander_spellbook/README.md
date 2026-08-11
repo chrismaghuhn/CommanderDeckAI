@@ -1,16 +1,23 @@
 # commander_spellbook adapter
 
-Status und Zugriff werden ausschließlich durch Source Review und `configs/sources/commander_spellbook.yaml` bestimmt.
+This package implements the approved, read-only Commander Spellbook Task 7
+boundary. It requests only the documented `cards` and `variants` REST
+contracts, stores response bytes through the shared raw snapshot writer, and
+parses verified snapshots into permissive source-shaped DTOs and Task 5
+staging/audit rows.
 
-Geplanter Zuschnitt:
+The source review and registry remain authoritative for access, attribution,
+current-use approval, host allowlists, limits, and redistribution status:
 
-```text
-client.py
-api_models.py
-mapper.py
-settings.py
-errors.py
-README.md
-```
-
-Live-Netzwerk wird nicht in PR-CI verwendet. Golden Fixtures müssen Secrets/PII entfernen.
+- `settings.py` validates the source-owned contract and rejects unknown filters.
+- `client.py` builds bounded GET requests through shared HTTP redirect, host,
+  retry, rate, timeout, and response-size policy.
+- `downloader.py` persists immutable response bytes and never follows an
+  upstream pagination URL directly.
+- `api_models.py` retains documented fields and unknown forward-compatible
+  fields without creating canonical entities.
+- `parser.py` consumes only verifier-issued `COMPLETE` snapshots and emits
+  exact JSON-pointer/record-index locators, including lossless malformed
+  payload envelopes.
+- `mapper.py` maps parse observations to the shared staging and audit layers;
+  semantic quarantine and later domain relationships are out of scope.
