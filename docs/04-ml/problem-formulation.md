@@ -42,6 +42,8 @@ Recommendation quality
 
 Eine Verbesserung von Recall/NDCG darf nicht als proportionale Verbesserung von Winrate, objektiver Deckqualität oder Casual-Präferenz beschrieben werden. M6 fügt constraint-konforme Konstruktion hinzu; M7/M8 liefern separat Outcome- beziehungsweise Gameplay-Evidenz.
 
+Ob die Completion-Formulierung überhaupt genug Commander-/Deckkontext-Signal trägt und wann ein Pivot statt weiterer Modellkomplexität nötig ist, entscheidet das preregistrierte Gate in `docs/06-evaluation/learnability-pivot-gate.md`.
+
 Wenn der one-shot Ranker+Optimizer-Pfad später messbare Kontextdrift zeigt, darf ein experimentelles Re-Score/Repair-Verfahren evaluiert werden. Es ist kein impliziter Bestandteil des Ranker-Targets; siehe `docs/05-optimizer/joint-deck-consistency.md`.
 
 ## Sekundäre Aufgaben
