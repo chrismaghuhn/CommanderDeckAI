@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import math
 import re
-from collections.abc import Mapping, Set
+from collections.abc import Mapping, MutableMapping, Set
 from urllib.parse import urlsplit, urlunsplit
 
 _SECRET_KEY = re.compile(
@@ -34,6 +34,18 @@ SAFE_REQUEST_PARAMETER_KEYS = frozenset(
         "from",
         "has_more",
         "include",
+        "tid",
+        "game",
+        "formats",
+        "start",
+        "end",
+        "last",
+        "participantmin",
+        "participantmax",
+        "columns",
+        "rounds",
+        "tables",
+        "players",
         "language",
         "limit",
         "locale",
@@ -171,6 +183,19 @@ def is_sensitive_request_header(name: str) -> bool:
     )
 
 
+def strip_default_sensitive_headers(
+    headers: MutableMapping[str, str], explicit_headers: Mapping[str, str]
+) -> None:
+    """Remove sensitive client defaults unless the caller explicitly supplied them."""
+
+    explicit = {
+        str(key).casefold() for key in explicit_headers if is_sensitive_request_header(str(key))
+    }
+    for key in list(headers):
+        if is_sensitive_request_header(str(key)) and str(key).casefold() not in explicit:
+            del headers[key]
+
+
 def redact_error_text(message: str) -> str:
     """Remove credentials and query material without echoing transport exceptions."""
 
@@ -212,4 +237,5 @@ __all__ = [
     "sanitize_metadata_token",
     "sanitize_method",
     "sanitize_request_metadata",
+    "strip_default_sensitive_headers",
 ]

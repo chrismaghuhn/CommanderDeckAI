@@ -3,13 +3,10 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import Any, Literal, NoReturn, Self
+from typing import Annotated, Any, Literal, NoReturn, Self
 
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from commander_ai.domain.path_policy import (
-    validate_portable_relative_path as validate_portable_relative_path,
-)
 from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
 
 from .contract_validation import (
@@ -29,6 +26,7 @@ from .normalized_snapshot_validation import (
     validate_provenance_order,
     validate_quarantine_references,
 )
+from .path_policy import validate_portable_relative_path as validate_portable_relative_path
 
 DETACHED_MANIFEST_DIGEST_FIELD = "manifest_sha256"
 
@@ -117,7 +115,7 @@ class DomainModel(BaseModel):
                 object.__setattr__(self, field_name, frozen_value)
 
 
-Sha256 = str
+Sha256 = Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]
 ApprovalStatus = Literal["APPROVED_LOCAL", "APPROVED_REDISTRIBUTION"]
 
 
@@ -156,6 +154,7 @@ class SourceSnapshotRequest(DomainModel):
     sanitized_endpoint: URIString
     api_version: str | None = Field(default=None, min_length=1)
     format: str = Field(min_length=1)
+    request_body_sha256: Sha256 | None = Field(default=None, exclude_if=lambda value: value is None)
     sanitized_parameters: JSONMapping = Field(default_factory=dict)
 
 

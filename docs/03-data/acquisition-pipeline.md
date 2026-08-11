@@ -22,6 +22,12 @@ Ein abgeschlossener Snapshot wird nie überschrieben. Ein erneuter Abruf erzeugt
 
 ## Task 4 acquisition boundary
 
+TopDeck Tournaments v2 requests are currently blocked by the source registry's `PROPOSED`
+status. If approved later, configured format filters are expanded into deterministic requests
+with one documented singular `format` value each. The exact request-body digest is stored on
+each authoritative request record; event, standing, deck, round, table, and player payloads
+remain staging records until Task 12 applies canonical observation semantics.
+
 The generic transport exposes raw streamed entity bytes to the snapshot writer. It does
 not parse, normalize, decompress, or serialize logical records. HTTP request metadata is
 persisted only as a deterministic safe projection: method, sanitized endpoint, API

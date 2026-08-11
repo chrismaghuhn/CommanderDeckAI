@@ -217,6 +217,30 @@ def test_redirect_chain_rechecks_every_destination() -> None:
     ]
 
 
+def test_307_redirect_preserves_post_body_for_replay() -> None:
+    bodies: list[bytes] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(request.content)
+        if len(bodies) == 1:
+            return httpx.Response(
+                307,
+                headers={"Location": "https://fixture.invalid/replayed"},
+                request=request,
+            )
+        return httpx.Response(200, stream=httpx.ByteStream(b"ok"), request=request)
+
+    transport = _transport(handler, allowed_hosts={"fixture.invalid"}, max_redirects=1)
+    response = transport.request(
+        "POST",
+        "https://fixture.invalid/start",
+        request_body=b'{"format":"EDH"}',
+    )
+
+    assert b"".join(response.iter_raw()) == b"ok"
+    assert bodies == [b'{"format":"EDH"}', b'{"format":"EDH"}']
+
+
 def test_retry_after_and_bounded_retries_are_respected_without_endless_retry() -> None:
     statuses = iter([429, 503, 200])
     sleeps: list[float] = []

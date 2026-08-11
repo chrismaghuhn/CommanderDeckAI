@@ -15,17 +15,18 @@ import httpx
 from .entity_framing import parse_content_length
 from .error_boundary import detached_error_boundary, detached_generator_boundary
 from .origin import same_origin
+from .query_parameters import QueryParameterError, query_parameters
 from .redaction import (
     is_sensitive_request_header,
     redact_error_text,
     sanitize_endpoint,
     sanitize_headers,
     sanitize_request_metadata,
+    strip_default_sensitive_headers,
 )
 from .redirect_policy import RedirectPolicy, RedirectPolicyError
 from .response_history import validate_response_history
 
-HttpQueryValue = str | int | float | bool | None | list[str | int | float | bool | None]
 MAX_RATE_LIMIT_PER_MINUTE = 1_000_000
 
 
@@ -201,10 +202,14 @@ class HttpTransport:
         *,
         parameters: Mapping[str, object] | None = None,
         headers: Mapping[str, str] | None = None,
+        request_body: bytes | None = None,
         api_version: str | None = None,
         format: str = "binary",
     ) -> SafeHttpResponse:
         """Perform one bounded request and return raw entity bytes only."""
+
+        if request_body is not None and not isinstance(request_body, bytes):
+            raise HttpTransportError("HTTP_REQUEST_BODY_INVALID")
 
         try:
             self._policy.validate(url)
@@ -221,6 +226,7 @@ class HttpTransport:
                 current_url,
                 parameters=current_parameters,
                 headers=headers,
+                request_body=request_body,
                 strip_sensitive_headers=strip_sensitive_headers,
             )
             history_error = validate_response_history(response, self._policy)
@@ -255,7 +261,10 @@ class HttpTransport:
                 else current_method
             )
             current_url = next_url
-            current_parameters, redirects_followed = None, redirects_followed + 1
+            current_parameters = None
+            if response.status_code in {301, 302, 303} or current_method in {"GET", "HEAD"}:
+                request_body = None
+            redirects_followed += 1
 
     @detached_error_boundary(HttpTransportError)
     def request_metadata(
@@ -285,6 +294,7 @@ class HttpTransport:
         *,
         parameters: Mapping[str, object] | None,
         headers: Mapping[str, str] | None,
+        request_body: bytes | None,
         strip_sensitive_headers: bool,
     ) -> httpx.Response:
         request_headers = {str(key): str(value) for key, value in (headers or {}).items()}
@@ -305,11 +315,13 @@ class HttpTransport:
                 request = self._client.build_request(
                     method,
                     url,
-                    params=_query_parameters(parameters),
+                    params=query_parameters(parameters),
                     headers=request_headers,
+                    content=request_body,
                     timeout=self._timeout_seconds,
                 )
                 self._policy.validate(str(request.url))
+                strip_default_sensitive_headers(request.headers, request_headers)
                 if strip_sensitive_headers:
                     for key in list(request.headers):
                         if is_sensitive_request_header(key):
@@ -317,9 +329,11 @@ class HttpTransport:
                 response = self._client.send(
                     request,
                     stream=True,
-                    auth=None if strip_sensitive_headers else httpx.USE_CLIENT_DEFAULT,
+                    auth=None,
                     follow_redirects=False,
                 )
+            except QueryParameterError:
+                raise HttpTransportError("HTTP_PARAMETERS_INVALID") from None
             except httpx.TimeoutException:
                 if attempt >= self._max_retries:
                     raise HttpTransportError("HTTP_TIMEOUT") from None
@@ -359,28 +373,6 @@ class HttpTransport:
                 return min(parsed, self._max_retry_delay)
         delay = self._backoff_seconds * float(2**attempt)
         return min(delay, self._max_retry_delay)
-
-
-def _query_parameters(
-    parameters: Mapping[str, object] | None,
-) -> dict[str, HttpQueryValue] | None:
-    if parameters is None:
-        return None
-    result: dict[str, HttpQueryValue] = {}
-    for key, value in parameters.items():
-        if value is None or isinstance(value, (str, int, float, bool)):
-            result[str(key)] = value
-            continue
-        if isinstance(value, (list, tuple)):
-            values: list[str | int | float | bool | None] = []
-            for item in value:
-                if not (item is None or isinstance(item, (str, int, float, bool))):
-                    raise HttpTransportError("HTTP_PARAMETERS_INVALID")
-                values.append(item)
-            result[str(key)] = values
-            continue
-        raise HttpTransportError("HTTP_PARAMETERS_INVALID")
-    return result
 
 
 def _retry_after_seconds(value: str) -> float | None:

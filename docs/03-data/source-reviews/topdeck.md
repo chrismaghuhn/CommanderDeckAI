@@ -27,6 +27,17 @@ Nur notwendige Tournament-, Deck-, Pod- und Resultatfelder abrufen. E-Mail/Disco
 
 Lokale Raw-Speicherung, Aufbewahrung, Redistribution abgeleiteter Deck-/Resultatdaten und konkrete Attribution müssen vor Aktivierung dokumentiert werden.
 
+## Task-8-Adaptergrenze
+
+Der implementierte Adapter bleibt wegen `PROPOSED` nicht synchronisierbar. Er verwendet den
+dokumentierten `POST /api/v2/tournaments`-Vertrag, sendet bei Formatabfragen pro Request ein
+einzelnes `format`-Feld und bindet den exakten Request-Body ueber einen SHA-256-Digest an die
+Request-Provenienz. Raw-Response-Bytes werden ueber die gemeinsame Snapshot-Infrastruktur
+gespeichert; Parser und Staging erzeugen keine kanonischen Event-, Pod-, Deck- oder
+Spielerbeobachtungen. Round-/Table-Daten bleiben source-shaped und werden nicht als 1v1-Matches
+interpretiert. Eine spaetere Aktivierung benoetigt weiterhin lokale Source-Approval und eine
+aktuelle Use-Policy.
+
 ## Source-Approval-Gate checklist
 
 1. **Official API/access:** Reviewed access is the documented TopDeck.gg Tournaments v2 API. The documentation describes the API surface and supported tournament data, but public documentation or reachable endpoints are not treated as blanket permission for bulk acquisition or redistribution. The configured access method, host allowlist, and explicit sync policy remain in force.

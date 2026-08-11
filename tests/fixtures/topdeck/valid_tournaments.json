@@ -1,0 +1,53 @@
+[
+  {
+    "TID": "fixture-event-1",
+    "tournamentName": "Fixture Commander Cup",
+    "startDate": "2026-08-10T18:00:00Z",
+    "game": "Magic: The Gathering",
+    "format": "EDH",
+    "topCut": 4,
+    "standings": [
+      {
+        "player_id": "fixture-player-1",
+        "deckObj": {
+          "commander": ["fixture-commander-1"],
+          "cards": [{"name": "Fixture Card A", "quantity": 1}]
+        },
+        "place": 1,
+        "wins": 3,
+        "losses": 0,
+        "draws": 0,
+        "record": "3-0-0"
+      },
+      {
+        "player_id": "fixture-player-2",
+        "decklist": "1 Fixture Card B",
+        "commander": ["fixture-commander-2"],
+        "place": 2,
+        "wins": 2,
+        "losses": 1,
+        "draws": 0,
+        "record": "2-1-0"
+      }
+    ],
+    "rounds": [
+      {
+        "round": 1,
+        "tables": [
+          {
+            "tableId": "fixture-table-1",
+            "players": [
+              {"player_id": "fixture-player-1", "seat": 1, "result": "winner"},
+              {"player_id": "fixture-player-2", "seat": 2, "result": "second"},
+              {"player_id": "fixture-player-3", "seat": 3, "result": "third"},
+              {"player_id": "fixture-player-4", "seat": 4, "result": "fourth"}
+            ],
+            "winner_id": "fixture-player-1",
+            "status": "complete"
+          }
+        ]
+      }
+    ],
+    "attendees": [{"email": "not-for-curated@example.invalid", "role": "staff"}]
+  }
+]
