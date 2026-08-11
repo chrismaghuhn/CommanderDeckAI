@@ -39,14 +39,21 @@ Jeder Vergleich berichtet Samplecount und Bootstrap-Konfidenzintervall. Relative
 
 ## G0 — Pipeline- und Grundsignal
 
-Vor komplexeren Modellen muss gelten:
+G0 besteht aus zwei getrennten Kontrollen:
 
-- B1 schlägt B0 zuverlässig; und
-- Commander-spezifische Evidenz aus B2/B3 liefert gegenüber rein globaler Popularität einen nachvollziehbaren Zusatznutzen oder eine dokumentierte Erklärung, warum ein Segment davon abweicht.
+### G0a — Dataset-/Pipeline-Signal
 
-Mindestens muss die untere Grenze des vorab festgelegten Konfidenzintervalls für den entscheidenden Uplift über `0` liegen.
+B1 Global Popularity muss B0 Random Legal zuverlässig schlagen.
 
-Wenn nicht einmal einfache Popularitäts-/Commander-Baselines Random Legal belastbar schlagen, lautet die Entscheidung **STOP MODELING**. Dann werden Dataset, Labels, Candidate Pools, Maskierung und Metrikimplementation geprüft, bevor Matrix Factorization oder Deep Learning begonnen werden.
+Mindestens muss die untere Grenze des vorab festgelegten Bootstrap-Konfidenzintervalls für `B1 - B0` über `0` liegen.
+
+Wenn G0a nach validierter Metrik-/Pipeline-Implementation scheitert, lautet die Entscheidung **STOP MODELING**. Dataset, Labels, Candidate Pools, Maskierung und Metrikimplementation werden geprüft, bevor Matrix Factorization oder Deep Learning begonnen werden.
+
+### G0b — Commander-spezifisches Signal
+
+Die stärkste Commander-spezifische Baseline aus B2/B3 muss gegenüber B1 einen belastbaren Zusatznutzen zeigen. Auch hier muss für den entscheidenden Uplift die untere Grenze des preregistrierten Konfidenzintervalls über `0` liegen.
+
+Scheitert G0b bei bestandenem G0a, ist das kein Pipeline-Totalausfall, aber mindestens `YELLOW`: Das Dataset enthält allgemeines Decksignal, aber die Command Zone liefert in der aktuellen Form nicht den erwarteten zusätzlichen Predictive Value. Eine bloße nachträgliche Erklärung ersetzt diesen Befund nicht.
 
 ## G1 — Wert des sichtbaren Deckkontexts
 
@@ -77,7 +84,7 @@ FAIL   kein belastbarer zusätzlicher Context-Wert
 
 B6 wird innerhalb von M5 **vor DeepSets** evaluiert. Verglichen wird gegen die stärkste zulässige nicht-neuronale Context-Baseline aus B4/B5.
 
-Default-Gate für v1:
+Default-Gate für v1, sofern vor dem M4-Freeze kein begründeter anderer Wert committed wurde:
 
 ```text
 relative NDCG@25 uplift >= 3 %
@@ -93,11 +100,16 @@ Ein Scheitern von B6 beweist nicht automatisch, dass DeepSets nutzlos ist. Es en
 
 Ein fehlgeschlagenes begrenztes DeepSets-v1-Experiment rechtfertigt **keine automatische Skalierung** zu größeren Netzen oder Set Transformern.
 
-## GREEN / YELLOW / RED
+## Gate-Zustand über M4 und M5
+
+M4 bewertet G0/G1 und erzeugt den ersten Gate-Zustand. G2 wird erst in M5 nach B6 ergänzt und kann den Zustand aktualisieren.
 
 ### GREEN — Formulierung trägt
 
-- G0 bestanden;
+M4-GREEN verlangt:
+
+- G0a bestanden;
+- G0b bestanden;
 - G1 bestanden;
 - keine unakzeptierte preregistrierte Temporal-/Cold-/Long-Tail-Regression.
 
@@ -107,9 +119,10 @@ M5 darf regulär fortfahren. B6 wird vor DeepSets ausgeführt.
 
 Beispiele:
 
-- B1/B2 zeigen klares Signal, aber B4 liefert nur schwachen Zusatznutzen;
+- G0a besteht, G0b ist schwach;
+- Commander-Signal ist vorhanden, aber B4 liefert nur schwachen zusätzlichen Deckkontext-Nutzen;
 - der Gesamtwert steigt, aber Cold-/Long-Tail-Segmente regressieren;
-- G1 ist stark, B6 liefert aber kaum weiteren Gewinn.
+- G1 ist stark, B6 liefert in M5 aber kaum weiteren Gewinn.
 
 YELLOW erlaubt nur ein **begrenztes, vorab dokumentiertes Diagnosebudget**. Es darf nicht in eine offene Hyperparameter- oder Infrastrukturphase übergehen.
 
@@ -117,8 +130,8 @@ YELLOW erlaubt nur ein **begrenztes, vorab dokumentiertes Diagnosebudget**. Es d
 
 RED wird ausgelöst, wenn nach validierter Pipeline und ausgeschöpftem Diagnosebudget mindestens eines gilt:
 
-- G0 scheitert weiterhin;
-- Deckkontext liefert keinen belastbaren Zusatznutzen und B5/B6 können das nicht erklären oder beheben;
+- G0a scheitert weiterhin;
+- Commander-/Deckkontext liefert keinen belastbaren Zusatznutzen und B5/B6 können das nicht erklären oder beheben;
 - scheinbare Gewinne verschwinden nach Leakage-/Duplicate-Kontrolle;
 - Gewinne entstehen praktisch nur durch Popularity Memorization, während preregistrierte Generalisierungssegmente kollabieren.
 
@@ -165,7 +178,7 @@ Vor dem Exit von M3 muss ein versioniertes M4-Freeze-Profil committed sein. Es d
 - Temporal-Cutoffs und minimale Split-/Segment-Samplecounts;
 - Maskenregime und Candidate-Pool-Policy;
 - primäre/sekundäre Metriken;
-- G0/G1-Margins und geschützte Segmentgrenzen;
+- G0/G1/G2-Margins und geschützte Segmentgrenzen;
 - Bootstrap-/Unsicherheitsmethode;
 - Experimentbudgets.
 
