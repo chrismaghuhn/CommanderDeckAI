@@ -22,26 +22,46 @@ if TYPE_CHECKING:
     from commander_ai.application.configuration import OperationConfig
 
 _REDACTION_MARKER = "[REDACTED]"
+_QUOTED_VALUE = (
+    r"(?:"
+    r"(?P<value_quote>['\"])(?P<quoted_value>(?:\\[\s\S]|(?!(?P=value_quote))[\s\S])*)"
+    r"(?P=value_quote)"
+    r")"
+)
 _URI_USERINFO = re.compile(
     r"(?<![A-Za-z0-9+._-])"
     r"(?P<prefix>(?:[A-Za-z][A-Za-z0-9+.-]*:)?//)"
     r"(?P<userinfo>[^/\s?#]+)@"
 )
 _BEARER_BASIC_VALUE = re.compile(
-    r"(?i)(?<![\w-])"
-    r"(?P<label>(?:(?:proxy-)?authorization\s*[:=]\s*)?)"
-    r"(?P<scheme>bearer|basic)\s+(?P<value>[^,\s;&]+)"
+    r"(?ix)"
+    r"(?P<prefix>"
+    r"(?<![\w-])"
+    r"(?:(?:proxy-)?authorization\s*[:=]\s*)?"
+    r"(?:bearer|basic)\s+"
+    r")"
+    r"(?:" + _QUOTED_VALUE + r"|(?P<unquoted_value>[^,\s;&]+)"
+    r")"
 )
 _SECRET_QUERY_PARAMETER = re.compile(
-    r"(?i)(?P<prefix>[?&](?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)=)"
+    r"(?ix)"
+    r"(?P<prefix>[?&](?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)\s*=\s*)"
     r"(?!(?:bearer|basic)\s+)"
-    r"(?P<value>[^&#\s,;]+)"
+    r"(?:" + _QUOTED_VALUE + r"|(?P<unquoted_value>[^&#\s,;]+)"
+    r")"
 )
 _SECRET_ASSIGNMENT = re.compile(
-    r"(?i)(?P<label>api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)"
-    r"(?P<separator>\s*[:=]\s*)"
+    r"(?ix)"
+    r"(?P<prefix>"
+    r"(?<![A-Za-z0-9_.-])"
+    r"(?P<key_quote>['\"]?)"
+    r"(?:api[_-]?key|access[_-]?token|authorization|cookie|credential|password|secret|token)"
+    r"(?P=key_quote)"
+    r"\s*[:=]\s*"
+    r")"
     r"(?!(?:bearer|basic)\s+)"
-    r"(?P<value>[^,\s;&]+)"
+    r"(?:" + _QUOTED_VALUE + r"|(?P<unquoted_value>[^,\s;&]+)"
+    r")"
 )
 _SOURCE_SETTINGS_ENV_FIELDS = frozenset({"api_key_env", "credential_env_vars", "user_agent_env"})
 _MISSING = object()
@@ -216,10 +236,15 @@ def redact_text(text: str, secret_values: Sequence[str] = ()) -> str:
             for fragment in redacted.split(_REDACTION_MARKER)
         )
     redacted = _URI_USERINFO.sub(rf"\g<prefix>{_REDACTION_MARKER}@", redacted)
-    redacted = _BEARER_BASIC_VALUE.sub(rf"\g<label>\g<scheme> {_REDACTION_MARKER}", redacted)
-    redacted = _SECRET_QUERY_PARAMETER.sub(rf"\g<prefix>{_REDACTION_MARKER}", redacted)
-    redacted = _SECRET_ASSIGNMENT.sub(rf"\g<label>\g<separator>{_REDACTION_MARKER}", redacted)
+    redacted = _BEARER_BASIC_VALUE.sub(_replace_credential_value, redacted)
+    redacted = _SECRET_QUERY_PARAMETER.sub(_replace_credential_value, redacted)
+    redacted = _SECRET_ASSIGNMENT.sub(_replace_credential_value, redacted)
     return redacted
+
+
+def _replace_credential_value(match: re.Match[str]) -> str:
+    quote = match.group("value_quote") or ""
+    return f"{match.group('prefix')}{quote}{_REDACTION_MARKER}{quote}"
 
 
 def serialize_config(config: BaseModel | Mapping[str, object]) -> dict[str, object]:

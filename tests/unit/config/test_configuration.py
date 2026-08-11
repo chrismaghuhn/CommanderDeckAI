@@ -400,6 +400,64 @@ def test_redact_text_handles_credential_suffixes_and_is_idempotent() -> None:
     assert redact_text(redacted) == redacted
 
 
+@pytest.mark.parametrize(
+    ("key", "key_quote", "value_quote", "secret"),
+    [
+        ("api_key", '"', '"', "json-api-secret"),
+        ("access_token", "'", "'", "yaml-access-secret"),
+        ("authorization", '"', "'", "quoted-authorization-secret"),
+        ("cookie", "'", '"', "quoted-cookie-secret"),
+        ("password", '"', "'", "quoted-password-secret"),
+        ("secret", "'", '"', "quoted-secret-value"),
+        ("token", '"', '"', "json-secret"),
+    ],
+)
+def test_redact_text_redacts_quoted_credential_keys_preserving_shape(
+    key: str, key_quote: str, value_quote: str, secret: str
+) -> None:
+    value = f"{key_quote}{key}{key_quote}\t :\n {value_quote}{secret}{value_quote}, safe=1"
+    expected = f"{key_quote}{key}{key_quote}\t :\n {value_quote}[REDACTED]{value_quote}, safe=1"
+
+    redacted = redact_text(value)
+
+    assert redacted == expected
+    assert secret not in redacted
+    assert redact_text(redacted) == redacted
+
+
+def test_redact_text_handles_quoted_query_and_bearer_values() -> None:
+    value = (
+        'https://user:pass@example.com/data?token="query-secret"&safe=1; '
+        "Authorization: Bearer 'bearer-secret'; Basic \"basic-secret\""
+    )
+
+    redacted = redact_text(value)
+
+    assert redacted == (
+        'https://[REDACTED]@example.com/data?token="[REDACTED]"&safe=1; '
+        "Authorization: Bearer '[REDACTED]'; Basic \"[REDACTED]\""
+    )
+    assert redact_text(redacted) == redacted
+
+
+def test_redact_text_handles_quoted_and_unquoted_assignment_suffixes() -> None:
+    value = (
+        '{"token": "json-secret"}, "safe": "keep"; '
+        "api_key=assignment-secret]]}#assignment-suffix; safe=1"
+    )
+
+    redacted = redact_text(value)
+
+    assert redacted == ('{"token": "[REDACTED]"}, "safe": "keep"; api_key=[REDACTED]; safe=1')
+    assert redact_text(redacted) == redacted
+
+
+def test_redact_text_does_not_redact_environment_variable_names() -> None:
+    value = "TOPDECK_API_KEY CDA_USER_AGENT TOKEN_ENV"
+
+    assert redact_text(value) == value
+
+
 def test_redact_text_does_not_reprocess_marker_with_known_secret_values() -> None:
     secrets = ("actual-secret", "REDACTED")
 
@@ -477,6 +535,40 @@ def test_current_use_sensitive_fields_are_safe_in_all_direct_dumps_after_model_c
     assert "keep this explanation" in direct_dump["reason"]
     assert "[REDACTED]" in direct_dump["reason"]
     assert "[REDACTED]" in direct_dump["takedown_reference"]
+
+
+def test_current_use_model_copy_dumps_redact_quoted_assignments_everywhere() -> None:
+    reason = (
+        '{"token": "json-secret", "api_key": \'single-api-secret\'}; '
+        'Authorization: Bearer "bearer-secret"'
+    )
+    takedown_reference = "https://user:pass@example.com/takedown?access_token='query-secret'"
+    decision = CurrentUseDecision(
+        source_id="example_source",
+        status="TAKEDOWN",
+        reason="safe initial reason",
+        effective_at=datetime(2026, 8, 10, tzinfo=UTC),
+    ).model_copy(update={"reason": reason, "takedown_reference": takedown_reference})
+
+    snapshots = (
+        decision.model_dump(),
+        decision.model_dump_json(),
+        serialize_config(decision),
+    )
+
+    for snapshot in snapshots:
+        snapshot_text = str(snapshot)
+        for secret in (
+            "json-secret",
+            "single-api-secret",
+            "bearer-secret",
+            "user",
+            "pass",
+            "query-secret",
+        ):
+            assert secret not in snapshot_text
+    assert "[REDACTED]" in str(snapshots[0]["reason"])
+    assert "[REDACTED]" in str(snapshots[0]["takedown_reference"])
 
 
 def test_current_use_reason_redacts_bearer_and_other_credential_forms() -> None:
