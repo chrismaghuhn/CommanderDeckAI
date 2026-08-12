@@ -323,7 +323,8 @@ def test_malformed_ndjson_is_retained_with_exact_line_locator(tmp_path: Path) ->
     malformed = next(item for item in records if item.record_type == "response")
     assert isinstance(malformed.raw_locator.location, ByteRangeLocator)
     assert malformed.raw_locator.location.start > 0
-    assert malformed.raw_locator.location.length == len(b'{"broken":\n')
+    malformed_line = raw.splitlines(keepends=True)[1]
+    assert malformed.raw_locator.location.length == len(malformed_line)
     assert malformed.finding_codes == ("parse.spicerack_invalid_ndjson",)
 
 
