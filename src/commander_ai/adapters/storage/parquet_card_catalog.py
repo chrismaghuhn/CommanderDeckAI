@@ -7,11 +7,11 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
-from commander_ai.data_pipeline.provenance.canonical_snapshot_contracts import (
-    CanonicalSnapshotManifestV1,
-)
 from commander_ai.data_pipeline.normalization.canonical_snapshot_manifests import (
     validate_canonical_snapshot_manifest,
+)
+from commander_ai.data_pipeline.provenance.canonical_snapshot_contracts import (
+    CanonicalSnapshotManifestV1,
 )
 from commander_ai.data_pipeline.resolution.catalog_indexes import build_catalog_indexes
 from commander_ai.data_pipeline.resolution.catalog_models import CardCatalog

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from commander_ai.data_pipeline.events.pod_entries import PodCompletenessIndex
+from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
 from commander_ai.data_pipeline.provenance.rows import AuditRecord, ProvenanceRow, ResolutionAttempt
 from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord
-from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
 from commander_ai.domain.cards import CardResolution
 
 
