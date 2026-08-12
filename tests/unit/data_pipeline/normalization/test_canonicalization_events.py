@@ -10,9 +10,11 @@ from commander_ai.data_pipeline.normalization.canonicalization import canonicali
 from commander_ai.data_pipeline.normalization.canonicalization_events import (
     canonicalize_event_sources,
 )
+from commander_ai.data_pipeline.resolution.catalog_indexes import build_catalog_indexes
 from commander_ai.data_pipeline.staging.raw_locators import JsonPointerLocator, RawLocator
 from commander_ai.data_pipeline.staging.records import SourceRecordDTO, StagingRecord
-from commander_ai.domain.provenance import SourceSnapshotManifest
+from commander_ai.domain.cards import CanonicalCard
+from commander_ai.domain.provenance import ProvenanceReference, SourceSnapshotManifest
 
 ROOT = Path(__file__).resolve().parents[4]
 
@@ -75,6 +77,87 @@ def test_event_observation_requires_an_explicit_canonical_deck_id() -> None:
     assert not result.records
     assert "quality.canonical_deck_missing" in result.finding_codes
     assert len(result.quarantines) == 1
+
+
+def test_event_decklist_resolves_to_canonical_deck_and_observation() -> None:
+    provenance = ProvenanceReference(
+        source_id="fixture",
+        source_snapshot_id="fixture-card-snapshot",
+        source_object_id="cards.json",
+        raw_sha256="0" * 64,
+        retrieved_at="2026-08-10T18:00:30Z",
+        adapter_version="fixture-card-adapter-v1",
+        mapper_version="fixture-card-mapper-v1",
+        approval_status="APPROVED_LOCAL",
+    )
+    catalog = build_catalog_indexes(
+        cards=(
+            CanonicalCard(
+                card_snapshot_id="cards-fixture-v1",
+                oracle_id="11111111-1111-4111-8111-111111111111",
+                name="Fixture Commander",
+                normalized_name="fixture commander",
+                layout="normal",
+                mana_value=2,
+                colors=("U",),
+                color_identity=("U",),
+                types=("Creature",),
+                legalities={"commander": "legal"},
+                provenance=(provenance,),
+            ),
+            CanonicalCard(
+                card_snapshot_id="cards-fixture-v1",
+                oracle_id="22222222-2222-4222-8222-222222222222",
+                name="Fixture Card A",
+                normalized_name="fixture card a",
+                layout="normal",
+                mana_value=1,
+                legalities={"commander": "legal"},
+                provenance=(provenance,),
+            ),
+        ),
+        faces=(),
+        printings=(),
+        source_records=(),
+    )
+    event = _record(
+        "event",
+        {"TID": "event-1", "format": "EDH", "startDate": "2026-08-10T18:00:00Z"},
+        "/event",
+    )
+    standing = _record(
+        "standing",
+        {
+            "event_id": "event-1",
+            "player_id": "player-1",
+            "deckObj": {
+                "commander": ["Fixture Commander"],
+                "cards": [{"name": "Fixture Card A", "quantity": 1}],
+            },
+            "place": 1,
+            "wins": 1,
+            "losses": 0,
+            "draws": 0,
+        },
+        "/standing",
+    )
+
+    result = canonicalize_event_sources(
+        [event, standing], source_manifest=_manifest(), card_catalog=catalog
+    )
+
+    assert {item.record_type for item in result.records} == {
+        "canonical_deck",
+        "event_deck_observation",
+    }
+    deck = next(item for item in result.records if item.record_type == "canonical_deck")
+    observation = next(
+        item for item in result.records if item.record_type == "event_deck_observation"
+    )
+    assert observation.payload["canonical_deck_id"] == deck.payload["canonical_deck_id"]
+    assert len(result.resolutions) == 2
+    assert len(result.resolution_attempts) == 2
+    assert not result.quarantines
 
 
 def test_event_observation_preserves_explicit_deck_and_minimized_participant() -> None:

@@ -52,6 +52,7 @@ def canonicalize_topdeck_table(
     event_candidates: Sequence[tuple[StagingRecord, EventRecord]],
     round_number: int | None,
     source_manifest: SourceSnapshotManifest,
+    deck_bindings: Mapping[tuple[str, str], str] | None = None,
 ) -> TopDeckPodMapping:
     """Map one complete TopDeck table to grouped PodEntry records."""
 
@@ -69,7 +70,17 @@ def canonicalize_topdeck_table(
         return _failure("quality.pod_not_multiplayer")
 
     evidence = source_evidence(record, source_manifest, "topdeck-pod-mapper-v1")
-    members = tuple(_member(player, values, players, evidence) for player in players)
+    members = tuple(
+        _member(
+            player,
+            values,
+            players,
+            evidence,
+            event_id=event.event_id,
+            deck_bindings=deck_bindings or {},
+        )
+        for player in players
+    )
     normalized = normalize_pod(
         PodRecord(
             pod_id=pod_id,
@@ -114,6 +125,9 @@ def _member(
     table_values: Mapping[str, object],
     players: Sequence[Mapping[str, object]],
     evidence: SourceEvidence,
+    *,
+    event_id: str,
+    deck_bindings: Mapping[tuple[str, str], str],
 ) -> PodMemberInput:
     player_id = _player_id(values)
     player_name = _player_name(values)
@@ -128,6 +142,9 @@ def _member(
         result = "ambiguous"
     placement = _positive_int(values, "placement", "place", "rank") or mapped_placement
     points = _finite_float(values.get("points"))
+    canonical_deck_id = _canonical_deck_id(values) or (
+        deck_bindings.get((event_id, player_id)) if player_id is not None else None
+    )
     participant = (
         ParticipantInput(
             evidence=evidence,
@@ -139,7 +156,7 @@ def _member(
     )
     return PodMemberInput(
         seat=_positive_int(values, "seat"),
-        canonical_deck_id=_canonical_deck_id(values),
+        canonical_deck_id=canonical_deck_id,
         result=result,
         participant=participant,
         points=points,

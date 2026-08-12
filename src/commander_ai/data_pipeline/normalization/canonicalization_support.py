@@ -222,7 +222,20 @@ def resolve_item(
     attempted_at: datetime,
 ) -> tuple[int, ResolutionResult] | None:
     values = item if isinstance(item, Mapping) else {"name": item}
-    name = first(values, "name", "cardName", "card", default=None)
+    name = first(
+        values,
+        "name",
+        "cardName",
+        "card",
+        "oracleId",
+        "oracle_id",
+        "scryfallOracleId",
+        "uuid",
+        "printingId",
+        "scryfallId",
+        "mtgjsonId",
+        default=None,
+    )
     if not isinstance(name, str) or not name.strip():
         return None
     quantity = positive_int(first(values, "count", "quantity", default=1))
@@ -234,6 +247,7 @@ def resolve_item(
             original_value=name.strip(),
             source_field=field_name,
             requested_quantity=quantity,
+            source_values=values,
         ),
         attempted_at=attempted_at,
     )

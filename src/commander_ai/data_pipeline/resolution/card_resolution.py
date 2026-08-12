@@ -36,6 +36,7 @@ class CardResolutionInput:
     original_value: str
     source_field: str = "name"
     requested_quantity: int | None = None
+    source_values: Mapping[str, object] | None = None
 
     def __post_init__(self) -> None:
         if not self.original_value:
@@ -82,7 +83,7 @@ class CardResolver:
         attempted_at = attempted_at or datetime.now(UTC)
         if attempted_at.tzinfo is None or attempted_at.utcoffset() is None:
             raise ValueError("attempted_at must include a timezone")
-        values = item.staging_record.original_source_values
+        values = item.source_values or item.staging_record.original_source_values
         if item.staging_record.status != "OBSERVED":
             raise ValueError("resolution requires an OBSERVED staging record")
         identifier_match = self._identifier_match(values)

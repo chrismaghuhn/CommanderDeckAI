@@ -7,6 +7,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from commander_ai.adapters.storage.manifest_files import ManifestFileWriter
+from commander_ai.adapters.storage.parquet_card_catalog import ParquetCardCatalogLoader
 from commander_ai.adapters.storage.parquet_tables import ParquetTableWriter
 from commander_ai.data_pipeline.decks.ruleset_inputs import RulesetSnapshotInput
 from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
@@ -28,6 +29,7 @@ from commander_ai.data_pipeline.provenance.run_manifests import (
     build_run_manifest,
 )
 from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord
+from commander_ai.data_pipeline.resolution.catalog_models import CardCatalog
 from commander_ai.data_pipeline.staging.records import StagingRecord
 from commander_ai.domain.cards import CardResolution
 from commander_ai.domain.provenance import QuarantineReference
@@ -57,14 +59,28 @@ def publish_canonical_snapshot(
     normalized_manifest_path: str,
     normalized_manifest_sha256: str,
     ruleset_inputs: tuple[RulesetSnapshotInput, ...] = (),
+    card_catalog: CardCatalog | None = None,
+    card_catalog_input: RunInputReference | None = None,
 ) -> None:
     """Canonicalize verified staging rows and publish all derived artifacts."""
+
+    if card_catalog is None and prepared.source_id in {"topdeck", "spicerack"}:
+        loaded_catalog = ParquetCardCatalogLoader(artifact_root).load_unique()
+        if loaded_catalog is not None:
+            card_catalog = loaded_catalog.catalog
+            card_catalog_input = RunInputReference(
+                kind="canonical_snapshot_manifest",
+                id=loaded_catalog.canonical_snapshot_id,
+                path=loaded_catalog.manifest_path,
+                sha256=loaded_catalog.manifest_sha256,
+            )
 
     result = canonicalize_staging(
         staging,
         source_manifest=prepared.manifest,
         attempted_at=prepared.manifest.completed_at or prepared.manifest.started_at,
         ruleset_inputs=ruleset_inputs,
+        card_catalog=card_catalog,
     )
     all_audits = tuple(sorted((*audits, *result.audits), key=lambda item: item.audit_id))
     all_quarantine = tuple((*quarantine, *result.quarantines))
@@ -176,6 +192,7 @@ def publish_canonical_snapshot(
             sha256=current.decision_sha256,
         ),
         *ruleset_run_inputs,
+        *((card_catalog_input,) if card_catalog_input is not None else ()),
     )
     run_artifacts = (
         *operation.artifacts,
@@ -198,6 +215,15 @@ def publish_canonical_snapshot(
             }
             for item in ruleset_inputs
         ],
+        "card_catalog_input": (
+            None
+            if card_catalog_input is None
+            else {
+                "id": card_catalog_input.id,
+                "path": card_catalog_input.path,
+                "sha256": card_catalog_input.sha256,
+            }
+        ),
     }
     run = build_run_manifest(
         run_id=run_id,

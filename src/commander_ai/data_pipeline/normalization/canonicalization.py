@@ -19,6 +19,7 @@ from commander_ai.data_pipeline.provenance.rows import ResolutionAttempt
 from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord, quarantine_record
 from commander_ai.data_pipeline.resolution.card_catalog import build_card_catalog
 from commander_ai.data_pipeline.resolution.card_resolution import CardResolver
+from commander_ai.data_pipeline.resolution.catalog_models import CardCatalog
 from commander_ai.data_pipeline.staging.records import StagingRecord
 from commander_ai.domain.cards import CanonicalCard, CardResolution
 from commander_ai.domain.decks import (
@@ -57,6 +58,7 @@ def canonicalize_staging(
     source_manifest: SourceSnapshotManifest,
     attempted_at: datetime | None = None,
     ruleset_inputs: Sequence[RulesetSnapshotInput] = (),
+    card_catalog: CardCatalog | None = None,
 ) -> CanonicalizationResult:
     """Canonicalize only observed staging rows with source-specific mappings."""
 
@@ -71,13 +73,15 @@ def canonicalize_staging(
         event_result = canonicalize_event_sources(
             records,
             source_manifest=source_manifest,
+            card_catalog=card_catalog,
+            attempted_at=resolution_at,
         )
         return CanonicalizationResult(
             records=event_result.records,
-            resolutions=(),
-            resolution_attempts=(),
+            resolutions=event_result.resolutions,
+            resolution_attempts=event_result.resolution_attempts,
             audits=event_result.audits,
-            provenance=(),
+            provenance=event_result.provenance,
             quarantines=event_result.quarantines,
             finding_codes=event_result.finding_codes,
             pod_index=event_result.pod_index,
