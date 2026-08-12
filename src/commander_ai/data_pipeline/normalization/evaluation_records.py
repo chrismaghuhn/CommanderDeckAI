@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, datetime
 
 from commander_ai.data_pipeline.decks.quality import evaluate_deck_quality
 from commander_ai.data_pipeline.decks.ruleset_evaluation import evaluate_deck_legality
@@ -48,7 +49,7 @@ def build_deck_evaluation_records(
     )
     ruleset_selection = select_applicable_ruleset(
         (item.snapshot for item in ruleset_inputs),
-        evaluation_at,
+        _ruleset_context_at(source_record, evaluation_at),
     )
     legality = evaluate_deck_legality(
         deck,
@@ -113,6 +114,23 @@ def index_deck_evaluations(records: Sequence[CanonicalRecord]) -> DeckEvaluation
         legality_record_ids=legality_record_ids,
         quality_record_ids=quality_record_ids,
     )
+
+
+def _ruleset_context_at(record: StagingRecord, observed: datetime) -> date | datetime:
+    """Use a source-declared historical deck date when it is available."""
+
+    values = record.original_source_values
+    if record.source_id == "mtgjson" and isinstance(values, Mapping):
+        for key in ("releaseDate", "release_date"):
+            value = values.get(key)
+            if isinstance(value, date) and not isinstance(value, datetime):
+                return value
+            if isinstance(value, str) and value.strip():
+                try:
+                    return date.fromisoformat(value.strip())
+                except ValueError:
+                    break
+    return observed
 
 
 __all__ = ["DeckEvaluationIndex", "build_deck_evaluation_records", "index_deck_evaluations"]
