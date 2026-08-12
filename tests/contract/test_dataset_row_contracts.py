@@ -73,6 +73,17 @@ def test_deck_corpus_rejects_invalid_nested_card_identifier() -> None:
         DeckCorpusRow.model_validate(candidate)
 
 
+@pytest.mark.parametrize("field", ("command_zone", "card_zones"))
+def test_deck_corpus_rejects_duplicate_outer_collection_items(field: str) -> None:
+    _, candidate = _contract("deck-corpus.v1")
+    values = candidate["values"]  # type: ignore[assignment]
+    collection = values[field]  # type: ignore[index]
+    collection.append(copy.deepcopy(collection[0]))
+
+    with pytest.raises(ValidationError, match="collection items must be unique"):
+        DeckCorpusRow.model_validate(candidate)
+
+
 def test_dataset_rows_reject_unsanitized_participant_payload() -> None:
     _, candidate = _contract("deck-corpus.v1")
     candidate["values"]["payload"] = {"player_name": "Alice"}  # type: ignore[index]

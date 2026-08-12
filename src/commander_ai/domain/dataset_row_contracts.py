@@ -10,6 +10,7 @@ from pydantic import AfterValidator, AwareDatetime, Field, model_validator
 from .contract_validation import (
     JSONMapping,
     NonEmptyString,
+    UniqueTuple,
     UUIDString,
     validate_json_mapping,
     validate_unique_items,
@@ -152,8 +153,8 @@ class DeckCorpusValues(DomainModel):
     observed_at: AwareDatetime
     mode: NonEmptyString | None = None
     group_ids: UniqueNonEmptyStrings = Field(default_factory=tuple)
-    command_zone: tuple[CommandZoneEntry, ...] = Field(min_length=1)
-    card_zones: tuple[CardZone, ...] = Field(min_length=1)
+    command_zone: UniqueTuple[CommandZoneEntry] = Field(min_length=1)
+    card_zones: UniqueTuple[CardZone] = Field(min_length=1)
     payload: PrivacySafePayload = Field(default_factory=dict)
 
 
