@@ -133,8 +133,10 @@ the generic `CuratedRow` envelope is not the semantic authority for these
 outputs. The current projections are `deck-corpus.v1`,
 `card-cooccurrence.v2`, `tournament-corpus.v1`, and `combo-corpus.v1` under
 `schemas/`, with small matching examples under `examples/`. The legacy
-`card-cooccurrence.v1` contract remains immutable and readable, but it does not
-carry enough deck structure for independent leakage reconstruction. v2 carries
+`card-cooccurrence.v1` contract remains immutable and domain/schema-readable,
+but it does not carry enough deck structure for independent leakage
+reconstruction and is therefore not accepted by dataset inspection. Existing v1
+artifacts must be migrated or rebuilt as v2 before inspection/export. v2 carries
 the source-deck identity, source snapshot, command zone, and card zones needed
 for that audit. The dataset builder validates each emitted row through its
 matching domain contract before writing Parquet, and the dataset manifest binds

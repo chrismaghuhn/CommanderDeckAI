@@ -668,7 +668,7 @@ def test_dataset_inspection_requires_a_bound_producing_run(tmp_path: Path) -> No
     payload["manifest_sha256"] = detached_manifest_sha256(payload)
     manifest_path.write_bytes(canonical_json_bytes(payload))
 
-    with pytest.raises(ValueError, match="producing run is missing"):
+    with pytest.raises(ValueError, match=r"producing_run_id|producing run is missing"):
         inspect_dataset(tmp_path, result.manifest.dataset_id)
 
 
@@ -1083,13 +1083,11 @@ def test_card_cooccurrence_inspection_reconstructs_structure_not_labels(tmp_path
     first_values.update(
         record_id="cooccurrence-train",
         split="train",
-        canonical_deck_id="tampered-train",
         group_ids=["tampered-train"],
     )
     second_values.update(
         record_id="cooccurrence-test",
         split="test",
-        canonical_deck_id="tampered-test",
         group_ids=["tampered-test"],
     )
     first["values"] = first_values

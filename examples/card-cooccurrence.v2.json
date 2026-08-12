@@ -5,12 +5,12 @@
     "schema_version": "card-cooccurrence.v2",
     "record_id": "deck-1",
     "split": "train",
-    "canonical_deck_id": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "canonical_deck_id": "a15de215dbd5b7f2295fb2d1836519dd0c4b27ec7e40cf140cbd205641f44625",
     "source_id": "fixture",
     "source_deck_id": "deck-1",
     "source_snapshot_id": "snapshot-1",
     "observed_at": "2024-01-01T00:00:00Z",
-    "group_ids": ["exact:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"],
+    "group_ids": ["exact:a15de215dbd5b7f2295fb2d1836519dd0c4b27ec7e40cf140cbd205641f44625"],
     "command_zone": [
       {
         "oracle_id": "11111111-1111-4111-8111-111111111111",

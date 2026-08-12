@@ -15,7 +15,7 @@ from .contract_validation import (
     validate_json_mapping,
     validate_unique_items,
 )
-from .decks import CardZone, CommandZoneEntry
+from .decks import CardZone, CommandZoneEntry, compute_structural_fingerprint
 from .provenance import DomainModel
 
 _EXCLUDED = "[EXCLUDED]"
@@ -157,6 +157,11 @@ class DeckCorpusValues(DomainModel):
     card_zones: UniqueTuple[CardZone] = Field(min_length=1)
     payload: PrivacySafePayload = Field(default_factory=dict)
 
+    @model_validator(mode="after")
+    def verify_structural_identity(self) -> DeckCorpusValues:
+        _verify_structural_identity(self.canonical_deck_id, self.command_zone, self.card_zones)
+        return self
+
 
 class DeckCorpusRow(DatasetRow):
     values: DeckCorpusValues
@@ -205,6 +210,17 @@ class CardCooccurrenceV2Values(DomainModel):
 
     @model_validator(mode="after")
     def reject_self_relation(self) -> CardCooccurrenceV2Values:
+        _verify_structural_identity(self.canonical_deck_id, self.command_zone, self.card_zones)
+        command_ids = {entry.oracle_id.lower() for entry in self.command_zone}
+        card_ids = {card.oracle_id.lower() for zone in self.card_zones for card in zone.cards}
+        if self.relation_type == "commander_card" and (
+            self.left_id.lower() not in command_ids or self.right_id.lower() not in card_ids
+        ):
+            raise ValueError("commander-card relation must reference command and card zones")
+        if self.relation_type == "card_card" and (
+            self.left_id.lower() not in card_ids or self.right_id.lower() not in card_ids
+        ):
+            raise ValueError("card-card relation must reference cards in card zones")
         if self.relation_type == "card_card" and self.left_id == self.right_id:
             raise ValueError("card-card relations must contain two distinct cards")
         return self
@@ -212,6 +228,16 @@ class CardCooccurrenceV2Values(DomainModel):
 
 class CardCooccurrenceV2Row(DatasetRow):
     values: CardCooccurrenceV2Values
+
+
+def _verify_structural_identity(
+    canonical_deck_id: str,
+    command_zone: tuple[CommandZoneEntry, ...],
+    card_zones: tuple[CardZone, ...],
+) -> None:
+    expected = compute_structural_fingerprint(command_zone, card_zones)
+    if canonical_deck_id != expected:
+        raise ValueError("canonical_deck_id must match persisted deck structure")
 
 
 class TournamentCorpusValues(DomainModel):

@@ -130,8 +130,8 @@ def test_event_decklist_resolves_to_canonical_deck_and_observation() -> None:
         {
             "event_id": "event-1",
             "player_id": "player-1",
+            "deck_id": "event-deck-1",
             "deckObj": {
-                "deck_id": "event-deck-1",
                 "commander": ["Fixture Commander"],
                 "cards": [{"name": "Fixture Card A", "quantity": 1}],
             },

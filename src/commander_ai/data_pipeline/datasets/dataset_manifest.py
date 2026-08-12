@@ -57,7 +57,9 @@ def build_dataset_manifest(
     leakage_report: DatasetOutputReference | None = None,
 ) -> DatasetManifest:
     input_refs = dataset_input_references(request)
-    producing_run_id = None if request.producing_run is None else request.producing_run.run_id
+    if request.producing_run is None:
+        raise ValueError("dataset manifest requires a producing run")
+    producing_run_id = request.producing_run.run_id
     policy_versions = set(request.policy_versions)
     policy_versions.update(
         {

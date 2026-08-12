@@ -75,6 +75,22 @@ def test_deck_corpus_rejects_invalid_nested_card_identifier() -> None:
         DeckCorpusRow.model_validate(candidate)
 
 
+def test_deck_corpus_rejects_canonical_id_mismatched_with_persisted_structure() -> None:
+    _, candidate = _contract("deck-corpus.v1")
+    candidate["values"]["canonical_deck_id"] = "b" * 64  # type: ignore[index]
+
+    with pytest.raises(ValidationError, match="canonical_deck_id"):
+        DeckCorpusRow.model_validate(candidate)
+
+
+def test_card_cooccurrence_v2_rejects_relation_outside_persisted_zones() -> None:
+    _, candidate = _contract("card-cooccurrence.v2")
+    candidate["values"]["right_id"] = "33333333-3333-4333-8333-333333333333"  # type: ignore[index]
+
+    with pytest.raises(ValidationError, match="must reference command and card zones"):
+        CardCooccurrenceV2Row.model_validate(candidate)
+
+
 @pytest.mark.parametrize("field", ("command_zone", "card_zones"))
 def test_deck_corpus_rejects_duplicate_outer_collection_items(field: str) -> None:
     _, candidate = _contract("deck-corpus.v1")

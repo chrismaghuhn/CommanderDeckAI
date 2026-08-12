@@ -233,7 +233,18 @@ def _deck_values(values: Mapping[str, object]) -> Mapping[str, object]:
     if not isinstance(nested, Mapping):
         return values
     merged = dict(nested)
-    for key in (*_COMMANDER_KEYS, "partner", "background", "decklist", "deckList"):
+    for key in (
+        *_COMMANDER_KEYS,
+        "partner",
+        "background",
+        "decklist",
+        "deckList",
+        "deck_id",
+        "deckId",
+        "decklist_id",
+        "decklistId",
+        "name",
+    ):
         if key in values:
             merged[key] = values[key]
     return merged
@@ -281,7 +292,7 @@ def _parse_text_decklist(value: str) -> tuple[tuple[Mapping[str, object], ...], 
 
 
 def _source_deck_id(values: Mapping[str, object], record: StagingRecord) -> str:
-    for key in ("deck_id", "deckId", "decklist_id", "decklistId", "id", "name"):
+    for key in ("deck_id", "deckId", "decklist_id", "decklistId", "name"):
         value = values.get(key)
         if isinstance(value, (str, int)) and str(value).strip():
             return str(value).strip()

@@ -61,7 +61,7 @@ class DatasetManifest(DomainModel):
         "unknown",
     ] = "unknown"
     config_version: str = Field(default="dataset-config.v1", min_length=1)
-    producing_run_id: str | None = Field(default=None, min_length=1)
+    producing_run_id: str = Field(min_length=1)
     created_at: AwareDatetime
     builder_version: str = Field(min_length=1)
     code_commit: str = Field(pattern=r"^(?:[0-9a-f]{40}|[0-9a-f]{64})$")

@@ -786,6 +786,7 @@ def test_manifest_models_bind_authoritative_requests_objects_and_digest_domains(
     )
     dataset_manifest = DatasetManifest(
         dataset_id="dataset-1",
+        producing_run_id="run-1",
         created_at=datetime(2026, 8, 10, tzinfo=UTC),
         builder_version="builder-v1",
         code_commit="a" * 40,

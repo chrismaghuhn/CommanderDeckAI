@@ -7,6 +7,7 @@
   "required": [
     "schema_version",
     "dataset_id",
+    "producing_run_id",
     "created_at",
     "builder_version",
     "code_commit",
@@ -48,10 +49,7 @@
       "minLength": 1
     },
     "producing_run_id": {
-      "type": [
-        "string",
-        "null"
-      ],
+      "type": "string",
       "minLength": 1
     },
     "created_at": {

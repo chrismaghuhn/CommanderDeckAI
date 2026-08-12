@@ -130,11 +130,12 @@ def _validate_dataset_output_path(path: str, dataset_id: str) -> None:
 
 
 def _dataset_row_schema(manifest: DatasetManifest) -> str:
+    if manifest.dataset_kind == "card_cooccurrence":
+        return _card_cooccurrence_row_schema(manifest)
     try:
         return {
             "deck_completion": "deck-corpus.v1",
             "tournament_outcomes": "tournament-corpus.v1",
-            "card_cooccurrence": _card_cooccurrence_row_schema(manifest),
             "combo": "combo-corpus.v1",
         }[manifest.dataset_kind]
     except KeyError as error:
@@ -142,11 +143,13 @@ def _dataset_row_schema(manifest: DatasetManifest) -> str:
 
 
 def _card_cooccurrence_row_schema(manifest: DatasetManifest) -> str:
-    """Select the structural-audit schema while retaining read support for v1."""
+    """Require the structural-audit schema for inspectable co-occurrence data."""
 
-    if "card-cooccurrence.v2" in manifest.schema_versions:
-        return "card-cooccurrence.v2"
-    return "card-cooccurrence.v1"
+    if "card-cooccurrence.v2" not in manifest.schema_versions:
+        raise ValueError(
+            "card-cooccurrence.v1 requires migration to card-cooccurrence.v2 before inspection"
+        )
+    return "card-cooccurrence.v2"
 
 
 def _verify_output_artifact(root: Path, dataset_id: str, output: DatasetOutputReference) -> Path:
