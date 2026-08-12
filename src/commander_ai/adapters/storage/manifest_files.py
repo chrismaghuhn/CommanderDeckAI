@@ -43,6 +43,7 @@ class ManifestFileWriter:
         *,
         manifest_path: str,
         configuration_snapshot: object,
+        write_configuration: bool = True,
     ) -> tuple[JsonArtifact, JsonArtifact]:
         configuration_payload = configuration_snapshot_bytes(configuration_snapshot)
         configuration_hash = sha256_hex(configuration_payload)
@@ -53,13 +54,19 @@ class ManifestFileWriter:
             raise ValueError("run manifest and configuration paths must differ")
         configuration: JsonArtifact | None = None
         try:
-            configuration = self.write_json(
-                manifest.configuration.path,
-                configuration_payload,
-            )
+            if write_configuration:
+                configuration = self.write_json(
+                    manifest.configuration.path,
+                    configuration_payload,
+                )
+            else:
+                configuration = self._verify_existing_json(
+                    manifest.configuration.path,
+                    configuration_payload,
+                )
             manifest_artifact = self.write_json(manifest_path, manifest_payload)
         except Exception:
-            if configuration is not None:
+            if write_configuration and configuration is not None:
                 self._remove_published(configuration.path)
             raise
         return manifest_artifact, configuration
@@ -129,6 +136,20 @@ class ManifestFileWriter:
         final_path = resolve_under_root(self.root, relative_path)
         with suppress(FileNotFoundError):
             final_path.unlink()
+
+    def _verify_existing_json(self, relative_path: str, expected_payload: bytes) -> JsonArtifact:
+        portable = validate_portable_relative_path(relative_path)
+        final_path = resolve_under_root(self.root, portable)
+        if not final_path.is_file() or final_path.is_symlink():
+            raise FileNotFoundError(portable)
+        payload = final_path.read_bytes()
+        if payload != expected_payload:
+            raise ValueError(f"existing configuration does not match: {portable}")
+        return JsonArtifact(
+            path=portable,
+            sha256=sha256_hex(payload),
+            bytes=len(payload),
+        )
 
 
 def _sidecar_path(manifest_path: str) -> str:

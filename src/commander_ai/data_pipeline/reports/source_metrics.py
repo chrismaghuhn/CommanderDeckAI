@@ -129,6 +129,13 @@ class SourceMetricsInput:
                 raise ValueError(f"{field_name} must be non-negative")
         if self.card_resolution_resolved > self.card_resolution_total:
             raise ValueError("resolved card entries cannot exceed total entries")
+        if (
+            self.card_resolution_resolved
+            + self.card_resolution_ambiguous
+            + self.card_resolution_unresolved
+            != self.card_resolution_total
+        ):
+            raise ValueError("card resolution counts must sum to total entries")
         if self.current_use is not None and self.current_use.source_id != self.source_id:
             raise ValueError("current-use decision source does not match source metrics")
         if any(deck.source_id != self.source_id for deck in self.decks):

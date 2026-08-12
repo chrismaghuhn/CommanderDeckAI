@@ -35,6 +35,7 @@ from commander_ai.data_pipeline.provenance.run_manifests import (
     RunArtifactReference,
     RunInputReference,
     build_run_manifest,
+    configuration_snapshot_bytes,
 )
 from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord
 from commander_ai.data_pipeline.reports.report_writer import ReportWriter
@@ -59,7 +60,9 @@ def test_offline_data_foundation_workflow_is_rebuildable(tmp_path: Path) -> None
     assert SnapshotVerifier(tmp_path).verify_complete_snapshot("fixture", "snapshot-1")
 
     normalized_id, normalized_path = _normalize_fixture(tmp_path, verified)
-    validated = VerifiedNormalizedSnapshot(runtime).validate_snapshot(normalized_id)
+    validated = VerifiedNormalizedSnapshot(runtime, require_current_use=False).validate_snapshot(
+        normalized_id
+    )
     assert validated.status == "VALID"
     assert "normalized/staging.parquet" in validated.artifact_paths
 
@@ -83,6 +86,10 @@ def test_offline_data_foundation_workflow_is_rebuildable(tmp_path: Path) -> None
     normalized_repeat_id, normalized_repeat_path = _normalize_fixture(second_root, verified_repeat)
     _build_report(second_root, normalized_repeat_id, normalized_repeat_path)
     _build_dataset(second_root, normalized_repeat_id, normalized_repeat_path)
+    VerifiedNormalizedSnapshot(
+        RuntimeConfig(data_root=second_root, artifact_root=second_root),
+        require_current_use=False,
+    ).validate_snapshot(normalized_repeat_id)
     assert first_hashes == _artifact_hashes(second_root)
 
 
@@ -327,11 +334,9 @@ def _build_dataset(root: Path, normalized_id: str, normalized_path: str) -> str:
         started_at=NOW,
         finished_at=NOW,
     )
-    run_path = "runs/dataset-fixture-run/manifest.json"
-    ManifestFileWriter(root).write_run_manifest(
-        run,
-        manifest_path=run_path,
-        configuration_snapshot=configuration_snapshot,
+    ManifestFileWriter(root).write_json(
+        configuration_path,
+        configuration_snapshot_bytes(configuration_snapshot),
     )
     request = DatasetBuildRequest(
         settings=settings,
@@ -348,12 +353,13 @@ def _build_dataset(root: Path, normalized_id: str, normalized_path: str) -> str:
         code_commit="a" * 40,
         dependency_lock_hash="b" * 64,
         source_snapshot_ids=("snapshot-1",),
+        source_snapshot_bindings=(("fixture", "snapshot-1"),),
         schema_versions=("combo-corpus.v1",),
         current_use_decisions=(decision,),
         configuration_path=configuration_path,
         configuration_snapshot=configuration_snapshot,
         producing_run=run,
-        producing_run_path=run_path,
+        producing_run_path=None,
         created_at=NOW,
     )
     result = build_dataset(
@@ -363,8 +369,47 @@ def _build_dataset(root: Path, normalized_id: str, normalized_path: str) -> str:
                 record_id="combo-record-1",
                 observed_at=datetime(2024, 8, 1, tzinfo=UTC),
                 payload={"player": {"name": "not-curated"}, "cards": ["fixture-card"]},
+                source_id="fixture",
+                source_snapshot_id="snapshot-1",
             )
         ],
+    )
+    final_run = build_run_manifest(
+        run_id=run.run_id,
+        run_kind=run.run_kind,
+        stage=run.stage,
+        status="succeeded",
+        git_commit=run.git_commit,
+        git_dirty=run.git_dirty,
+        git_worktree_sha256=run.git_worktree_sha256,
+        dependency_lock_hash=run.environment.dependency_lock_hash,
+        configuration_path=run.configuration.path,
+        configuration_snapshot=configuration_snapshot,
+        inputs=run.inputs,
+        schema_versions=("combo-corpus.v1",),
+        transform_versions=("dataset-transform-v1",),
+        policy_versions=("fixture-split-v1",),
+        artifacts=(
+            RunArtifactReference(
+                path=result.output_artifacts[0].path,
+                sha256=result.output_artifacts[0].sha256,
+                kind="curated",
+            ),
+            RunArtifactReference(
+                path=result.manifest_artifact.path,
+                sha256=result.manifest_artifact.sha256,
+                kind="dataset_manifest",
+            ),
+        ),
+        created_at=NOW,
+        started_at=NOW,
+        finished_at=NOW,
+    )
+    ManifestFileWriter(root).write_run_manifest(
+        final_run,
+        manifest_path="runs/dataset-fixture-run/manifest.json",
+        configuration_snapshot=configuration_snapshot,
+        write_configuration=False,
     )
     return result.manifest.dataset_id
 

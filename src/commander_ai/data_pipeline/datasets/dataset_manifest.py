@@ -13,7 +13,9 @@ from commander_ai.adapters.storage.raw_snapshot_io import sha256_file
 from commander_ai.config.current_use_policy import (
     current_use_decision_binding,
 )
-from commander_ai.config.source_settings import SourceApprovalStatus
+from commander_ai.data_pipeline.provenance.normalized_snapshot_manifests import (
+    validate_normalized_snapshot_manifest_bytes,
+)
 from commander_ai.data_pipeline.provenance.run_manifests import (
     configuration_snapshot_bytes,
     run_manifest_bytes,
@@ -158,16 +160,15 @@ def dataset_input_references(request: DatasetBuildRequest) -> tuple[DatasetInput
             serialized_run = run_manifest_bytes(request.producing_run)
         except ValueError as error:
             raise ValueError("dataset manifest requires a verified producing run") from error
-        if request.producing_run_path is None:
-            raise ValueError("dataset manifest requires a producing run path")
-        input_manifests.append(
-            DatasetInputReference(
-                kind="run_manifest",
-                id=request.producing_run.run_id,
-                path=request.producing_run_path,
-                sha256=sha256_hex(serialized_run),
+        if request.producing_run_path is not None:
+            input_manifests.append(
+                DatasetInputReference(
+                    kind="run_manifest",
+                    id=request.producing_run.run_id,
+                    path=request.producing_run_path,
+                    sha256=sha256_hex(serialized_run),
+                )
             )
-        )
     return _unique_input_manifests(input_manifests)
 
 
@@ -192,6 +193,12 @@ def verify_dataset_inputs(request: DatasetBuildRequest) -> None:
             parsed = validate_run_manifest_bytes(payload)
             if request.producing_run is None or parsed.run_id != request.producing_run.run_id:
                 raise ValueError("dataset run input does not match producing run")
+        elif reference.kind == "normalized_snapshot_manifest":
+            normalized_parsed = validate_normalized_snapshot_manifest_bytes(payload)
+            if normalized_parsed.status != "COMPLETE":
+                raise ValueError("dataset normalized input must be COMPLETE")
+            if normalized_parsed.normalized_snapshot_id != reference.id:
+                raise ValueError("dataset normalized input id does not match manifest")
 
 
 def _configuration_reference(request: DatasetBuildRequest) -> DatasetInputReference:
@@ -209,8 +216,14 @@ def _current_use_references(
     request: DatasetBuildRequest,
 ) -> tuple[DatasetInputReference, ...]:
     references: list[DatasetInputReference] = []
+    historical_statuses = dict(request.historical_approval_statuses)
     for decision in request.current_use_decisions:
-        historical_status = decision.approval_status or SourceApprovalStatus.PROPOSED
+        source_id = decision.source_id
+        historical_status = historical_statuses.get(source_id, decision.approval_status)
+        if historical_status is None:
+            raise ValueError(
+                "POLICY_HISTORICAL_APPROVAL_REQUIRED: dataset build requires source history"
+            )
         reference, digest = current_use_decision_binding(
             source_id=decision.source_id,
             historical_status=historical_status,

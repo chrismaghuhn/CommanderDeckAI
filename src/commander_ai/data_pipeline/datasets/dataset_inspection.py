@@ -17,6 +17,8 @@ from commander_ai.domain.dataset_contracts import DatasetManifest, DatasetOutput
 from commander_ai.domain.provenance import detached_manifest_sha256
 from commander_ai.domain.serialization import canonical_json_bytes
 
+from ..provenance.run_manifests import verify_run_manifest
+
 
 @dataclass(frozen=True, slots=True)
 class DatasetInspection:
@@ -85,6 +87,8 @@ def inspect_dataset(root: Path | str, dataset_id: str) -> DatasetInspection:
     )
     if expected_content_digest != manifest.dataset_content_sha256:
         raise ValueError("dataset content digest mismatch")
+    if manifest.producing_run_id is not None:
+        _verify_producing_run(artifact_root, manifest_file, manifest)
     return DatasetInspection(
         manifest=manifest,
         manifest_artifact=JsonArtifact(
@@ -207,6 +211,26 @@ def _verify_report_artifact(
     expected_inputs = [item.model_dump(mode="json") for item in manifest.input_manifests]
     if payload.get("input_manifests") != expected_inputs:
         raise ValueError("dataset report input binding mismatch")
+
+
+def _verify_producing_run(root: Path, manifest_file: Path, manifest: DatasetManifest) -> None:
+    """Require the final dataset run to bind the published dataset artifacts."""
+
+    run_path = f"runs/{manifest.producing_run_id}/manifest.json"
+    run = verify_run_manifest(root, run_path)
+    if run.run_id != manifest.producing_run_id:
+        raise ValueError("dataset producing run id mismatch")
+    if run.run_kind != "dataset_build" or run.stage != "data" or run.status != "succeeded":
+        raise ValueError("dataset producing run is not a succeeded data-stage build")
+    artifact_bindings = {(item.path, item.sha256, item.kind) for item in run.artifacts}
+    manifest_hash = sha256_file(manifest_file)
+    if (manifest_file.relative_to(root).as_posix(), manifest_hash, "dataset_manifest") not in (
+        artifact_bindings
+    ):
+        raise ValueError("dataset producing run does not bind its manifest")
+    for output in manifest.outputs:
+        if (output.path, output.sha256, "curated") not in artifact_bindings:
+            raise ValueError(f"dataset producing run does not bind output: {output.path}")
 
 
 __all__ = ["DatasetInspection", "inspect_dataset"]

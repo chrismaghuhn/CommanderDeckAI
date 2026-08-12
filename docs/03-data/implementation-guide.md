@@ -29,6 +29,10 @@ bind source settings and historical approval metadata. A current-use decision is
 required for downstream processing and export when the operation policy requires
 one.
 The individual files under `configs/sources/` are not a registry substitute.
+For the application commands, provide the reviewed registry through the
+`COMMANDER_AI_SOURCE_REGISTRY` environment variable or pass the registry path
+through the repository's runtime composition. The variable contains a path,
+never credentials.
 The acquisition gate is an allowlist:
 
 | Operation | Allowed status |
@@ -106,6 +110,13 @@ Parquet artifacts. The authoritative task-specific output is its own
 `dataset-manifest` plus task-specific Parquet and a bound `run-manifest.v1`.
 `run-manifest.v1` is reused for source sync, normalize, validate, report, and
 dataset build; no competing data-run contract is used.
+
+The current source adapters intentionally publish staging records, not
+canonical deck/event/combo records. `dataset build` therefore refuses a
+`staging.v1` normalized input with `QUALITY_CANONICALIZATION_REQUIRED`; a
+staging row is never relabeled as a combo or outcome record. The typed dataset
+builders remain available for the later canonicalization output, which must
+bind its own versioned artifacts before a training-ready dataset is published.
 
 ## Provenance and integrity
 

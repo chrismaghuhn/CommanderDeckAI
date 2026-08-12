@@ -86,7 +86,10 @@ class ConfiguredSourceCatalog:
         return load_permission_gated_catalog(self._settings_root / "permission-gated.yaml")
 
     def _default_review_path(self, source_id: str) -> str:
-        return f"docs/03-data/source-reviews/{source_id}.md"
+        filename = {
+            "cedh_decklist_database": "cedh-decklist-database.md",
+        }.get(source_id, f"{source_id}.md")
+        return f"docs/03-data/source-reviews/{filename}"
 
     def _review_exists(self, review_path: str) -> bool:
         candidate = self._root.joinpath(*review_path.split("/"))

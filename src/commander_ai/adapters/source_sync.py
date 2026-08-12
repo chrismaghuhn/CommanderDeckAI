@@ -2,8 +2,13 @@
 
 from __future__ import annotations
 
-from typing import Protocol, cast
+import json
+from collections.abc import Mapping
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Literal, Protocol, cast
 
+from commander_ai.adapters.storage.manifest_files import ManifestFileWriter
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
 from commander_ai.adapters.storage.raw_snapshots import SnapshotCommit
 from commander_ai.application.ports.source_adapter import SourceSyncResult
@@ -15,8 +20,17 @@ from commander_ai.config import (
     load_config,
     load_source_settings,
 )
+from commander_ai.config.source_registry import SourceRegistryEntry
 from commander_ai.config.source_settings import SourceSettings
-from commander_ai.domain.provenance import SourceSnapshotManifest
+from commander_ai.config.yaml_loader import serialize_config
+from commander_ai.data_pipeline.provenance.run_manifests import (
+    RunArtifactReference,
+    build_run_manifest,
+)
+from commander_ai.domain.provenance import SourceSnapshotManifest, detached_manifest_sha256
+from commander_ai.domain.serialization import canonical_json_bytes
+
+from .operation_provenance import operation_context
 
 
 class _Closable(Protocol):
@@ -65,12 +79,76 @@ class ConfiguredSourceSync:
         )
         result = self._download(entry.source_id, entry.settings, policy, store)
         manifest_path = self._runtime.portable_data_path(result.snapshot_commit.manifest_path)
+        self._write_run_manifest(entry, result)
         return SourceSyncResult(
             source_id=result.manifest.source_id,
             snapshot_id=result.manifest.source_snapshot_id,
             status=result.manifest.status,
             manifest_path=manifest_path,
             manifest_sha256=result.snapshot_commit.manifest_sha256,
+        )
+
+    def _write_run_manifest(self, entry: SourceRegistryEntry, result: _DownloadResult) -> None:
+        source_id = result.manifest.source_id
+        snapshot_id = result.manifest.source_snapshot_id
+        run_id = f"source-sync-{source_id}-{snapshot_id}"
+        operation = operation_context(self._runtime.artifact_root, run_id)
+        raw_manifest_bytes = Path(result.snapshot_commit.manifest_path).read_bytes()
+        try:
+            raw_manifest_payload = json.loads(raw_manifest_bytes.decode("utf-8"))
+        except (UnicodeError, json.JSONDecodeError) as error:
+            raise ValueError("source snapshot manifest is not valid JSON") from error
+        if not isinstance(raw_manifest_payload, Mapping):
+            raise ValueError("source snapshot manifest must be a JSON object")
+        if canonical_json_bytes(raw_manifest_payload) != raw_manifest_bytes:
+            raise ValueError("source snapshot manifest is not canonical JSON")
+        if detached_manifest_sha256(raw_manifest_payload) != result.snapshot_commit.manifest_sha256:
+            raise ValueError("source snapshot detached digest mismatch")
+        raw_manifest_artifact = ManifestFileWriter(self._runtime.artifact_root).write_json(
+            f"runs/{run_id}/source-snapshot-manifest.json",
+            raw_manifest_bytes,
+        )
+        config_snapshot = {
+            "source": serialize_config(entry.settings),
+            "historical_approval": serialize_config(entry.historical_approval),
+            "current_use": (
+                None if entry.current_use is None else serialize_config(entry.current_use)
+            ),
+        }
+        status: Literal["succeeded", "failed"] = (
+            "succeeded" if result.manifest.status == "COMPLETE" else "failed"
+        )
+        finished_at = result.manifest.completed_at or datetime.now(UTC)
+        run = build_run_manifest(
+            run_id=run_id,
+            run_kind="source_sync",
+            stage="data",
+            status=status,
+            git_commit=operation.git_commit,
+            git_dirty=operation.git_dirty,
+            git_worktree_sha256=operation.git_worktree_sha256,
+            dependency_lock_hash=operation.dependency_lock_hash,
+            configuration_path=f"configs/source-sync/{source_id}/{snapshot_id}.json",
+            configuration_snapshot=config_snapshot,
+            schema_versions=("source-snapshot-manifest.v2",),
+            policy_versions=("source-approval-gate-v1",),
+            artifacts=(
+                *operation.artifacts,
+                RunArtifactReference(
+                    path=raw_manifest_artifact.path,
+                    sha256=raw_manifest_artifact.sha256,
+                    kind="source_snapshot_manifest",
+                ),
+            ),
+            determinism="EXTERNAL",
+            created_at=result.manifest.started_at,
+            started_at=result.manifest.started_at,
+            finished_at=finished_at,
+        )
+        ManifestFileWriter(self._runtime.artifact_root).write_run_manifest(
+            run,
+            manifest_path=f"runs/{run_id}/manifest.json",
+            configuration_snapshot=config_snapshot,
         )
 
     @staticmethod

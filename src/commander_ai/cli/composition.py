@@ -7,11 +7,12 @@ from pathlib import Path
 
 from commander_ai.adapters.data_pipeline import (
     LocalDatasetInspector,
-    UnconfiguredDatasetBuild,
-    UnconfiguredReport,
     VerifiedNormalizedSnapshot,
     VerifiedSnapshotNormalizer,
 )
+from commander_ai.adapters.dataset_building import ConfiguredDatasetBuild
+from commander_ai.adapters.registry_context import SourceRegistryProvider
+from commander_ai.adapters.reporting import ConfiguredReport
 from commander_ai.adapters.source_catalog import ConfiguredSourceCatalog
 from commander_ai.adapters.source_sync import ConfiguredSourceSync
 from commander_ai.application.ports.data_pipeline import NormalizeDataPort, ValidateDataPort
@@ -41,13 +42,14 @@ class CliServices:
 
 def build_default_services(repository_root: Path | str | None = None) -> CliServices:
     root = Path(repository_root or _repository_root()).expanduser().absolute()
-    runtime = RuntimeConfig()
+    runtime = RuntimeConfig(data_root=root / "data", artifact_root=root / "artifacts")
+    registry_provider = SourceRegistryProvider(root)
     catalog: SourceCatalogPort = ConfiguredSourceCatalog(root)
     sync: SourceSyncPort = ConfiguredSourceSync(runtime)
-    normalizer: NormalizeDataPort = VerifiedSnapshotNormalizer(runtime)
-    validator: ValidateDataPort = VerifiedNormalizedSnapshot(runtime)
-    reporter: ReportDataPort = UnconfiguredReport()
-    dataset_builder: DatasetBuildPort = UnconfiguredDatasetBuild()
+    normalizer: NormalizeDataPort = VerifiedSnapshotNormalizer(runtime, registry_provider)
+    validator: ValidateDataPort = VerifiedNormalizedSnapshot(runtime, registry_provider)
+    reporter: ReportDataPort = ConfiguredReport(runtime, registry_provider)
+    dataset_builder: DatasetBuildPort = ConfiguredDatasetBuild(runtime, registry_provider)
     dataset_inspector: DatasetInspectPort = LocalDatasetInspector(runtime)
     return CliServices(
         source=SourceCommands(catalog, sync),

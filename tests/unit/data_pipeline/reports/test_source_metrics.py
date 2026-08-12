@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+import pytest
+
 from commander_ai.config.current_use_policy import CurrentUseDecision, CurrentUseStatus
 from commander_ai.config.source_settings import SourceApprovalStatus
 from commander_ai.data_pipeline.reports.source_metrics import (
@@ -176,3 +178,29 @@ def test_research_only_or_blocked_sources_are_reported_without_acquisition() -> 
     assert source["recommended_use"] == "research_only"
     assert report.as_dict()["current_use"][0]["allowed"] is False
     assert report.as_dict()["current_use"][0]["code"] == "POLICY_CURRENT_USE_BLOCKED"
+
+
+def test_source_metrics_reject_inconsistent_card_resolution_counts() -> None:
+    with pytest.raises(ValueError, match="sum to total"):
+        _input(
+            current_use=_decision("fixture"),
+        ).__class__(
+            source_id="fixture",
+            snapshot_id="snapshot-1",
+            snapshot_date=datetime(2026, 8, 10, tzinfo=UTC),
+            raw_bytes=1234,
+            source_record_count=10,
+            card_resolution_total=3,
+            card_resolution_resolved=2,
+            card_resolution_ambiguous=0,
+            card_resolution_unresolved=0,
+            input_manifests=(
+                ReportInputBinding(
+                    kind="source_snapshot_manifest",
+                    identifier="snapshot-1",
+                    sha256="a" * 64,
+                ),
+            ),
+            historical_approval_status=SourceApprovalStatus.APPROVED_LOCAL,
+            current_use=_decision("fixture"),
+        )

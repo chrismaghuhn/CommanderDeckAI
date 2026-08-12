@@ -12,6 +12,7 @@ from commander_ai.adapters.storage.manifest_files import JsonArtifact, ManifestF
 from commander_ai.adapters.storage.parquet_tables import CuratedRow, ParquetTableWriter
 from commander_ai.config.current_use_policy import CurrentUseDecision
 from commander_ai.config.dataset_settings import DatasetSettings
+from commander_ai.config.source_settings import SourceApprovalStatus, normalize_source_id
 from commander_ai.data_pipeline.deduplication.near_duplicates import NearDuplicatePolicy
 from commander_ai.data_pipeline.provenance.run_manifests import RunManifest
 from commander_ai.data_pipeline.splitting.deck_completion_policy import (
@@ -58,6 +59,8 @@ class DatasetProjectionRecord:
     record_id: str
     observed_at: datetime
     payload: Mapping[str, object]
+    source_id: str | None = None
+    source_snapshot_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.record_id.strip():
@@ -66,6 +69,12 @@ class DatasetProjectionRecord:
             raise ValueError("observed_at must include a timezone")
         if not isinstance(self.payload, Mapping):
             raise TypeError("payload must be a mapping")
+        if (self.source_id is None) != (self.source_snapshot_id is None):
+            raise ValueError("source_id and source_snapshot_id must be supplied together")
+        if self.source_id is not None:
+            object.__setattr__(self, "source_id", normalize_source_id(self.source_id))
+            if not self.source_snapshot_id or not self.source_snapshot_id.strip():
+                raise ValueError("source_snapshot_id must be non-empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +85,8 @@ class DatasetBuildRequest:
     code_commit: str
     dependency_lock_hash: str
     source_snapshot_ids: tuple[str, ...] = ()
+    source_snapshot_bindings: tuple[tuple[str, str], ...] = ()
+    historical_approval_statuses: tuple[tuple[str, SourceApprovalStatus], ...] = ()
     ruleset_versions: tuple[str, ...] = ()
     card_snapshot_ids: tuple[str, ...] = ()
     schema_versions: tuple[str, ...] = ()
@@ -105,14 +116,16 @@ def build_dataset(
 ) -> DatasetBuildResult:
     """Build one task-specific dataset according to dataset-owned settings."""
 
-    if request.producing_run is None or request.producing_run_path is None:
-        raise ValueError("dataset build requires a producing run and portable run path")
+    if request.producing_run is None:
+        raise ValueError("dataset build requires a producing run")
     kind = request.settings.dataset_kind
+    historical_statuses = dict(request.historical_approval_statuses)
     current_use_decisions = validate_current_use_decisions(
         request.current_use_decisions,
         request.source_snapshot_ids,
         required_source_ids=request.settings.inputs.source_ids,
         require_decision=bool(request.input_manifests),
+        historical_statuses=historical_statuses,
     )
     verify_dataset_inputs(request)
     split_result: DeckCompletionSplitResult | TournamentSplitResult | tuple[SplitAssignment, ...]
@@ -150,6 +163,11 @@ def build_dataset(
         tournament_records = tuple(
             record for record in records if isinstance(record, TournamentRecord)
         )
+        _require_observation_provenance(
+            tournament_records,
+            current_use_decisions,
+            request.source_snapshot_bindings,
+        )
         split_result = _build_tournament(request.settings, tournament_records)
         rows = tournament_rows(request.settings.dataset_id, split_result)
         table_name = "tournament_corpus"
@@ -168,6 +186,11 @@ def build_dataset(
         validate_selector_configuration(request.settings, kind)
         projection_records = tuple(
             record for record in records if isinstance(record, DatasetProjectionRecord)
+        )
+        _require_observation_provenance(
+            projection_records,
+            current_use_decisions,
+            request.source_snapshot_bindings,
         )
         rows, split_result = projection_rows(
             request.settings, projection_records, "combo-corpus.v1"
@@ -327,6 +350,29 @@ def _remove_unpublished_output(output_root: Path, relative_path: str) -> None:
     path = output_root.joinpath(*relative_path.split("/"))
     if path.is_file() and not path.is_symlink():
         path.unlink()
+
+
+def _require_observation_provenance(
+    records: Sequence[TournamentRecord | DatasetProjectionRecord],
+    current_use_decisions: Mapping[str, CurrentUseDecision],
+    source_snapshot_bindings: Sequence[tuple[str, str]],
+) -> None:
+    """Require source bindings before event/combo observations enter curated data."""
+
+    allowed_bindings = {
+        (normalize_source_id(source_id), source_snapshot_id)
+        for source_id, source_snapshot_id in source_snapshot_bindings
+    }
+    for record in records:
+        source_id = getattr(record, "source_id", None)
+        source_snapshot_id = getattr(record, "source_snapshot_id", None)
+        if source_id is None or source_snapshot_id is None:
+            raise ValueError("dataset observation requires source provenance")
+        normalized_source = normalize_source_id(source_id)
+        if normalized_source not in current_use_decisions:
+            raise ValueError("dataset observation source has no current-use decision")
+        if (normalized_source, source_snapshot_id) not in allowed_bindings:
+            raise ValueError("dataset observation source snapshot is not bound to dataset inputs")
 
 
 __all__ = [

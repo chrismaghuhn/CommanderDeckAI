@@ -6,6 +6,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
+from commander_ai.config.source_settings import normalize_source_id
+
 from .group_promotion import (
     SplitAssignment,
     SplitName,
@@ -26,6 +28,8 @@ class TournamentRecord:
     canonical_deck_id: str | None
     payload: Mapping[str, object]
     complete_event: bool = True
+    source_id: str | None = None
+    source_snapshot_id: str | None = None
 
     def __post_init__(self) -> None:
         if not self.record_id.strip() or not self.event_id.strip():
@@ -34,6 +38,12 @@ class TournamentRecord:
             raise ValueError("observed_at must include a timezone")
         if not isinstance(self.payload, Mapping):
             raise TypeError("payload must be a mapping")
+        if (self.source_id is None) != (self.source_snapshot_id is None):
+            raise ValueError("source_id and source_snapshot_id must be supplied together")
+        if self.source_id is not None:
+            object.__setattr__(self, "source_id", normalize_source_id(self.source_id))
+            if not self.source_snapshot_id or not self.source_snapshot_id.strip():
+                raise ValueError("source_snapshot_id must be non-empty")
 
 
 @dataclass(frozen=True, slots=True)

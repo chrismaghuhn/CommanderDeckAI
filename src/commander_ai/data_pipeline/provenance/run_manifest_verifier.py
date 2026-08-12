@@ -10,7 +10,12 @@ from commander_ai.domain.path_policy import validate_portable_relative_path
 from .run_manifests import RunManifest, validate_run_manifest_bytes
 
 
-def verify_run_manifest(root: Path | str, manifest_path: str) -> RunManifest:
+def verify_run_manifest(
+    root: Path | str,
+    manifest_path: str,
+    *,
+    external_input_root: Path | str | None = None,
+) -> RunManifest:
     """Read one run manifest and verify every persisted binding it references."""
 
     root_path = Path(root).expanduser().resolve()
@@ -20,9 +25,15 @@ def verify_run_manifest(root: Path | str, manifest_path: str) -> RunManifest:
         raise ValueError("run manifest file is missing")
     manifest = validate_run_manifest_bytes(path.read_bytes())
     _verify_file_binding(root_path, manifest.configuration.path, manifest.configuration.sha256)
+    external_root = None if external_input_root is None else Path(external_input_root).resolve()
     for input_reference in manifest.inputs:
         if input_reference.path is not None:
-            _verify_file_binding(root_path, input_reference.path, input_reference.sha256)
+            input_root = (
+                external_root
+                if input_reference.kind == "source_snapshot_manifest" and external_root is not None
+                else root_path
+            )
+            _verify_file_binding(input_root, input_reference.path, input_reference.sha256)
     for artifact_reference in manifest.artifacts:
         _verify_file_binding(root_path, artifact_reference.path, artifact_reference.sha256)
     return manifest

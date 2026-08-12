@@ -57,11 +57,15 @@ def read_normalized_snapshot_manifest(
 
     selected_run_path = producing_run_path or f"runs/{manifest.producing_run_id}/manifest.json"
     selected_run_root = artifact_root if run_root is None else Path(run_root).expanduser().resolve()
-    producing_run = verify_run_manifest(selected_run_root, selected_run_path)
+    selected_raw_root = artifact_root if raw_root is None else Path(raw_root).expanduser().resolve()
+    producing_run = verify_run_manifest(
+        selected_run_root,
+        selected_run_path,
+        external_input_root=selected_raw_root,
+    )
     if producing_run.run_id != manifest.producing_run_id or producing_run.status != "succeeded":
         raise ValueError("normalized manifest producing run is not the referenced succeeded run")
 
-    selected_raw_root = artifact_root if raw_root is None else Path(raw_root).expanduser().resolve()
     try:
         source_snapshot = SnapshotVerifier(selected_raw_root).verify_complete_snapshot(
             manifest.source_id,

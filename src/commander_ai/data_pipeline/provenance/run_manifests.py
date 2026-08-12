@@ -147,13 +147,6 @@ class RunManifest(DomainModel):
             raise ValueError("run version references must be unique")
         return value
 
-    @field_validator("ruleset_versions")
-    @classmethod
-    def validate_unique_rulesets(cls, value: tuple[str, ...]) -> tuple[str, ...]:
-        if len(value) != len(set(value)):
-            raise ValueError("run ruleset references must be unique")
-        return value
-
     @field_validator("metrics")
     @classmethod
     def validate_metrics(cls, value: Mapping[str, float]) -> Mapping[str, float]:
@@ -324,10 +317,15 @@ def validate_run_manifest_bytes(value: bytes) -> RunManifest:
     return manifest
 
 
-def verify_run_manifest(root: Path | str, manifest_path: str) -> RunManifest:
+def verify_run_manifest(
+    root: Path | str,
+    manifest_path: str,
+    *,
+    external_input_root: Path | str | None = None,
+) -> RunManifest:
     from .run_manifest_verifier import verify_run_manifest as verify
 
-    return verify(root, manifest_path)
+    return verify(root, manifest_path, external_input_root=external_input_root)
 
 
 def _with_manifest_digest(manifest: RunManifest) -> RunManifest:

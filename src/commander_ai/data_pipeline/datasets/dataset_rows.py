@@ -65,9 +65,32 @@ _PRIVATE_CONTAINER_KEYS = frozenset(
         "players",
         "user",
         "users",
+        "items",
     }
 )
 _PRIVATE_NESTED_KEYS = frozenset({"displayid", "displayname", "handle", "id", "name", "username"})
+_PRIVATE_KEY_MARKERS = (
+    "address",
+    "birth",
+    "email",
+    "firstname",
+    "givenname",
+    "familyname",
+    "fullname",
+    "ipaddress",
+    "lastname",
+    "legalname",
+    "middlename",
+    "passport",
+    "phone",
+    "postal",
+    "realname",
+    "socialsecurity",
+    "street",
+    "surname",
+    "taxid",
+    "zipcode",
+)
 
 
 def completion_rows(
@@ -220,6 +243,7 @@ def _safe_value(
     normalized_key = _privacy_key(key) if key is not None else None
     if (
         normalized_key in _PRIVATE_PAYLOAD_KEYS
+        or _is_private_key(normalized_key)
         or (
             normalized_key in _PRIVATE_CONTAINER_KEYS
             and not isinstance(value, (Mapping, list, tuple))
@@ -238,12 +262,17 @@ def _safe_value(
             for item_key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
-        return [_safe_value(item, private_context=private_context) for item in value]
+        nested_context = private_context or normalized_key in _PRIVATE_CONTAINER_KEYS
+        return [_safe_value(item, private_context=nested_context) for item in value]
     return value
 
 
 def _privacy_key(value: str) -> str:
     return "".join(character for character in value.casefold() if character.isalnum())
+
+
+def _is_private_key(value: str | None) -> bool:
+    return value is not None and any(marker in value for marker in _PRIVATE_KEY_MARKERS)
 
 
 __all__ = [

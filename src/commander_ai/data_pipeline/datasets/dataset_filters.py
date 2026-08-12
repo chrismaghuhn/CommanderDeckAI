@@ -92,15 +92,24 @@ def validate_current_use_decisions(
     *,
     required_source_ids: tuple[str, ...] = (),
     require_decision: bool = False,
+    historical_statuses: Mapping[str, SourceApprovalStatus] | None = None,
 ) -> dict[str, CurrentUseDecision]:
     """Require and evaluate current-use decisions before dataset publication."""
 
     by_source: dict[str, CurrentUseDecision] = {}
+    historical_by_source = {
+        normalize_source_id(source_id): status
+        for source_id, status in (historical_statuses or {}).items()
+    }
     for decision in decisions:
         source_id = normalize_source_id(decision.source_id)
         if source_id in by_source:
             raise ValueError(f"duplicate current-use decision for source: {source_id}")
-        historical_status = decision.approval_status or SourceApprovalStatus.PROPOSED
+        historical_status = historical_by_source.get(source_id, decision.approval_status)
+        if historical_status is None:
+            raise ValueError(
+                "POLICY_HISTORICAL_APPROVAL_REQUIRED: dataset build requires source history"
+            )
         result = CurrentUsePolicy.check(
             source_id=source_id,
             historical_status=historical_status,

@@ -26,6 +26,7 @@ from commander_ai.data_pipeline.decks.canonical_decks import (
     canonical_deck_from_input,
 )
 from commander_ai.data_pipeline.provenance.run_manifests import (
+    RunArtifactReference,
     RunInputReference,
     build_run_manifest,
     configuration_snapshot_bytes,
@@ -33,7 +34,11 @@ from commander_ai.data_pipeline.provenance.run_manifests import (
 )
 from commander_ai.domain.dataset_contracts import DatasetInputReference
 from commander_ai.domain.decks import CardQuantity, CardZone, CommandZoneEntry
-from commander_ai.domain.provenance import ProvenanceReference, detached_manifest_sha256
+from commander_ai.domain.provenance import (
+    NormalizedSnapshotManifest,
+    ProvenanceReference,
+    detached_manifest_sha256,
+)
 from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
 
 PROJECT_ROOT = Path(__file__).resolve().parents[4]
@@ -123,7 +128,7 @@ def _settings(
 
 
 def _request(settings: DatasetSettings, root: Path) -> DatasetBuildRequest:
-    input_bytes = b"fixture-normalized-manifest"
+    input_bytes = _normalized_input_bytes()
     input_path = root / "normalized/fixture/manifest.json"
     input_path.parent.mkdir(parents=True, exist_ok=True)
     input_path.write_bytes(input_bytes)
@@ -191,6 +196,7 @@ def _request(settings: DatasetSettings, root: Path) -> DatasetBuildRequest:
         code_commit="abcdef1234567890abcdef1234567890abcdef12",
         dependency_lock_hash="b" * 64,
         source_snapshot_ids=("snapshot-1",),
+        source_snapshot_bindings=(("fixture", "snapshot-1"),),
         card_snapshot_ids=("cards-fixture-v1",),
         schema_versions=("canonical-deck.v1",),
         current_use_decisions=(decision,),
@@ -202,8 +208,103 @@ def _request(settings: DatasetSettings, root: Path) -> DatasetBuildRequest:
     )
 
 
+def _normalized_input_bytes() -> bytes:
+    manifest = NormalizedSnapshotManifest(
+        normalized_snapshot_id="normalized-fixture",
+        producing_run_id="fixture-run",
+        input_source_snapshot_manifest_id="snapshot-1",
+        input_source_snapshot_manifest_sha256="a" * 64,
+        source_id="fixture",
+        status="COMPLETE",
+        normalized_schema_version="staging.v1",
+        mapper_version="fixture-mapper-v1",
+        transform_version="normalize-v1",
+        normalized_artifact_path="normalized/staging.parquet",
+        normalized_artifact_sha256="b" * 64,
+        audit_artifact_path="audit/audit.parquet",
+        audit_artifact_sha256="c" * 64,
+        counts={"normalized_records": 0},
+        provenance=(
+            ProvenanceReference(
+                source_id="fixture",
+                source_snapshot_id="snapshot-1",
+                source_object_id="response.json",
+                raw_sha256="d" * 64,
+                retrieved_at=datetime(2026, 8, 11, tzinfo=UTC),
+                adapter_version="fixture-adapter-v1",
+                approval_status="APPROVED_LOCAL",
+            ),
+        ),
+        created_at=datetime(2026, 8, 11, 12, 0, tzinfo=UTC),
+        started_at=datetime(2026, 8, 11, 12, 0, tzinfo=UTC),
+        completed_at=datetime(2026, 8, 11, 12, 1, tzinfo=UTC),
+        normalized_content_sha256="e" * 64,
+    )
+    return canonical_json_bytes(manifest.model_dump(mode="json"))
+
+
 def _build(root: Path):
-    return build_dataset(_request(_settings(), root), [_record()])
+    request = _request(_settings(), root)
+    result = build_dataset(request, [_record()])
+    _publish_final_run(request, result)
+    return result
+
+
+def _publish_final_run(request: DatasetBuildRequest, result) -> None:
+    from commander_ai.adapters.storage.manifest_files import ManifestFileWriter
+
+    base = request.producing_run
+    assert base is not None
+    final_run = build_run_manifest(
+        run_id=base.run_id,
+        run_kind=base.run_kind,
+        stage=base.stage,
+        status="succeeded",
+        git_commit=base.git_commit,
+        git_dirty=base.git_dirty,
+        git_worktree_sha256=base.git_worktree_sha256,
+        dependency_lock_hash=base.environment.dependency_lock_hash,
+        configuration_path=base.configuration.path,
+        configuration_snapshot=request.configuration_snapshot,
+        inputs=base.inputs,
+        schema_versions=tuple(
+            item.removeprefix("schema:")
+            for item in base.feature_spec_versions
+            if item.startswith("schema:")
+        ),
+        transform_versions=tuple(
+            item.removeprefix("transform:")
+            for item in base.feature_spec_versions
+            if item.startswith("transform:")
+        ),
+        policy_versions=tuple(
+            item.removeprefix("policy:")
+            for item in base.feature_spec_versions
+            if item.startswith("policy:")
+        ),
+        artifacts=(
+            RunArtifactReference(
+                path=result.output_artifacts[0].path,
+                sha256=result.output_artifacts[0].sha256,
+                kind="curated",
+            ),
+            RunArtifactReference(
+                path=result.manifest_artifact.path,
+                sha256=result.manifest_artifact.sha256,
+                kind="dataset_manifest",
+            ),
+        ),
+        determinism=base.determinism,
+        created_at=base.created_at,
+        started_at=base.started_at,
+        finished_at=base.finished_at,
+    )
+    ManifestFileWriter(request.output_root).write_run_manifest(
+        final_run,
+        manifest_path=f"runs/{base.run_id}/manifest.json",
+        configuration_snapshot=request.configuration_snapshot,
+        write_configuration=False,
+    )
 
 
 def _variant_run(
@@ -286,6 +387,45 @@ def test_dataset_build_is_reproducible_and_manifest_binds_inputs_and_policy(tmp_
     )
 
 
+def test_dataset_build_rejects_non_manifest_normalized_input(tmp_path: Path) -> None:
+    request = _request(_settings(), tmp_path)
+    path = tmp_path / "normalized/fixture/manifest.json"
+    bad_bytes = b"not-a-normalized-manifest"
+    path.write_bytes(bad_bytes)
+    bad_hash = sha256_hex(bad_bytes)
+    input_reference = DatasetInputReference(
+        kind="normalized_snapshot_manifest",
+        id="normalized-fixture",
+        path="normalized/fixture/manifest.json",
+        sha256=bad_hash,
+    )
+    assert request.producing_run is not None
+    current_use_input = next(
+        item for item in request.producing_run.inputs if item.kind == "current_use_decision"
+    )
+    run = _variant_run(
+        request,
+        inputs=(
+            RunInputReference(
+                kind=input_reference.kind,
+                id=input_reference.id,
+                path=input_reference.path,
+                sha256=bad_hash,
+            ),
+            current_use_input,
+        ),
+    )
+    request = replace(
+        request,
+        input_manifests=(input_reference,),
+        producing_run=run,
+    )
+    request = _use_variant_run(request, run)
+
+    with pytest.raises(ValueError, match="valid JSON"):
+        build_dataset(request, [_record()])
+
+
 def test_dataset_inspection_verifies_artifact_hashes_and_excludes_private_payload_keys(
     tmp_path: Path,
 ) -> None:
@@ -333,6 +473,30 @@ def test_curated_payload_masks_common_identifier_spellings() -> None:
             "account_id": "[EXCLUDED]",
             "player": {"id": "[EXCLUDED]", "name": "[EXCLUDED]"},
         },
+    }
+
+
+def test_curated_payload_masks_additional_pii_key_shapes() -> None:
+    assert safe_payload(
+        {
+            "full_name": "Alice Example",
+            "postal_code": "12345",
+            "ip_address": "192.0.2.1",
+            "card_name": "Example Card",
+            "deck_name": "Example Deck",
+        }
+    ) == {
+        "full_name": "[EXCLUDED]",
+        "postal_code": "[EXCLUDED]",
+        "ip_address": "[EXCLUDED]",
+        "card_name": "Example Card",
+        "deck_name": "Example Deck",
+    }
+
+
+def test_curated_payload_masks_nested_opaque_participant_items() -> None:
+    assert safe_payload({"items": [{"name": "Alice", "id": "player-1"}]}) == {
+        "items": [{"name": "[EXCLUDED]", "id": "[EXCLUDED]"}]
     }
 
 
@@ -584,6 +748,8 @@ def test_tournament_and_combo_builds_require_current_use_decisions(tmp_path: Pat
                     record_id="combo-1",
                     observed_at=datetime(2024, 1, 1, tzinfo=UTC),
                     payload={},
+                    source_id="fixture",
+                    source_snapshot_id="snapshot-1",
                 )
             ],
         )
@@ -683,6 +849,8 @@ def test_tournament_and_combo_builders_publish_separate_task_artifacts(tmp_path:
                 observed_at=datetime(2024, 1, 1, tzinfo=UTC),
                 canonical_deck_id="deck-a",
                 payload={"standing": 1},
+                source_id="fixture",
+                source_snapshot_id="snapshot-1",
             )
         ],
     )
@@ -700,7 +868,27 @@ def test_tournament_and_combo_builders_publish_separate_task_artifacts(tmp_path:
                 record_id="combo-1",
                 observed_at=datetime(2024, 1, 1, tzinfo=UTC),
                 payload={"cards": [ORACLE_A, ORACLE_B], "result": "infinite"},
+                source_id="fixture",
+                source_snapshot_id="snapshot-1",
             )
         ],
     )
     assert combo.output_artifacts[0].name == "combo_corpus"
+
+
+def test_observation_datasets_require_record_source_binding(tmp_path: Path) -> None:
+    from commander_ai.data_pipeline.datasets.dataset_builder import DatasetProjectionRecord
+
+    settings = _settings(
+        dataset_id="missing-observation-provenance",
+        dataset_kind="combo",
+        completion_constraints=False,
+    )
+    record = DatasetProjectionRecord(
+        record_id="combo-1",
+        observed_at=datetime(2024, 1, 1, tzinfo=UTC),
+        payload={},
+    )
+
+    with pytest.raises(ValueError, match="source provenance"):
+        build_dataset(_request(settings, tmp_path), [record])
