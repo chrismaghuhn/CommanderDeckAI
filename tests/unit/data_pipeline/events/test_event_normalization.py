@@ -195,6 +195,27 @@ def test_pod_result_ambiguity_is_quarantined_without_synthetic_result() -> None:
     assert "quality.pod_result_ambiguous" in result.finding_codes
 
 
+def test_unknown_pod_status_is_quarantined_not_curated() -> None:
+    result = normalize_pod(
+        PodRecord(
+            pod_id="pod-unknown-status",
+            event_id="event-1",
+            round_number=1,
+            occurred_at=None,
+            source_status=None,
+            members=(
+                PodMemberInput(seat=1, canonical_deck_id=DECK_ID, result="win"),
+                PodMemberInput(seat=2, canonical_deck_id=DECK_ID, result="loss"),
+            ),
+            evidence=_evidence("pod-unknown-status"),
+        )
+    )
+
+    assert result.status == "QUARANTINED"
+    assert result.pod is None
+    assert "quality.pod_status_unknown" in result.finding_codes
+
+
 def test_incomplete_pod_is_quarantined_without_synthetic_deck_rows() -> None:
     result = normalize_pod(
         PodRecord(

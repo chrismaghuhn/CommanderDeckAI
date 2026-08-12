@@ -3,6 +3,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
+import pytest
+from jsonschema import Draft202012Validator, FormatChecker
+
+from commander_ai.data_pipeline.normalization.canonicalization import canonicalize_staging
 from commander_ai.data_pipeline.normalization.canonicalization_events import (
     canonicalize_event_sources,
 )
@@ -119,3 +123,183 @@ def test_topdeck_style_table_without_context_is_quarantined_not_flattened() -> N
     assert not result.records
     assert result.finding_codes == ("quality.pod_context_missing",)
     assert len(result.quarantines) == 1
+
+
+def _topdeck_table_records(
+    players: object,
+    *,
+    table_values: dict[str, object] | None = None,
+) -> tuple[StagingRecord, StagingRecord, StagingRecord]:
+    event = _record(
+        "event",
+        {"TID": "event-1", "format": "EDH", "startDate": "2026-08-10T18:00:00Z"},
+        "/event",
+        source_id="topdeck",
+    )
+    round_record = _record(
+        "round",
+        {"round": 1},
+        "/event/rounds/0",
+        source_id="topdeck",
+    )
+    values = {
+        "tableId": "table-1",
+        "status": "complete",
+        "players": players,
+    }
+    values.update(table_values or {})
+    table = _record(
+        "table",
+        values,
+        "/event/rounds/0/tables/0",
+        source_id="topdeck",
+    )
+    return event, round_record, table
+
+
+def _four_topdeck_players() -> list[dict[str, object]]:
+    labels = ("winner", "second", "third", "fourth")
+    return [
+        {
+            "player_id": f"opaque-player-{seat}",
+            "name": f"Participant {seat}",
+            "handle": f"handle-{seat}",
+            "seat": seat,
+            "canonical_deck_id": f"{seat:x}" * 64,
+            "result": labels[seat - 1],
+        }
+        for seat in range(1, 5)
+    ]
+
+
+def test_topdeck_frozen_table_players_produce_one_four_player_pod() -> None:
+    event, round_record, table = _topdeck_table_records(_four_topdeck_players())
+    manifest = _manifest().model_copy(update={"source_id": "topdeck"})
+
+    result = canonicalize_event_sources(
+        [event, round_record, table],
+        source_manifest=manifest,
+    )
+
+    assert len(result.records) == 4
+    assert {item.record_type for item in result.records} == {"pod_entry"}
+    assert {item.payload["seat"] for item in result.records} == {1, 2, 3, 4}
+    assert {item.payload["pod_id"] for item in result.records} == {"pod:topdeck:table-1"}
+    assert {item.payload["event_id"] for item in result.records} == {"event:topdeck:event-1"}
+    assert all(
+        "Participant" not in json.dumps(item.payload) and "handle-" not in json.dumps(item.payload)
+        for item in result.records
+    )
+    assert all(
+        item.payload["participant_reference"]["scope"] == "source"  # type: ignore[index]
+        and str(item.payload["participant_reference"]["reference_id"]).startswith(
+            "participant:topdeck:"
+        )  # type: ignore[index]
+        for item in result.records
+    )
+    assert all(item.raw_locator == table.raw_locator for item in result.records)
+    assert all(
+        item.provenance[0].source_object_id == table.raw_locator.raw_object_id
+        for item in result.records
+    )
+    assert result.pod_index.complete_pod_ids == ("pod:topdeck:table-1",)
+    assert result.pod_index.complete_event_deck_keys == tuple(
+        ("event:topdeck:event-1", f"{seat:x}" * 64) for seat in range(1, 5)
+    )
+    canonical_result = canonicalize_staging(
+        [event, round_record, table],
+        source_manifest=manifest,
+    )
+    assert canonical_result.pod_index == result.pod_index
+    schema = json.loads(
+        (ROOT / "schemas" / "canonical-record.v1.schema.json").read_text(encoding="utf-8")
+    )
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    assert all(
+        not list(validator.iter_errors(item.model_dump(mode="json"))) for item in result.records
+    )
+
+
+@pytest.mark.parametrize(
+    ("table_values", "players", "finding"),
+    [
+        (
+            {"status": "complete"},
+            [
+                {
+                    "player_id": "opaque-player-1",
+                    "seat": 1,
+                    "canonical_deck_id": "1" * 64,
+                    "result": "win",
+                },
+                {
+                    "player_id": "opaque-player-2",
+                    "seat": 1,
+                    "canonical_deck_id": "2" * 64,
+                    "result": "loss",
+                },
+            ],
+            "quality.pod_seat_duplicate",
+        ),
+        (
+            {"status": "complete"},
+            [
+                {"player_id": "opaque-player-1", "seat": 1, "result": "win"},
+                {
+                    "player_id": "opaque-player-2",
+                    "seat": 2,
+                    "canonical_deck_id": "2" * 64,
+                    "result": "loss",
+                },
+            ],
+            "quality.pod_deck_unresolved",
+        ),
+        (
+            {"status": None},
+            _four_topdeck_players(),
+            "quality.pod_status_unknown",
+        ),
+        (
+            {"tableId": "table-1", "status": "complete"},
+            _four_topdeck_players()[:1],
+            "quality.pod_not_multiplayer",
+        ),
+        (
+            {"round": 0},
+            _four_topdeck_players(),
+            "quality.pod_context_missing",
+        ),
+        (
+            {"tableId": None},
+            _four_topdeck_players(),
+            "quality.pod_context_missing",
+        ),
+    ],
+)
+def test_topdeck_incomplete_table_is_quarantined(
+    table_values: dict[str, object], players: object, finding: str
+) -> None:
+    event, round_record, table = _topdeck_table_records(players, table_values=table_values)
+
+    result = canonicalize_event_sources(
+        [event, round_record, table],
+        source_manifest=_manifest().model_copy(update={"source_id": "topdeck"}),
+    )
+
+    assert not result.records
+    assert finding in result.finding_codes
+    assert len(result.quarantines) == 1
+
+
+def test_topdeck_ambiguous_player_result_is_quarantined_without_guessing() -> None:
+    players = _four_topdeck_players()
+    players[2]["result"] = "mystery-result"
+    event, round_record, table = _topdeck_table_records(players)
+
+    result = canonicalize_event_sources(
+        [event, round_record, table],
+        source_manifest=_manifest().model_copy(update={"source_id": "topdeck"}),
+    )
+
+    assert not result.records
+    assert "quality.pod_result_ambiguous" in result.finding_codes

@@ -6,12 +6,16 @@ import hashlib
 import re
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 
 from commander_ai.data_pipeline.events.event_observations import normalize_event_deck_observation
 from commander_ai.data_pipeline.events.event_records import EventDeckStandingRecord, EventRecord
 from commander_ai.data_pipeline.events.participants import ParticipantInput
+from commander_ai.data_pipeline.events.pod_entries import (
+    PodCompletenessIndex,
+    index_complete_pods,
+)
 from commander_ai.data_pipeline.provenance.evidence import SourceEvidence
 from commander_ai.data_pipeline.provenance.rows import AuditRecord
 from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord, quarantine_record
@@ -20,6 +24,7 @@ from commander_ai.domain.provenance import SourceSnapshotManifest
 
 from .canonical_records import CanonicalRecord, canonical_record_from_domain
 from .canonicalization_support import provenance_for
+from .topdeck_pod_mapping import canonicalize_topdeck_table
 
 _DECK_ID = re.compile(r"^[a-f0-9]{64}$")
 
@@ -32,6 +37,7 @@ class EventCanonicalizationResult:
     audits: tuple[AuditRecord, ...]
     quarantines: tuple[QuarantineRecord, ...]
     finding_codes: tuple[str, ...]
+    pod_index: PodCompletenessIndex = field(default_factory=PodCompletenessIndex)
 
 
 def canonicalize_event_sources(
@@ -43,6 +49,7 @@ def canonicalize_event_sources(
 
     source_id = source_manifest.source_id
     events: dict[str, list[tuple[StagingRecord, EventRecord]]] = defaultdict(list)
+    rounds: dict[str, list[tuple[str, int]]] = defaultdict(list)
     canonical: list[CanonicalRecord] = []
     audits: list[AuditRecord] = []
     quarantines: list[QuarantineRecord] = []
@@ -72,6 +79,14 @@ def canonicalize_event_sources(
             source_status=_text(values, "status", "source_status"),
         )
         events[record.raw_locator.raw_object_id].append((record, event))
+    for record in observed_records:
+        if record.record_type != "round":
+            continue
+        values = _mapping(record.original_source_values)
+        round_number = _positive_int(values, "round", "round_number", "roundNumber")
+        pointer = _json_pointer(record)
+        if round_number is not None and pointer is not None:
+            rounds[record.raw_locator.raw_object_id].append((pointer, round_number))
 
     for record in observed_records:
         if record.record_type == "standing":
@@ -88,7 +103,24 @@ def canonicalize_event_sources(
                     findings,
                 )
         elif record.record_type == "table" and source_id == "topdeck":
-            _retain_topdeck_table_quality(record, audits, quarantines, findings)
+            table_result = canonicalize_topdeck_table(
+                record,
+                event_candidates=events.get(record.raw_locator.raw_object_id, ()),
+                round_number=_round_for_table(record, rounds),
+                source_manifest=source_manifest,
+            )
+            if table_result.records:
+                canonical.extend(table_result.records)
+                findings.update(table_result.finding_codes)
+            else:
+                _retain_failure(
+                    record,
+                    table_result.finding_codes[0],
+                    audits,
+                    quarantines,
+                    findings,
+                )
+                findings.update(table_result.finding_codes)
 
     return EventCanonicalizationResult(
         records=tuple(sorted(canonical, key=lambda item: item.record_id)),
@@ -100,6 +132,7 @@ def canonicalize_event_sources(
             )
         ),
         finding_codes=tuple(sorted(findings)),
+        pod_index=index_complete_pods(canonical),
     )
 
 
@@ -160,24 +193,6 @@ def _standing_result(
         observed_at=normalized.observation.observed_at,
     )
     return EventCanonicalizationResult((canonical,), (), (), normalized.finding_codes)
-
-
-def _retain_topdeck_table_quality(
-    record: StagingRecord,
-    audits: list[AuditRecord],
-    quarantines: list[QuarantineRecord],
-    findings: set[str],
-) -> None:
-    values = _mapping(record.original_source_values)
-    players = values.get("players")
-    if not isinstance(players, list) or not _text(values, "event_id", "eventId"):
-        _retain_failure(record, "quality.pod_context_missing", audits, quarantines, findings)
-        return
-    if not _positive_int(values, "round", "round_number"):
-        _retain_failure(record, "quality.pod_round_missing", audits, quarantines, findings)
-        return
-    if any(not isinstance(item, Mapping) or _canonical_deck_id(item) is None for item in players):
-        _retain_failure(record, "quality.pod_deck_unresolved", audits, quarantines, findings)
 
 
 def _merge_event_result(
@@ -264,6 +279,30 @@ def _participant(values: Mapping[str, object], evidence: SourceEvidence) -> Part
 
 def _mapping(value: object) -> Mapping[str, object]:
     return value if isinstance(value, Mapping) else {}
+
+
+def _json_pointer(record: StagingRecord) -> str | None:
+    location = record.raw_locator.location
+    return location.pointer if hasattr(location, "pointer") else None
+
+
+def _round_for_table(
+    record: StagingRecord,
+    rounds: Mapping[str, Sequence[tuple[str, int]]],
+) -> int | None:
+    values = _mapping(record.original_source_values)
+    explicit_keys = ("round", "round_number", "roundNumber")
+    if any(key in values for key in explicit_keys):
+        return _positive_int(values, *explicit_keys)
+    pointer = _json_pointer(record)
+    if pointer is None:
+        return None
+    matches = [
+        round_number
+        for round_pointer, round_number in rounds.get(record.raw_locator.raw_object_id, ())
+        if pointer.startswith(f"{round_pointer.rstrip('/')}/tables/")
+    ]
+    return matches[0] if len(matches) == 1 else None
 
 
 def _text(values: Mapping[str, object], *keys: str) -> str | None:

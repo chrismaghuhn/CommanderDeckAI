@@ -3,12 +3,16 @@
 from __future__ import annotations
 
 import math
+from collections import defaultdict
 from dataclasses import dataclass
 from datetime import datetime
-from typing import ClassVar, Literal, cast
+from typing import TYPE_CHECKING, ClassVar, Literal, cast
 
 from commander_ai.data_pipeline.provenance.evidence import SourceEvidence, source_scoped_id
 from commander_ai.domain.observations import PodEntry
+
+if TYPE_CHECKING:
+    from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
 
 from .participants import ParticipantInput, ParticipantResolution, resolve_participant
 
@@ -106,6 +110,45 @@ class PodNormalization:
     status: Literal["CURATED", "QUARANTINED"]
 
 
+@dataclass(frozen=True, slots=True)
+class PodCompletenessIndex:
+    """Deterministic completeness keys derived from canonical pod entries."""
+
+    complete_pod_ids: tuple[str, ...] = ()
+    complete_event_deck_keys: tuple[tuple[str, str], ...] = ()
+
+
+def index_complete_pods(
+    records: tuple[CanonicalRecord, ...] | list[CanonicalRecord],
+) -> PodCompletenessIndex:
+    """Group canonical pod entries without flattening their multiplayer unit."""
+
+    grouped: defaultdict[tuple[str, str, int], list[PodEntry]] = defaultdict(list)
+    for record in records:
+        if record.record_type != "pod_entry":
+            continue
+        entry = PodEntry.model_validate(record.payload)
+        grouped[(entry.pod_id, entry.event_id, entry.round_number)].append(entry)
+
+    complete_groups = {
+        key: entries
+        for key, entries in grouped.items()
+        if len(entries) >= 2 and len({entry.seat for entry in entries}) == len(entries)
+    }
+    return PodCompletenessIndex(
+        complete_pod_ids=tuple(sorted({key[0] for key in complete_groups})),
+        complete_event_deck_keys=tuple(
+            sorted(
+                {
+                    (event_id, entry.canonical_deck_id)
+                    for (_, event_id, _), entries in complete_groups.items()
+                    for entry in entries
+                }
+            )
+        ),
+    )
+
+
 def normalize_pod(
     record: PodRecord,
     *,
@@ -151,6 +194,7 @@ def normalize_pod(
         "quality.pod_seat_missing",
         "quality.pod_seat_duplicate",
         "quality.pod_deck_unresolved",
+        "quality.pod_status_unknown",
         "quality.pod_source_not_complete",
         "quality.pod_result_ambiguous",
     }
@@ -231,8 +275,10 @@ def _pod_status(source_status: str | None, findings: set[str]) -> PodStatus:
 
 __all__ = [
     "NormalizedPod",
+    "PodCompletenessIndex",
     "PodMemberInput",
     "PodNormalization",
     "PodRecord",
+    "index_complete_pods",
     "normalize_pod",
 ]

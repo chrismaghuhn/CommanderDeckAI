@@ -78,6 +78,7 @@ def canonicalize_staging(
             provenance=(),
             quarantines=event_result.quarantines,
             finding_codes=event_result.finding_codes,
+            pod_index=event_result.pod_index,
         )
     return CanonicalizationResult((), (), (), (), (), (), ())
 
