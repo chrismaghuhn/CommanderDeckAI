@@ -43,6 +43,7 @@ from commander_ai.data_pipeline.provenance.normalized_snapshot_contracts import 
 )
 from commander_ai.data_pipeline.provenance.normalized_snapshot_manifests import (
     build_normalized_snapshot_manifest,
+    validate_normalized_snapshot_manifest,
 )
 from commander_ai.data_pipeline.provenance.rows import AuditRecord
 from commander_ai.data_pipeline.quality.finding_codes import FindingCode
@@ -51,7 +52,7 @@ from commander_ai.data_pipeline.staging.records import StagingRecord
 from commander_ai.domain.provenance import QuarantineReference
 
 from .canonical_snapshot_publisher import publish_canonical_snapshot
-from .normalization_run import build_normalization_run
+from .normalization_run import build_final_normalization_run, build_normalization_run
 from .operation_provenance import operation_context
 from .snapshot_locator import find_source_for_snapshot
 
@@ -277,11 +278,6 @@ class SourceNormalizationPipeline:
             completed_at=completed_at,
         )
         manifest_writer = ManifestFileWriter(self._artifact_root)
-        manifest_writer.write_run_manifest(
-            run,
-            manifest_path=f"runs/{run_id}/manifest.json",
-            configuration_snapshot=config_snapshot,
-        )
         normalized = build_normalized_snapshot_manifest(
             producing_run=run,
             verified_snapshot=prepared.verified_snapshot,
@@ -310,9 +306,31 @@ class SourceNormalizationPipeline:
             created_at=started_at,
             completed_at=completed_at,
         )
-        manifest_artifact, _ = manifest_writer.write_normalized_manifest(
+        manifest_artifact, manifest_sidecar = manifest_writer.write_normalized_manifest(
             normalized,
             manifest_path=f"{prefix}/manifest.json",
+        )
+        final_run = build_final_normalization_run(
+            preliminary_run=run,
+            operation=operation,
+            configuration_snapshot=config_snapshot,
+            inputs=run_inputs,
+            artifacts=table_artifacts,
+            mapper_version=mapper_version,
+            started_at=started_at,
+            completed_at=completed_at,
+            manifest_artifact=manifest_artifact,
+            manifest_sidecar=manifest_sidecar,
+        )
+        validate_normalized_snapshot_manifest(
+            normalized.manifest,
+            table_artifacts,
+            producing_run=final_run,
+        )
+        manifest_writer.write_run_manifest(
+            final_run,
+            manifest_path=f"runs/{run_id}/manifest.json",
+            configuration_snapshot=config_snapshot,
         )
         publish_canonical_snapshot(
             self._artifact_root,

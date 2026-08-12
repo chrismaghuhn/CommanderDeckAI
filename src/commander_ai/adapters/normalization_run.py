@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Any
 
+from commander_ai.adapters.storage.manifest_files import JsonArtifact
 from commander_ai.data_pipeline.provenance.normalized_snapshot_contracts import (
     NormalizedTableArtifact,
 )
@@ -27,6 +29,8 @@ def build_normalization_run(
     mapper_version: str,
     started_at: datetime,
     completed_at: datetime,
+    additional_artifacts: Sequence[RunArtifactReference] = (),
+    schema_versions: Sequence[str] = ("staging.v1",),
 ) -> RunManifest:
     """Create the deterministic run record for one normalized snapshot."""
 
@@ -42,7 +46,7 @@ def build_normalization_run(
         configuration_path=configuration_path,
         configuration_snapshot=configuration_snapshot,
         inputs=tuple(RunInputReference.model_validate(item) for item in inputs),
-        schema_versions=("staging.v1",),
+        schema_versions=tuple(schema_versions),
         mapper_versions=(mapper_version,),
         transform_versions=("normalize-v1",),
         policy_versions=("current-use-v1",),
@@ -52,6 +56,7 @@ def build_normalization_run(
                 RunArtifactReference(path=item.path, sha256=item.sha256, kind=item.layer)
                 for item in artifacts
             ),
+            *additional_artifacts,
         ),
         determinism=operation.determinism,
         created_at=started_at,
@@ -60,4 +65,45 @@ def build_normalization_run(
     )
 
 
-__all__ = ["build_normalization_run"]
+def build_final_normalization_run(
+    *,
+    preliminary_run: RunManifest,
+    operation: Any,
+    configuration_snapshot: dict[str, object],
+    inputs: tuple[dict[str, str], ...],
+    artifacts: tuple[NormalizedTableArtifact, ...],
+    mapper_version: str,
+    started_at: datetime,
+    completed_at: datetime,
+    manifest_artifact: JsonArtifact,
+    manifest_sidecar: JsonArtifact,
+) -> RunManifest:
+    """Bind the normalized manifest outputs to the final frozen run record."""
+
+    return build_normalization_run(
+        run_id=preliminary_run.run_id,
+        operation=operation,
+        configuration_path=preliminary_run.configuration.path,
+        configuration_snapshot=configuration_snapshot,
+        inputs=inputs,
+        artifacts=artifacts,
+        mapper_version=mapper_version,
+        started_at=started_at,
+        completed_at=completed_at,
+        schema_versions=("staging.v1", "normalized-snapshot-manifest.v1"),
+        additional_artifacts=(
+            RunArtifactReference(
+                path=manifest_artifact.path,
+                sha256=manifest_artifact.sha256,
+                kind="normalized_snapshot_manifest",
+            ),
+            RunArtifactReference(
+                path=manifest_sidecar.path,
+                sha256=manifest_sidecar.sha256,
+                kind="normalized_snapshot_manifest_digest",
+            ),
+        ),
+    )
+
+
+__all__ = ["build_final_normalization_run", "build_normalization_run"]
