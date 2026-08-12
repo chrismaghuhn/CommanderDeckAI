@@ -59,6 +59,37 @@ def test_error_redaction_removes_credentials_from_text_and_urls() -> None:
     assert "example.invalid/cards" in safe
 
 
+def test_error_redaction_removes_credentials_from_scheme_relative_urls() -> None:
+    message = "//user:password@example.invalid/cards?api_key=scheme-secret"
+
+    safe = redact_error_text(message)
+
+    assert safe == "//example.invalid/cards"
+    assert "user" not in safe
+    assert "password" not in safe
+    assert "scheme-secret" not in safe
+
+
+def test_allowlisted_response_header_values_are_redacted() -> None:
+    headers = sanitize_headers(
+        {
+            "Content-Type": "application/json; token=content-secret",
+            "ETag": "//user:password@example.invalid/object?token=etag-secret",
+            "Retry-After": "Authorization: Bearer retry-secret",
+            "X-Internal": "header-secret",
+        }
+    )
+
+    assert headers == {
+        "content-type": "application/json; token=[REDACTED]",
+        "etag": "//example.invalid/object",
+        "retry-after": "Authorization=[REDACTED]",
+    }
+    serialized = repr(headers)
+    for secret in ("content-secret", "user", "password", "etag-secret", "retry-secret"):
+        assert secret not in serialized
+
+
 def test_request_parameter_allowlist_drops_signature_aliases_and_nested_secrets() -> None:
     safe = redaction.redact_request_parameters(
         {

@@ -17,7 +17,10 @@ _SECRET_TEXT = re.compile(
     r"token|signature|sig)"
     r"\s*[:=]\s*(?:Bearer\s+)?([^\s,;]+)"
 )
-_URL = re.compile(r"https?://[^\s\"'<>]+", re.IGNORECASE)
+_URL = re.compile(
+    r"(?<![A-Za-z0-9+._-])(?:https?://|//)[^\s\"'<>]+",
+    re.IGNORECASE,
+)
 _SAFE_METHOD = re.compile(r"[A-Z][A-Z0-9-]*")
 _SAFE_METADATA_TOKEN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/+:-]{0,63}")
 _SAFE_HEADERS = frozenset(
@@ -174,7 +177,7 @@ def sanitize_headers(headers: Mapping[str, str]) -> dict[str, str]:
     for key in sorted(headers, key=lambda item: str(item).casefold()):
         normalized = str(key).casefold()
         if normalized in _SAFE_HEADERS:
-            result[normalized] = str(headers[key])
+            result[normalized] = redact_persisted_text(str(headers[key]))
     return result
 
 
@@ -203,14 +206,24 @@ def strip_default_sensitive_headers(
 def redact_error_text(message: str) -> str:
     """Remove credentials and query material without echoing transport exceptions."""
 
-    safe = _URL.sub(lambda match: sanitize_endpoint(match.group(0)), str(message))
+    safe = _URL.sub(_sanitize_error_url, str(message))
     return _SECRET_TEXT.sub(lambda match: f"{match.group(1)}=[REDACTED]", safe)
 
 
 def redact_persisted_text(message: str) -> str:
     """Redact credentials and remove all URL query/fragment material for storage."""
 
-    return _URL.sub(lambda match: sanitize_endpoint(match.group(0)), redact_error_text(message))
+    return _URL.sub(_sanitize_error_url, redact_error_text(message))
+
+
+def _sanitize_error_url(match: re.Match[str]) -> str:
+    value = match.group(0)
+    if not value.startswith("//"):
+        return sanitize_endpoint(value)
+    sanitized = sanitize_endpoint(f"https:{value}")
+    if sanitized == "[redacted-endpoint]":
+        return sanitized
+    return sanitized.removeprefix("https:")
 
 
 def _redact_value(value: object, allowed_keys: Set[str] | None) -> object:
