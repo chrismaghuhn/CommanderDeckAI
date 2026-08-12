@@ -20,8 +20,10 @@ from commander_ai.data_pipeline.datasets.dataset_builder import (
     DatasetBuildRequest,
     build_dataset,
 )
+from commander_ai.data_pipeline.datasets.dataset_content import compute_dataset_content_sha256
 from commander_ai.data_pipeline.datasets.dataset_inspection import inspect_dataset
 from commander_ai.data_pipeline.datasets.dataset_rows import safe_payload
+from commander_ai.data_pipeline.datasets.leakage_reports import build_leakage_report
 from commander_ai.data_pipeline.decks.canonical_decks import (
     DeckOccurrence,
     DeckSourceReference,
@@ -306,6 +308,14 @@ def _publish_final_run(request: DatasetBuildRequest, result) -> None:
                 path=result.output_artifacts[0].path,
                 sha256=result.output_artifacts[0].sha256,
                 kind="curated",
+            ),
+            *(
+                RunArtifactReference(
+                    path=item.path,
+                    sha256=item.sha256,
+                    kind=item.name,
+                )
+                for item in getattr(result, "report_artifacts", ())
             ),
             RunArtifactReference(
                 path=result.manifest_artifact.path,
@@ -614,6 +624,108 @@ def test_dataset_inspection_verifies_optional_report_outputs_and_counts(
 
     with pytest.raises(ValueError, match="train count"):
         inspect_dataset(third_root, third.manifest.dataset_id)
+
+
+def test_configured_leakage_report_is_published_and_verified(tmp_path: Path) -> None:
+    settings = DatasetSettings.model_validate(
+        {
+            **_settings().model_dump(mode="python"),
+            "quality": {
+                "fail_on_blocking_findings": True,
+                "emit_leakage_report": True,
+            },
+        }
+    )
+    request = _request(settings, tmp_path)
+    result = build_dataset(request, [_record()])
+    _publish_final_run(request, result)
+
+    assert result.manifest.leakage_report is not None
+    assert result.report_artifacts[0].name == "leakage_report"
+    report_path = tmp_path / result.report_artifacts[0].path
+    report = json.loads(report_path.read_bytes())
+    assert report["schema_version"] == "dataset-leakage-report.v1"
+    assert report["status"] == "PASS"
+    report_schema = json.loads(
+        (PROJECT_ROOT / "schemas" / "dataset-leakage-report.v1.schema.json").read_text()
+    )
+    assert (
+        list(
+            Draft202012Validator(report_schema, format_checker=FormatChecker()).iter_errors(report)
+        )
+        == []
+    )
+    assert inspect_dataset(tmp_path, result.manifest.dataset_id).manifest.leakage_report is not None
+
+
+def test_dataset_inspection_rejects_cross_split_group_even_after_rehashing(
+    tmp_path: Path,
+) -> None:
+    result = _build(tmp_path)
+    rows = ParquetTableWriter(tmp_path).read_table(result.output_artifacts[0].path)
+    first = dict(rows[0])
+    second = dict(rows[0])
+    first_values = dict(first["values"])
+    second_values = dict(second["values"])
+    first["curated_id"] = "fixture-dataset:record-train"
+    second["curated_id"] = "fixture-dataset:record-test"
+    first_values.update(record_id="record-train", split="train", group_ids=["tampered-group"])
+    second_values.update(record_id="record-test", split="test", group_ids=["tampered-group"])
+    first["values"] = first_values
+    second["values"] = second_values
+    tampered_rows = [DeckCorpusRow.model_validate(first), DeckCorpusRow.model_validate(second)]
+    artifact = ParquetTableWriter(tmp_path).write_table(
+        "deck_corpus",
+        tampered_rows,
+        relative_path="datasets/fixture-dataset/tampered.parquet",
+        schema_version="deck-corpus.v1",
+        layer="curated",
+        row_contract=DeckCorpusRow,
+    )
+    manifest_path = tmp_path / result.manifest_artifact.path
+    payload = json.loads(manifest_path.read_bytes())
+    payload["outputs"] = [
+        {
+            "name": "deck_corpus",
+            "path": artifact.path,
+            "sha256": artifact.sha256,
+            "rows": artifact.rows,
+            "bytes": artifact.bytes,
+        }
+    ]
+    payload["counts"].update(
+        train=1,
+        validation=0,
+        test=1,
+        eligible_records=2,
+        input_records=2,
+        output_rows=2,
+    )
+    payload["dataset_content_sha256"] = compute_dataset_content_sha256(
+        dataset_id=result.manifest.dataset_id,
+        dataset_kind=result.manifest.dataset_kind,
+        table_name="deck_corpus",
+        rows=[row.model_dump(mode="json") for row in tampered_rows],
+    )
+    payload["manifest_sha256"] = detached_manifest_sha256(payload)
+    manifest_path.write_bytes(canonical_json_bytes(payload))
+
+    with pytest.raises(ValueError, match="cross-split leakage"):
+        inspect_dataset(tmp_path, result.manifest.dataset_id)
+
+
+def test_leakage_report_tracks_event_groups_separately_from_deck_groups(tmp_path: Path) -> None:
+    manifest = _build(tmp_path).manifest
+    rows = (
+        {"values": {"split": "train", "event_id": "event-1", "group_ids": ["event:event-1"]}},
+        {"values": {"split": "test", "event_id": "event-1", "group_ids": ["event:event-1"]}},
+    )
+
+    report = build_leakage_report(manifest, (("tournament_corpus", rows),))
+
+    assert report["cross_split_group_ids"] == ["event:event-1"]
+    assert report["cross_split_event_ids"] == ["event-1"]
+    assert report["status"] == "FAIL"
 
 
 def test_dataset_filters_are_applied_and_counted(tmp_path: Path) -> None:

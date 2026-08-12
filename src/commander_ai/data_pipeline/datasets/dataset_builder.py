@@ -53,6 +53,7 @@ from .dataset_manifest import (
 )
 from .dataset_provenance import require_completion_provenance, require_observation_provenance
 from .dataset_rows import completion_rows, cooccurrence_rows, projection_rows, tournament_rows
+from .leakage_reports import build_leakage_report
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,6 +88,7 @@ class DatasetBuildResult:
     output_artifacts: tuple[DatasetOutputReference, ...]
     manifest_artifact: JsonArtifact
     split_result: DeckCompletionSplitResult | TournamentSplitResult | tuple[SplitAssignment, ...]
+    report_artifacts: tuple[DatasetOutputReference, ...] = ()
 
 
 class DatasetBuildError(ValueError):
@@ -209,6 +211,8 @@ def build_dataset(
         layer="curated",
         row_contract=row_contract_for_schema(row_schema),
     )
+    report_artifact: JsonArtifact | None = None
+    report_reference: DatasetOutputReference | None = None
     try:
         output_reference = DatasetOutputReference(
             name=table_name,
@@ -231,6 +235,39 @@ def build_dataset(
                 else None
             ),
         )
+        if request.settings.quality.emit_leakage_report:
+            leakage_report = build_leakage_report(
+                manifest,
+                ((table_name, tuple(row.model_dump(mode="json") for row in rows)),),
+            )
+            if leakage_report["status"] != "PASS":
+                raise DatasetBuildError("QUALITY_DATASET_LEAKAGE")
+            report_artifact = ManifestFileWriter(output_root).write_json(
+                f"datasets/{request.settings.dataset_id}/reports/leakage.json",
+                canonical_json_bytes(leakage_report),
+            )
+            report_reference = DatasetOutputReference(
+                name="leakage_report",
+                path=report_artifact.path,
+                sha256=report_artifact.sha256,
+                rows=1,
+                bytes=report_artifact.bytes,
+            )
+            manifest = build_dataset_manifest(
+                request=request,
+                row_schema=row_schema,
+                table_name=table_name,
+                rows=rows,
+                output=output_reference,
+                exclusions=exclusions,
+                counts=counts,
+                near_duplicate_policy=(
+                    _near_duplicate_policy(request.settings)
+                    if kind in {"deck_completion", "card_cooccurrence"}
+                    else None
+                ),
+                leakage_report=report_reference,
+            )
         manifest_path = f"datasets/{request.settings.dataset_id}/manifest.json"
         manifest_artifact = ManifestFileWriter(output_root).write_json(
             manifest_path,
@@ -238,12 +275,15 @@ def build_dataset(
         )
     except Exception:
         _remove_unpublished_output(output_root, parquet_artifact.path)
+        if report_artifact is not None:
+            _remove_unpublished_output(output_root, report_artifact.path)
         raise
     return DatasetBuildResult(
         manifest=manifest,
         output_artifacts=(output_reference,),
         manifest_artifact=manifest_artifact,
         split_result=split_result,
+        report_artifacts=() if report_reference is None else (report_reference,),
     )
 
 

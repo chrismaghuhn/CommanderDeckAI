@@ -13,6 +13,7 @@ from commander_ai.adapters.storage.parquet_tables import ParquetTableWriter
 from commander_ai.adapters.storage.path_policy import resolve_under_root
 from commander_ai.adapters.storage.raw_snapshot_io import sha256_file
 from commander_ai.data_pipeline.datasets.dataset_content import compute_dataset_content_sha256
+from commander_ai.data_pipeline.datasets.leakage_reports import build_leakage_report
 from commander_ai.domain.dataset_contracts import DatasetManifest, DatasetOutputReference
 from commander_ai.domain.provenance import detached_manifest_sha256
 from commander_ai.domain.serialization import canonical_json_bytes
@@ -73,9 +74,21 @@ def inspect_dataset(root: Path | str, dataset_id: str) -> DatasetInspection:
     if declared_output_rows is not None and declared_output_rows != actual_output_rows:
         raise ValueError("dataset manifest output row count mismatch")
     _verify_dataset_counts(manifest, content_inputs)
-    for report in (manifest.quality_report, manifest.leakage_report):
-        if report is not None:
-            _verify_report_artifact(artifact_root, dataset_id, manifest, report)
+    expected_leakage_report = build_leakage_report(manifest, content_inputs)
+    if expected_leakage_report["status"] != "PASS":
+        raise ValueError("cross-split leakage detected")
+    if _leakage_report_is_required(manifest) and manifest.leakage_report is None:
+        raise ValueError("configured leakage report is missing")
+    if manifest.quality_report is not None:
+        _verify_report_artifact(artifact_root, dataset_id, manifest, manifest.quality_report)
+    if manifest.leakage_report is not None:
+        _verify_report_artifact(
+            artifact_root,
+            dataset_id,
+            manifest,
+            manifest.leakage_report,
+            expected_payload=expected_leakage_report,
+        )
     if len(content_inputs) != 1:
         raise ValueError("dataset content digest verification requires one output table")
     table_name, rows = content_inputs[0]
@@ -191,6 +204,8 @@ def _verify_report_artifact(
     dataset_id: str,
     manifest: DatasetManifest,
     output: DatasetOutputReference,
+    *,
+    expected_payload: Mapping[str, object] | None = None,
 ) -> None:
     path = _verify_output_artifact(root, dataset_id, output)
     if output.rows != 1 or path.suffix.casefold() != ".json":
@@ -211,6 +226,13 @@ def _verify_report_artifact(
     expected_inputs = [item.model_dump(mode="json") for item in manifest.input_manifests]
     if payload.get("input_manifests") != expected_inputs:
         raise ValueError("dataset report input binding mismatch")
+    if expected_payload is not None and dict(payload) != dict(expected_payload):
+        raise ValueError("dataset leakage report content mismatch")
+
+
+def _leakage_report_is_required(manifest: DatasetManifest) -> bool:
+    quality = manifest.filters.get("quality")
+    return isinstance(quality, Mapping) and quality.get("emit_leakage_report") is True
 
 
 def _verify_producing_run(root: Path, manifest_file: Path, manifest: DatasetManifest) -> None:
@@ -231,6 +253,16 @@ def _verify_producing_run(root: Path, manifest_file: Path, manifest: DatasetMani
     for output in manifest.outputs:
         if (output.path, output.sha256, "curated") not in artifact_bindings:
             raise ValueError(f"dataset producing run does not bind output: {output.path}")
+    for name, report in (
+        ("quality_report", manifest.quality_report),
+        ("leakage_report", manifest.leakage_report),
+    ):
+        if report is None:
+            continue
+        if report.name != name:
+            raise ValueError(f"dataset {name} reference has an unexpected name")
+        if (report.path, report.sha256, name) not in artifact_bindings:
+            raise ValueError(f"dataset producing run does not bind {name}: {report.path}")
 
 
 __all__ = ["DatasetInspection", "inspect_dataset"]

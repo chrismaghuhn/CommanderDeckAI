@@ -54,6 +54,7 @@ def build_dataset_manifest(
     exclusions: tuple[DatasetExclusion, ...],
     counts: dict[str, int],
     near_duplicate_policy: NearDuplicatePolicy | None,
+    leakage_report: DatasetOutputReference | None = None,
 ) -> DatasetManifest:
     input_refs = dataset_input_references(request)
     producing_run_id = None if request.producing_run is None else request.producing_run.run_id
@@ -117,6 +118,7 @@ def build_dataset_manifest(
         exclusions=exclusions,
         counts=counts,
         outputs=(output,),
+        leakage_report=leakage_report,
         random_seeds=() if request.settings.seed is None else (request.settings.seed,),
         redistribution_status="local_only",
         dataset_content_sha256=content_digest,

@@ -242,6 +242,14 @@ class ConfiguredDatasetBuild:
                     )
                     for item in result.output_artifacts
                 ),
+                *(
+                    RunArtifactReference(
+                        path=item.path,
+                        sha256=item.sha256,
+                        kind=item.name,
+                    )
+                    for item in result.report_artifacts
+                ),
                 RunArtifactReference(
                     path=result.manifest_artifact.path,
                     sha256=result.manifest_artifact.sha256,
@@ -265,7 +273,9 @@ class ConfiguredDatasetBuild:
             status="COMPLETE",
             manifest_path=result.manifest_artifact.path,
             manifest_sha256=result.manifest_artifact.sha256,
-            output_paths=tuple(item.path for item in result.output_artifacts),
+            output_paths=tuple(
+                item.path for item in (*result.output_artifacts, *result.report_artifacts)
+            ),
         )
 
 
