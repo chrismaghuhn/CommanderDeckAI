@@ -1,0 +1,173 @@
+"""Documented Commander Spellbook reads over shared bounded HTTP transport."""
+
+from __future__ import annotations
+
+import httpx
+from pydantic import ValidationError
+
+from commander_ai.adapters.http.redaction import sanitize_endpoint
+from commander_ai.adapters.http.redirect_policy import RedirectPolicy, RedirectPolicyError
+from commander_ai.adapters.http.transport import HttpTransport, HttpTransportError, SafeHttpResponse
+from commander_ai.application.source_policy import SourcePolicy, SourcePolicyError
+from commander_ai.config.current_use_policy import PolicyOperation
+
+from .errors import CommanderSpellbookClientError
+from .settings import (
+    CommanderSpellbookSettings,
+    SpellbookContract,
+)
+
+
+class CommanderSpellbookClient:
+    """Construct the documented bulk request and bounded sparse REST reads."""
+
+    def __init__(
+        self,
+        settings: CommanderSpellbookSettings,
+        *,
+        policy: SourcePolicy,
+        http_client: httpx.Client | None = None,
+    ) -> None:
+        try:
+            validated_settings = CommanderSpellbookSettings.model_validate(settings.model_dump())
+        except (AttributeError, TypeError, ValueError, ValidationError):
+            raise CommanderSpellbookClientError("SPELLBOOK_SETTINGS_INVALID") from None
+        self._settings = validated_settings
+        self._source_policy = policy
+        self._policy = RedirectPolicy(validated_settings.source.host_allowlist)
+        self._transport = HttpTransport(
+            allowed_hosts=set(validated_settings.source.host_allowlist),
+            timeout_seconds=validated_settings.source.timeout_seconds,
+            max_retries=validated_settings.source.max_retries,
+            max_response_bytes=validated_settings.max_response_bytes,
+            respect_retry_after=validated_settings.source.respect_retry_after,
+            rate_limit_per_minute=validated_settings.source.rate_limit_per_minute,
+            client=http_client,
+        )
+
+    @property
+    def settings(self) -> CommanderSpellbookSettings:
+        return self._settings
+
+    def matches_settings(self, settings: CommanderSpellbookSettings) -> bool:
+        try:
+            CommanderSpellbookSettings.model_validate(self._settings.model_dump())
+            CommanderSpellbookSettings.model_validate(settings.model_dump())
+        except (TypeError, ValueError, ValidationError):
+            return False
+        return self._settings == settings and self._policy.allowed_hosts == frozenset(
+            settings.source.host_allowlist
+        )
+
+    def request_metadata(
+        self, contract: SpellbookContract | str, *, page: int
+    ) -> dict[str, object]:
+        self._require_source_sync()
+        self._validate_page(page)
+        url = self._url(contract)
+        metadata = self._transport.request_metadata(
+            "GET",
+            url,
+            parameters={"page": page},
+            format="json",
+        )
+        if metadata.get("sanitized_endpoint") != sanitize_endpoint(url):
+            raise CommanderSpellbookClientError("SPELLBOOK_METADATA_ENDPOINT_MISMATCH")
+        return metadata
+
+    def fetch(self, contract: SpellbookContract | str, *, page: int) -> SafeHttpResponse:
+        self._require_source_sync()
+        self._validate_page(page)
+        url = self._url(contract)
+        try:
+            response = self._transport.request(
+                "GET",
+                url,
+                parameters={"page": page},
+                format="json",
+            )
+        except HttpTransportError as error:
+            if error.code == "SECURITY_RESPONSE_HOST":
+                raise CommanderSpellbookClientError(
+                    "SPELLBOOK_RESPONSE_HOST_NOT_ALLOWLISTED"
+                ) from None
+            raise
+        try:
+            self._policy.validate(response.sanitized_endpoint)
+        except (RedirectPolicyError, TypeError):
+            response.close()
+            raise CommanderSpellbookClientError("SPELLBOOK_RESPONSE_HOST_NOT_ALLOWLISTED") from None
+        if response.sanitized_endpoint != sanitize_endpoint(url):
+            response.close()
+            raise CommanderSpellbookClientError("SPELLBOOK_RESPONSE_ENDPOINT_MISMATCH")
+        return response
+
+    def request_bulk_metadata(self) -> dict[str, object]:
+        """Return safe metadata for the one periodic bulk request."""
+
+        self._require_source_sync()
+        url = self._settings.bulk_endpoint()
+        metadata = self._transport.request_metadata("GET", url, parameters={}, format="json")
+        if metadata.get("sanitized_endpoint") != sanitize_endpoint(url):
+            raise CommanderSpellbookClientError("SPELLBOOK_METADATA_ENDPOINT_MISMATCH")
+        return metadata
+
+    def fetch_bulk(self) -> SafeHttpResponse:
+        """Fetch the documented bulk JSON without pagination parameters."""
+
+        self._require_source_sync()
+        url = self._settings.bulk_endpoint()
+        try:
+            response = self._transport.request("GET", url, parameters={}, format="json")
+        except HttpTransportError as error:
+            if error.code == "SECURITY_RESPONSE_HOST":
+                raise CommanderSpellbookClientError(
+                    "SPELLBOOK_RESPONSE_HOST_NOT_ALLOWLISTED"
+                ) from None
+            raise
+        try:
+            self._policy.validate(response.sanitized_endpoint)
+        except (RedirectPolicyError, TypeError):
+            response.close()
+            raise CommanderSpellbookClientError("SPELLBOOK_RESPONSE_HOST_NOT_ALLOWLISTED") from None
+        if response.sanitized_endpoint != sanitize_endpoint(url):
+            response.close()
+            raise CommanderSpellbookClientError("SPELLBOOK_RESPONSE_ENDPOINT_MISMATCH")
+        return response
+
+    def close(self) -> None:
+        self._transport.close()
+
+    def _url(self, contract: SpellbookContract | str) -> str:
+        try:
+            url = self._settings.endpoint(contract)
+            self._policy.validate(url)
+        except (RedirectPolicyError, TypeError, ValueError):
+            raise CommanderSpellbookClientError("SPELLBOOK_ENDPOINT_NOT_ALLOWLISTED") from None
+        return url
+
+    def _validate_page(self, page: int) -> None:
+        if (
+            not isinstance(page, int)
+            or isinstance(page, bool)
+            or page < 1
+            or page > self._settings.sparse_rest_page_limit
+        ):
+            raise CommanderSpellbookClientError("SPELLBOOK_PAGE_INVALID")
+
+    def _require_source_sync(self) -> None:
+        try:
+            configuration = self._source_policy.adapter_configuration(
+                self._settings.source.source_id
+            )
+            if configuration.source != self._settings.source:
+                raise CommanderSpellbookClientError("POLICY_CONFIGURATION_MISMATCH")
+            self._source_policy.require_operation(
+                self._settings.source.source_id,
+                PolicyOperation.SOURCE_SYNC,
+            )
+        except SourcePolicyError as error:
+            raise CommanderSpellbookClientError(error.code) from None
+
+
+__all__ = ["CommanderSpellbookClient", "CommanderSpellbookClientError"]

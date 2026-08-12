@@ -1,6 +1,16 @@
 source_id: mtgjson
 approval_status: APPROVED_LOCAL
 access_method: bulk_file
+review_path: docs/03-data/source-reviews/mtgjson.md
+endpoints:
+  - https://mtgjson.com/api/v5/
+host_allowlist: [mtgjson.com]
+timeout_seconds: 60
+max_retries: 2
+rate_limit_per_minute: 30
+respect_retry_after: true
+max_pages: 1
+max_download_bytes: 2000000000
 files:
   - AllDeckFiles
   - AllPrintings
@@ -8,3 +18,9 @@ sync_policy: explicit
 attribution_required: true
 raw_storage: allowed_local
 redistribution: review_required
+filters:
+  archive_extension: .json.zip
+  checksum_suffix: .sha256
+  checksum_required: true
+  checksum_max_bytes: 4096
+  files: [AllDeckFiles, AllPrintings]

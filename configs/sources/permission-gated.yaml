@@ -8,6 +8,9 @@ sources:
   moxfield:
     approval_status: PAUSED
     reason: user-export or written permission required
+  cedh_decklist_database:
+    approval_status: PAUSED
+    reason: assessment-only until access, storage, and redistribution are reviewed
   spellbinder:
     approval_status: PROPOSED
     reason: terms/API review required

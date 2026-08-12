@@ -1,0 +1,220 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/canonical-record.v1.schema.json",
+  "title": "Canonical Record v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "record_id",
+    "record_type",
+    "source_record_id",
+    "source_id",
+    "source_snapshot_id",
+    "raw_locator",
+    "observed_at",
+    "payload",
+    "provenance",
+    "layer"
+  ],
+  "x-payload-contracts": {
+    "card": "card.v1",
+    "card_face": "card-face.v1",
+    "printing": "printing.v1",
+    "canonical_deck": "canonical-deck.v1",
+    "deck_legality_evaluation": "deck-legality-evaluation.v1",
+    "deck_quality_evaluation": "deck-quality-evaluation.v1",
+    "event_deck_observation": "event-deck-observation.v1",
+    "participant_reference": "participant-reference.v1",
+    "pod_entry": "pod-entry.v1",
+    "combo": "combo.v1",
+    "combo_card": "combo-card.v1"
+  },
+  "x-reference-constraints": [
+    {
+      "from": "raw_locator.source_id",
+      "equals": "source_id"
+    },
+    {
+      "from": "raw_locator.source_snapshot_id",
+      "equals": "source_snapshot_id"
+    },
+    {
+      "from": "provenance[].source_object_id",
+      "equals": "raw_locator.raw_object_id"
+    }
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "canonical-record.v1"
+    },
+    "record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "record_type": {
+      "enum": [
+        "card",
+        "card_face",
+        "printing",
+        "canonical_deck",
+        "deck_legality_evaluation",
+        "deck_quality_evaluation",
+        "event_deck_observation",
+        "participant_reference",
+        "pod_entry",
+        "combo",
+        "combo_card"
+      ]
+    },
+    "source_record_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_locator": {
+      "$ref": "#/$defs/raw_locator"
+    },
+    "observed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload": {
+      "type": "object",
+      "minProperties": 1
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/provenance_reference"
+      }
+    },
+    "layer": {
+      "const": "normalized"
+    }
+  },
+  "$defs": {
+    "raw_locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "raw_object_id",
+        "raw_object_path",
+        "location"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_object_path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
+        },
+        "archive_member": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "location": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "pointer"],
+              "properties": {
+                "kind": {"const": "json_pointer"},
+                "pointer": {"type": "string"}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "kind",
+                "parent_pointer",
+                "entry_index",
+                "value_pointer",
+                "key_base64",
+                "key_byte_length",
+                "key_sha256"
+              ],
+              "properties": {
+                "kind": {"const": "json_object_entry"},
+                "parent_pointer": {"type": "string"},
+                "entry_index": {"type": "integer", "minimum": 0},
+                "value_pointer": {"type": "string"},
+                "key_base64": {"type": "string", "minLength": 1},
+                "key_byte_length": {"type": "integer", "exclusiveMinimum": 0},
+                "key_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "index"],
+              "properties": {
+                "kind": {"const": "record_index"},
+                "index": {"type": "integer", "minimum": 0}
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["kind", "start", "end"],
+              "properties": {
+                "kind": {"const": "byte_range"},
+                "start": {"type": "integer", "minimum": 0},
+                "end": {"type": "integer", "exclusiveMinimum": 0}
+              }
+            }
+          ]
+        }
+      }
+    },
+    "provenance_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "source_object_id",
+        "raw_sha256"
+      ],
+      "properties": {
+        "source_id": {"type": "string", "minLength": 1},
+        "source_snapshot_id": {"type": "string", "minLength": 1},
+        "source_object_id": {"type": "string", "minLength": 1},
+        "raw_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "retrieved_at": {"type": ["string", "null"], "format": "date-time"},
+        "adapter_version": {"type": ["string", "null"], "minLength": 1},
+        "mapper_version": {"type": ["string", "null"], "minLength": 1},
+        "approval_status": {
+          "type": ["string", "null"],
+          "enum": ["APPROVED_LOCAL", "APPROVED_REDISTRIBUTION", null]
+        }
+      }
+    }
+  }
+}

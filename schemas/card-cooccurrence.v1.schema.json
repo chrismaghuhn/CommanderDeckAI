@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/card-cooccurrence.v1.schema.json",
+  "title": "Card Co-occurrence Row v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["curated_id", "values", "layer"],
+  "properties": {
+    "curated_id": {"type": "string", "minLength": 1},
+    "layer": {"const": "curated"},
+    "values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "record_id", "split", "canonical_deck_id", "source_id",
+        "observed_at", "group_ids", "relation_type", "left_id", "right_id"
+      ],
+      "properties": {
+        "schema_version": {"const": "card-cooccurrence.v1"},
+        "record_id": {"type": "string", "minLength": 1},
+        "split": {"enum": ["train", "validation", "test"]},
+        "canonical_deck_id": {"type": "string", "minLength": 1},
+        "source_id": {"type": "string", "minLength": 1},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "group_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "relation_type": {"enum": ["commander_card", "card_card"]},
+        "left_id": {"type": "string", "format": "uuid"},
+        "right_id": {"type": "string", "format": "uuid"}
+      }
+    }
+  }
+}

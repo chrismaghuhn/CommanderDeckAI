@@ -25,3 +25,55 @@ Alle Deckrevisionen, exakten Duplikate und Near-Duplicate-Cluster werden gemeins
 - Eventrunden desselben Events über Train/Test verteilen;
 - Features verwenden, die nach dem Beobachtungszeitpunkt entstanden sind;
 - aktuelles EDHREC-/Meta-Feature an historische Samples hängen.
+
+## Forward-only-Gruppenpromotion
+
+Bei Completion-Datasets werden zunächst zeitbasierte Provisional-Splits vergeben.
+Danach werden exakte Fingerprints, Source-Revisionen und die versionierten
+Near-Duplicate-Cluster gebildet. Eine Gruppe wird in den spätesten Provisional-Split
+verschoben, den eines ihrer Mitglieder erreicht; sie wird nie in einen älteren Split
+zurückverschoben. Ein Cluster mit `TRAIN`, `TRAIN`, `TEST` wird deshalb vollständig
+`TEST`. Algorithmus, Version, Schwelle und Promotion-Regel gehören in das
+Dataset-Manifest.
+
+Die produktiven Completion-Beispiele konfigurieren nur die implementierte
+`temporal_grouped`-Policy. `revision_group_id`,
+`near_duplicate_cluster_id` und optionale Cold-Start-Benchmarks sind keine
+freien Konfigurationsfelder des aktuellen Builders; sie werden aus der
+versionierten Split-/Deduplication-Policy beziehungsweise als getrennte
+Benchmark-Projektionen gebildet. Unbekannte Grouping- oder Segment-Felder
+werden deshalb abgewiesen und nicht stillschweigend ignoriert.
+
+Outcome-Datasets gruppieren vollständige Events statt wiederholte CanonicalDecks
+global zu sperren. Strenge Zusatzbenchmarks können kalte Fingerprints, Command-Zone-
+Kombinationen und Low-Data-Commander separat ausweisen.
+
+## Task-13-Artefakte
+
+Dataset-Builder wenden die konfigurierten Source-, Mode-, Status-, Zeit- und
+Acquisition-Approval-Filter vor der Split-Bildung an. Nicht unterstuetzte
+Inclusion-/Exclusion-Selektoren oder Filter fuer Record-Typen ohne die noetige
+Semantik werden abgewiesen statt stillschweigend ignoriert. Jede solche
+Auswahl erscheint als versionierbarer Ausschlusscode im Datasetmanifest.
+
+Die Curated-Payload-Minimierung behandelt sowohl Snake-Case- als auch
+Camel-Case-Schreibweisen gaengiger Player-, Participant-, Account- und
+Display-Identifiers als PII und ersetzt sie durch `[EXCLUDED]`.
+
+`DatasetSettings` verlangt für die implementierten Split-Builder explizite
+timezone-aware `train_until`- und `validation_until`-Cutoffs. Der
+`dataset-manifest.v2` bindet zusätzlich `dataset_kind`, Konfigurationsversion,
+Split-/Exclusion-Version, Near-Duplicate-Algorithmus, Version und Schwelle,
+Input-Manifest-Hashes, Ausschlüsse, Counts sowie Parquet- und Inhalts-Digests.
+
+Der Dataset-Builder schreibt eine immutable Curated-Projektion unter
+`datasets/{dataset_id}/` und ein kanonisch serialisiertes Manifest. `inspect`
+prüft Manifest-Digest, Existenz, Hash und Row-Count jedes Outputs. Die
+Curated-Payload maskiert bekannte Player-/Account-Felder; Audit- und
+Quarantine-Informationen bleiben außerhalb dieses Trainingsartefakts.
+Jeder Dataset-Typ benötigt eine aktuelle Current-Use-Entscheidung sowie einen
+historisch zulässigen Source-Approval-Status (`APPROVED_LOCAL` oder
+`APPROVED_REDISTRIBUTION`). Run-Art, Konfigurations-Hash und alle relevanten
+Input-Bindings werden vor dem Schreiben geprüft. `inspect` rekonstruiert die
+Split-, Eligibility-, Exclusion- und Report-Bindings aus den Artefakten und
+verwirft inkonsistente Manifeste.

@@ -1,0 +1,68 @@
+{
+  "schema_version": "normalized-snapshot-manifest.v2",
+  "normalized_snapshot_id": "normalized-5cd66778b5b98b8ad7cce0077b5bccd7",
+  "producing_run_id": "normalize-fixture-run-001",
+  "input_source_snapshot_manifest_id": "fixture-2026-08-10-v2",
+  "input_source_snapshot_manifest_sha256": "f4e386eb9979be5eafc88b92d1a3d50ea9d04d0a2f488fed35d29360b150016a",
+  "source_id": "fixture",
+  "status": "COMPLETE",
+  "normalized_schema_version": "normalized-records.v1",
+  "mapper_version": "fixture-mapper-v1",
+  "transform_version": "normalize-v1",
+  "policy_version": "current-use-v1",
+  "normalized_artifact_path": "normalized/records.parquet",
+  "normalized_artifact_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+  "audit_artifact_path": "audit/findings.parquet",
+  "audit_artifact_sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+  "artifacts": [
+    {
+      "table_name": "records",
+      "layer": "normalized",
+      "path": "normalized/records.parquet",
+      "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+      "rows": 1,
+      "bytes": 256
+    },
+    {
+      "table_name": "findings",
+      "layer": "audit",
+      "path": "audit/findings.parquet",
+      "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+      "rows": 0,
+      "bytes": 256
+    },
+    {
+      "table_name": "quarantine",
+      "layer": "quarantine",
+      "path": "quarantine/records.parquet",
+      "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+      "rows": 0,
+      "bytes": 256
+    }
+  ],
+  "counts": {
+    "input_records": 1,
+    "normalized_records": 1,
+    "audit_records": 0,
+    "finding_records": 0,
+    "quarantine_records": 0
+  },
+  "finding_codes": [],
+  "quarantine_references": [],
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10-v2",
+      "source_object_id": "object-001",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "adapter_version": "fixture-v2",
+      "mapper_version": "fixture-mapper-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ],
+  "created_at": "2026-08-10T18:02:00Z",
+  "started_at": "2026-08-10T18:01:30Z",
+  "completed_at": "2026-08-10T18:02:00Z",
+  "normalized_content_sha256": "f71629b9b164a27d94ae1f98aff6305313ea85b699ad73a9e12fc010c0526a60"
+}

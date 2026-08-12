@@ -1,0 +1,7 @@
+dataset_id: fixture-combo
+dataset_kind: combo
+split_policy:
+  strategy: temporal_grouped
+  version: fixture-split-v1
+  train_until: 2025-01-01T00:00:00Z
+  validation_until: 2026-01-01T00:00:00Z

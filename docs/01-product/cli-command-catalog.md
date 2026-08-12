@@ -9,6 +9,7 @@ cda source review <source>
 cda source sync <source> --config ...
 cda data normalize <snapshot-id>
 cda data validate <normalized-snapshot-id>
+cda data report <source|all>
 cda dataset build --config configs/datasets/completion-v1.yaml
 cda dataset inspect <dataset-id>
 cda benchmark run <model-id> <dataset-id>

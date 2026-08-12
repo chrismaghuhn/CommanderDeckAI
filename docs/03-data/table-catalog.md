@@ -45,3 +45,50 @@ Stabile Finding-Codes, Severity, Entity-ID und Details.
 ## `provenance.parquet`
 
 Source-Objekt, Snapshot, Rohhash, Mapperversion, Terms-Review und Transformationslinie.
+## Task-5 staging and audit tables
+
+`staging.parquet` preserves source DTO values and exact raw locators without canonical
+identity requirements. `audit.parquet` retains namespaced findings, provenance, and
+every resolution attempt. `quarantine.parquet` retains failed observations and their
+reason codes. None of these tables is a curated output; all are rebuildable from the
+verified raw snapshot and the immutable normalized manifest.
+
+## Canonical snapshot tables
+
+`canonical.parquet` stores source-neutral canonical-record envelopes. The matching
+`canonical-snapshot-manifest.v1` binds the normalized input, producing run, table
+hashes, row counts, and raw evidence. `resolution.parquet` and
+`resolution-attempt.parquet` retain every deterministic card-resolution result,
+including ambiguous and unresolved values; `provenance.parquet`, `audit.parquet`,
+and `quarantine.parquet` remain separate audit evidence. These Parquet artifacts are
+authoritative and can rebuild local DuckDB projections.
+
+## Task-12 event and combo projections
+
+Event-level final standings are stored separately from round/pod `PodEntry` rows.
+Pod normalization keeps all seats under one `pod_id`; it never creates synthetic
+one-versus-one matches. Participant references are source-, event-, or
+snapshot-object-scoped and curated artifacts do not contain raw names or handles.
+
+`canonical_events`, `event_deck_observations`, `canonical_pods`,
+`canonical_pod_entries`, `participant_references`, `canonical_combos`,
+`canonical_combo_cards`, and `combo_commander_compatibility` are derived DuckDB
+projections. The normalized Parquet rows, audit/quarantine rows, exact raw locators,
+and their manifests remain authoritative and sufficient to rebuild these tables.
+The versioned `event.v1`, `pod.v2`, and
+`combo-commander-compatibility.v1` contracts define the newly persisted row
+semantics; no event or combo result is inferred from a different source snapshot.
+
+## Task-specific curated corpora
+
+The dataset builder writes separate curated projections with versioned row
+contracts: `deck-corpus.v1` for deck completion, `card-cooccurrence.v2` for
+commander/card and card/card relations, `tournament-corpus.v1` for event-grouped
+outcomes, and `combo-corpus.v1` for combo projections. `card-cooccurrence.v1`
+remains a frozen legacy contract, but its artifacts require migration to v2
+before dataset inspection because v1 lacks the structure needed for independent
+leakage reconstruction. v2 persists source-deck identity and deck zones so
+inspection can reconstruct structural groups independently of row labels. Their
+JSON Schemas and small examples are tracked under `schemas/` and `examples/`;
+the Parquet files and dataset manifests are the authoritative artifacts, while
+DuckDB remains rebuildable local infrastructure.

@@ -1,0 +1,110 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/participant-reference.v1.schema.json",
+  "title": "Participant Reference v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "reference_id",
+    "scope"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "participant-reference.v1"
+    },
+    "reference_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "scope": {
+      "enum": [
+        "source",
+        "event",
+        "snapshot_object"
+      ]
+    },
+    "source_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "event_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "source_snapshot_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "scope": {
+          "const": "source"
+        },
+        "source_id": {
+          "type": "string"
+        },
+        "event_id": {
+          "type": "null"
+        },
+        "source_snapshot_id": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "source_id",
+        "event_id",
+        "source_snapshot_id"
+      ]
+    },
+    {
+      "properties": {
+        "scope": {
+          "const": "event"
+        },
+        "source_id": {
+          "type": "null"
+        },
+        "event_id": {
+          "type": "string"
+        },
+        "source_snapshot_id": {
+          "type": "null"
+        }
+      },
+      "required": [
+        "source_id",
+        "event_id",
+        "source_snapshot_id"
+      ]
+    },
+    {
+      "properties": {
+        "scope": {
+          "const": "snapshot_object"
+        },
+        "event_id": {
+          "type": "null"
+        },
+        "source_snapshot_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "source_snapshot_id"
+      ]
+    }
+  ]
+}

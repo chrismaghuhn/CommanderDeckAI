@@ -9,15 +9,19 @@
 
 ## Deckidentität
 
-`deck_fingerprint_v1` ist ein Hash über:
+`commander-structural-v1` ist ein SHA-256-Hash der kanonischen JSON-Darstellung
+folgender Struktur:
 
 ```text
-ruleset family
-sorted command-zone oracle IDs
-sorted (zone, oracle_id, quantity)
+format family = commander
+sorted command-zone (oracle_id, quantity)
+sorted card-zone records (zone, oracle_id, quantity)
 ```
 
-Source-ID und Titel fließen nicht ein.
+UUID-Texte werden vor der Hashbildung in die kleingeschriebene Schema-Darstellung
+normalisiert. RulesetSnapshot-Version, Source-ID, Titel, Spieler, Event und
+Evaluationsdaten fließen nicht ein. `canonical_deck_id` ist derselbe deterministische
+Fingerprint; die aktuelle Algorithmusversion wird im CanonicalDeck gebunden.
 
 ## Command Zone
 

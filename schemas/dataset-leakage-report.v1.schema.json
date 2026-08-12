@@ -1,0 +1,102 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/dataset-leakage-report.v1.schema.json",
+  "title": "Dataset Leakage Report v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "dataset_id",
+    "dataset_kind",
+    "dataset_content_sha256",
+    "input_manifests",
+    "policy",
+    "group_splits",
+    "event_splits",
+    "cross_split_group_ids",
+    "cross_split_event_ids",
+    "status"
+  ],
+  "properties": {
+    "schema_version": {"const": "dataset-leakage-report.v1"},
+    "dataset_id": {"type": "string", "minLength": 1},
+    "dataset_kind": {
+      "enum": [
+        "deck_completion",
+        "tournament_outcomes",
+        "card_cooccurrence",
+        "combo",
+        "unknown"
+      ]
+    },
+    "dataset_content_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "input_manifests": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "id", "sha256"],
+        "properties": {
+          "kind": {"type": "string", "minLength": 1},
+          "id": {"type": "string", "minLength": 1},
+          "path": {"type": ["string", "null"], "minLength": 1},
+          "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}
+        }
+      }
+    },
+    "policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "split_policy",
+        "split_policy_version",
+        "near_duplicate_algorithm",
+        "near_duplicate_version",
+        "near_duplicate_threshold"
+      ],
+      "properties": {
+        "split_policy": {"type": "object"},
+        "split_policy_version": {"type": "string", "minLength": 1},
+        "near_duplicate_algorithm": {"type": ["string", "null"], "minLength": 1},
+        "near_duplicate_version": {"type": ["string", "null"], "minLength": 1},
+        "near_duplicate_threshold": {
+          "type": ["number", "null"],
+          "minimum": 0,
+          "maximum": 1
+        }
+      }
+    },
+    "group_splits": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {"enum": ["train", "validation", "test"]},
+        "uniqueItems": true
+      }
+    },
+    "event_splits": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "array",
+        "items": {"enum": ["train", "validation", "test"]},
+        "uniqueItems": true
+      }
+    },
+    "cross_split_group_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "cross_split_event_ids": {
+      "type": "array",
+      "items": {"type": "string", "minLength": 1},
+      "uniqueItems": true
+    },
+    "status": {"enum": ["PASS", "FAIL"]}
+  }
+}

@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/source-snapshot-manifest.v2.schema.json",
+  "title": "Source Snapshot Manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "source_id",
+    "source_snapshot_id",
+    "status",
+    "approval_status",
+    "adapter_version",
+    "started_at",
+    "completed_at",
+    "usage_status",
+    "request_parameters_redacted",
+    "requests",
+    "objects",
+    "pagination_state",
+    "attribution_required",
+    "redistribution_status",
+    "snapshot_content_sha256"
+  ],
+  "x-reference-constraints": [
+    {
+      "from": "objects[].request_id",
+      "to": "requests[].request_id",
+      "unique_request_ids": true,
+      "raw_object_ids_unique": true
+    }
+  ],
+  "x-derived-compatibility": {
+    "field": "request_parameters_redacted",
+    "from": "requests",
+    "rule": "sorted unique request_ids, methods, endpoints, formats, api_versions, and parameter_keys"
+  },
+  "x-detached-digest": {
+    "sidecar_filename": "manifest.sha256",
+    "algorithm": "SHA-256",
+    "canonical_payload": "manifest JSON without a self-digest field"
+  },
+  "properties": {
+    "schema_version": {
+      "const": "source-snapshot-manifest.v2"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "FAILED"
+      ]
+    },
+    "approval_status": {
+      "enum": [
+        "APPROVED_LOCAL",
+        "APPROVED_REDISTRIBUTION"
+      ]
+    },
+    "adapter_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "terms_reference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uri"
+    },
+    "usage_status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "request_parameters_redacted": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "request_ids",
+        "methods",
+        "endpoints",
+        "formats",
+        "api_versions",
+        "parameter_keys"
+      ],
+      "properties": {
+        "request_ids": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "methods": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "endpoints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "uniqueItems": true
+        },
+        "formats": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "api_versions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        },
+        "parameter_keys": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "uniqueItems": true
+        }
+      }
+    },
+    "requests": {
+      "type": "array",
+      "uniqueItems": true,
+      "x-unique-by": "request_id",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "request_id",
+          "sanitized_method",
+          "sanitized_endpoint",
+          "format",
+          "sanitized_parameters"
+        ],
+        "properties": {
+          "request_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sanitized_method": {
+            "type": "string",
+            "minLength": 1
+          },
+          "sanitized_endpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "api_version": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "format": {
+            "type": "string",
+            "minLength": 1
+          },
+          "request_body_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "sanitized_parameters": {
+            "type": "object"
+          }
+        }
+      }
+    },
+    "objects": {
+      "type": "array",
+      "uniqueItems": true,
+      "x-unique-by": "raw_object_id",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "raw_object_id",
+          "request_id",
+          "retrieved_at",
+          "path",
+          "bytes",
+          "content_type",
+          "sha256",
+          "checksum_verification_status"
+        ],
+        "properties": {
+          "raw_object_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "source_object_id": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          },
+          "request_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "retrieved_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "path": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*(?:^|/)(?:~[^/]*|<external-root>|<repository-root>)(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$",
+            "not": {
+              "type": "string",
+              "pattern": "\\u0000"
+            }
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "content_type": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "content_encoding": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]*(?:\\s*,\\s*[a-z0-9][a-z0-9._-]*)*$"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "upstream_sha256": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "pattern": "^[a-f0-9]{64}$"
+          },
+          "checksum_verification_status": {
+            "enum": [
+              "verified",
+              "mismatch",
+              "not_provided",
+              "not_checked",
+              "not_applicable"
+            ]
+          },
+          "logical_record_count": {
+            "type": [
+              "integer",
+              "null"
+            ],
+            "minimum": 0
+          }
+        }
+      }
+    },
+    "pagination_state": {
+      "type": [
+        "object",
+        "null"
+      ]
+    },
+    "attribution_required": {
+      "type": "boolean"
+    },
+    "redistribution_status": {
+      "enum": [
+        "not_approved",
+        "derived_only",
+        "approved"
+      ]
+    },
+    "snapshot_content_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  }
+}

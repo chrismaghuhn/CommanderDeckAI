@@ -1,0 +1,161 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/deck-quality-evaluation.v1.schema.json",
+  "title": "Deck Quality Evaluation v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "canonical_deck_id",
+    "evaluated_at",
+    "evaluator_version",
+    "quality_status",
+    "finding_codes"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "deck-quality-evaluation.v1"
+    },
+    "canonical_deck_id": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "evaluated_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "evaluator_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "quality_status": {
+      "enum": [
+        "accepted",
+        "review",
+        "quarantined",
+        "unknown"
+      ]
+    },
+    "finding_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^quality\\.[a-z0-9_]+$"
+      },
+      "uniqueItems": true
+    },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "number"
+      }
+    },
+    "quarantine_references": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/quarantine_reference"
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/provenance_reference"
+      }
+    }
+  },
+  "$defs": {
+    "quarantine_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "quarantine_id",
+        "reason_code"
+      ],
+      "properties": {
+        "quarantine_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "reason_code": {
+          "type": "string",
+          "pattern": "^quality\\.[a-z0-9_]+$"
+        },
+        "path": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
+        },
+        "record_locator": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "provenance_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "source_object_id",
+        "raw_sha256"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "retrieved_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "adapter_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "mapper_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "approval_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "APPROVED_LOCAL",
+            "APPROVED_REDISTRIBUTION",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

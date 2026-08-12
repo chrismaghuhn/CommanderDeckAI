@@ -1,0 +1,27 @@
+{
+  "schema_version": "card-resolution.v1",
+  "resolution_id": "resolution-001",
+  "source_id": "fixture",
+  "source_snapshot_id": "fixture-2026-08-10-v2",
+  "source_object_id": "deck-001",
+  "original_value": "Fixture Card",
+  "raw_locator": "decks[0].cards[0].name",
+  "method": "exact_name",
+  "status": "resolved",
+  "candidates": [
+    {
+      "oracle_id": "22222222-2222-4222-8222-222222222222",
+      "printing_id": null,
+      "face_id": null
+    }
+  ],
+  "canonical_oracle_id": "22222222-2222-4222-8222-222222222222",
+  "canonical_printing_id": null,
+  "canonical_face_id": null,
+  "resolver_version": "resolver-v1",
+  "normalization_policy_version": "unicode-name-v1",
+  "alias_catalog_version": "aliases-v1",
+  "alias_catalog_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+  "card_catalog_snapshot_id": "cards-2026-08-10",
+  "provenance": []
+}

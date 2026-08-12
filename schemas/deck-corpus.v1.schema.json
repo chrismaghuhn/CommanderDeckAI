@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/deck-corpus.v1.schema.json",
+  "title": "Deck Corpus Row v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["curated_id", "values", "layer"],
+  "properties": {
+    "curated_id": {"type": "string", "minLength": 1},
+    "layer": {"const": "curated"},
+    "values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "record_id", "split", "canonical_deck_id", "source_id",
+        "source_deck_id", "source_snapshot_id", "observed_at", "command_zone",
+        "card_zones", "payload"
+      ],
+      "properties": {
+        "schema_version": {"const": "deck-corpus.v1"},
+        "record_id": {"type": "string", "minLength": 1},
+        "split": {"enum": ["train", "validation", "test"]},
+        "canonical_deck_id": {"type": "string", "minLength": 1},
+        "source_id": {"type": "string", "minLength": 1},
+        "source_deck_id": {"type": "string", "minLength": 1},
+        "source_snapshot_id": {"type": "string", "minLength": 1},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "mode": {"type": ["string", "null"], "minLength": 1},
+        "group_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "command_zone": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/properties/values/$defs/command_zone_entry"}
+        },
+        "card_zones": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": {"$ref": "#/properties/values/$defs/card_zone"}
+        },
+        "payload": {"type": "object", "additionalProperties": true}
+      },
+      "$defs": {
+        "uuid": {"type": "string", "format": "uuid"},
+        "card_quantity": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["oracle_id", "quantity"],
+          "properties": {
+            "oracle_id": {"$ref": "#/properties/values/$defs/uuid"},
+            "quantity": {"type": "integer", "minimum": 1},
+            "printing_id": {
+              "anyOf": [{"$ref": "#/properties/values/$defs/uuid"}, {"type": "null"}]
+            }
+          }
+        },
+        "command_zone_entry": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["oracle_id", "quantity"],
+          "properties": {
+            "oracle_id": {"$ref": "#/properties/values/$defs/uuid"},
+            "quantity": {"type": "integer", "minimum": 1},
+            "printing_id": {
+              "anyOf": [{"$ref": "#/properties/values/$defs/uuid"}, {"type": "null"}]
+            },
+            "source_declared_role": {
+              "anyOf": [
+                {"enum": ["commander", "partner", "background", "companion", "unknown"]},
+                {"type": "null"}
+              ]
+            }
+          }
+        },
+        "card_zone": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["zone", "cards"],
+          "properties": {
+            "zone": {"type": "string", "minLength": 1, "not": {"const": "command_zone"}},
+            "cards": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": {"$ref": "#/properties/values/$defs/card_quantity"}
+            }
+          }
+        }
+      }
+    }
+  }
+}

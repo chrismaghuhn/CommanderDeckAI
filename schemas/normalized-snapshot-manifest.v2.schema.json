@@ -1,0 +1,322 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/normalized-snapshot-manifest.v2.schema.json",
+  "title": "Normalized Snapshot Manifest v2",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "normalized_snapshot_id",
+    "producing_run_id",
+    "input_source_snapshot_manifest_id",
+    "input_source_snapshot_manifest_sha256",
+    "source_id",
+    "status",
+    "normalized_schema_version",
+    "mapper_version",
+    "transform_version",
+    "policy_version",
+    "normalized_artifact_path",
+    "normalized_artifact_sha256",
+    "audit_artifact_path",
+    "audit_artifact_sha256",
+    "artifacts",
+    "counts",
+    "finding_codes",
+    "quarantine_references",
+    "provenance",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "normalized_content_sha256"
+  ],
+  "x-reference-constraints": [
+    {
+      "from": "provenance[].source_id",
+      "equals": "source_id"
+    },
+    {
+      "from": "provenance[].source_snapshot_id",
+      "equals": "input_source_snapshot_manifest_id"
+    }
+  ],
+  "x-detached-digest": {
+    "sidecar_filename": "manifest.sha256",
+    "algorithm": "SHA-256",
+    "canonical_payload": "manifest JSON without a self-digest field"
+  },
+  "properties": {
+    "schema_version": {
+      "const": "normalized-snapshot-manifest.v2"
+    },
+    "normalized_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "producing_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_source_snapshot_manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "input_source_snapshot_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "enum": [
+        "COMPLETE",
+        "INCOMPLETE",
+        "FAILED"
+      ]
+    },
+    "normalized_schema_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mapper_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "transform_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "normalized_artifact_path": {
+      "$ref": "#/$defs/portable_path"
+    },
+    "normalized_artifact_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "audit_artifact_path": {
+      "$ref": "#/$defs/portable_path"
+    },
+    "audit_artifact_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "artifacts": {
+      "type": "array",
+      "minItems": 3,
+      "uniqueItems": true,
+      "items": {
+        "$ref": "#/$defs/table_artifact"
+      }
+    },
+    "counts": {
+      "type": "object",
+      "required": [
+        "normalized_records",
+        "audit_records",
+        "quarantine_records"
+      ],
+      "properties": {
+        "normalized_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "audit_records": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "quarantine_records": {
+          "type": "integer",
+          "minimum": 0
+        }
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "finding_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$"
+      },
+      "uniqueItems": true
+    },
+    "quarantine_references": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "quarantine_id",
+          "reason_code",
+          "path"
+        ],
+        "properties": {
+          "quarantine_id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "reason_code": {
+            "type": "string",
+            "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$"
+          },
+          "path": {
+            "$ref": "#/$defs/portable_path"
+          },
+          "record_locator": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/provenance_reference"
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "started_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "completed_at": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "date-time"
+    },
+    "normalized_content_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "$defs": {
+    "table_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "table_name",
+        "layer",
+        "path",
+        "sha256",
+        "rows",
+        "bytes"
+      ],
+      "properties": {
+        "table_name": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[^/\\\\]+$"
+        },
+        "layer": {
+          "enum": [
+            "normalized",
+            "audit",
+            "quarantine"
+          ]
+        },
+        "path": {
+          "$ref": "#/$defs/portable_path"
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "rows": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bytes": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    },
+    "portable_path": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?![A-Za-z]:)(?!/)(?!.*\\\\)(?!.*(?:^|/)\\.{1,2}(?:/|$))(?!.*(?:^|/)(?:~[^/]*|<external-root>|<repository-root>)(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$",
+      "not": {
+        "type": "string",
+        "pattern": "\\u0000"
+      }
+    },
+    "provenance_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "source_object_id",
+        "raw_sha256"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "retrieved_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "adapter_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "mapper_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "approval_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "APPROVED_LOCAL",
+            "APPROVED_REDISTRIBUTION",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

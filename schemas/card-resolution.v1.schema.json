@@ -1,0 +1,221 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/card-resolution.v1.schema.json",
+  "title": "Card Resolution Attempt v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "resolution_id",
+    "source_id",
+    "source_snapshot_id",
+    "source_object_id",
+    "original_value",
+    "raw_locator",
+    "method",
+    "status",
+    "candidates",
+    "resolver_version",
+    "normalization_policy_version",
+    "alias_catalog_version",
+    "alias_catalog_sha256",
+    "card_catalog_snapshot_id"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "card-resolution.v1"
+    },
+    "resolution_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source_object_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "original_value": {
+      "type": "string",
+      "minLength": 1
+    },
+    "raw_locator": {
+      "type": "string",
+      "minLength": 1
+    },
+    "method": {
+      "enum": [
+        "source_identifier",
+        "exact_identifier",
+        "exact_name",
+        "alias",
+        "split_face",
+        "none"
+      ]
+    },
+    "status": {
+      "enum": [
+        "resolved",
+        "ambiguous",
+        "unresolved",
+        "rejected"
+      ]
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/candidate"
+      },
+      "uniqueItems": true
+    },
+    "canonical_oracle_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "canonical_printing_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "format": "uuid"
+    },
+    "canonical_face_id": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "resolver_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "normalization_policy_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "alias_catalog_version": {
+      "type": "string",
+      "minLength": 1
+    },
+    "alias_catalog_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "card_catalog_snapshot_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "finding_code": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "pattern": "^resolution\\.[a-z0-9_]+$"
+    },
+    "provenance": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/provenance_reference"
+      }
+    }
+  },
+  "$defs": {
+    "candidate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "oracle_id"
+      ],
+      "properties": {
+        "oracle_id": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "printing_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "uuid"
+        },
+        "face_id": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        }
+      }
+    },
+    "provenance_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "source_object_id",
+        "raw_sha256"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "retrieved_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "adapter_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "mapper_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "approval_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "APPROVED_LOCAL",
+            "APPROVED_REDISTRIBUTION",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

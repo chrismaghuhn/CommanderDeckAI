@@ -1,0 +1,83 @@
+{
+  "schema_version": "dataset-manifest.v2",
+  "dataset_id": "commander-completion-v2-fixture",
+  "dataset_kind": "deck_completion",
+  "config_version": "dataset-config.v1",
+  "producing_run_id": "run-dataset-fixture",
+  "created_at": "2026-08-10T18:05:00Z",
+  "builder_version": "dataset-builder-v2",
+  "code_commit": "abcdef1234567890abcdef1234567890abcdef12",
+  "dependency_lock_hash": "1111111111111111111111111111111111111111111111111111111111111111",
+  "input_manifests": [
+    {
+      "kind": "normalized_snapshot_manifest",
+      "id": "fixture-normalized-2026-08-10",
+      "path": "examples/normalized-snapshot-manifest.v1.json",
+      "sha256": "ca5f3e104d6f9d5dc7a0cac0a8314bd12390819e62f276dc6e2986f55d60aa26"
+    }
+  ],
+  "schema_versions": [
+    "canonical-deck.v1",
+    "event-deck-observation.v1"
+  ],
+  "transform_versions": [
+    "dataset-transform-v1"
+  ],
+  "policy_versions": [
+    "temporal-grouped-split-v1"
+  ],
+  "ruleset_versions": [
+    "commander-2026-02-09"
+  ],
+  "card_snapshot_ids": [
+    "cards-2026-08-10"
+  ],
+  "source_snapshots": [
+    "fixture-2026-08-10-v2"
+  ],
+  "filters": {
+    "legal_only": true
+  },
+  "split_policy": {
+    "strategy": "temporal_grouped",
+    "near_duplicate_policy_version": "near-duplicate-v1"
+  },
+  "split_policy_version": "temporal-grouped-v1",
+  "near_duplicate_algorithm": "quantity_weighted_jaccard",
+  "near_duplicate_version": "near-duplicate-v1",
+  "near_duplicate_threshold": 0.92,
+  "exclusion_policy_version": "dataset-exclusions-v1",
+  "exclusions": [],
+  "counts": {
+    "train": 1,
+    "validation": 0,
+    "test": 0
+  },
+  "outputs": [
+    {
+      "name": "completion_examples",
+      "path": "datasets/completion.parquet",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "rows": 1,
+      "bytes": 256
+    }
+  ],
+  "quality_report": {
+    "name": "quality_report",
+    "path": "reports/quality.json",
+    "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "rows": 1
+  },
+  "leakage_report": {
+    "name": "leakage_report",
+    "path": "reports/leakage.json",
+    "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+    "rows": 1
+  },
+  "random_seeds": [
+    1729
+  ],
+  "redistribution_status": "redistributable",
+  "dataset_content_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "manifest_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+}

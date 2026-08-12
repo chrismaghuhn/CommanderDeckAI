@@ -1,0 +1,8 @@
+{
+  "schema_version": "participant-reference.v1",
+  "reference_id": "event-001-participant-001",
+  "scope": "event",
+  "source_id": null,
+  "event_id": "event-001",
+  "source_snapshot_id": null
+}

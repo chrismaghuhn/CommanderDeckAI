@@ -1,0 +1,19 @@
+{
+  "schema_version": "combo-commander-compatibility.v1",
+  "combo_id": "combo:commander_spellbook:combo-001",
+  "commander_oracle_id": "33333333-3333-4333-8333-333333333333",
+  "compatible": true,
+  "raw_locator": "{\"raw_object_id\":\"variants-page-1\",\"location\":{\"kind\":\"json_pointer\",\"pointer\":\"/results/0\"}}",
+  "provenance": [
+    {
+      "source_id": "commander_spellbook",
+      "source_snapshot_id": "spellbook-2026-08-10",
+      "source_object_id": "variants-page-1",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T12:00:00Z",
+      "adapter_version": "spellbook-v1",
+      "mapper_version": "task12-v1",
+      "approval_status": "APPROVED_LOCAL"
+    }
+  ]
+}

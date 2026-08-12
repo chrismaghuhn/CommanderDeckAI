@@ -1,0 +1,212 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/card-face.v1.schema.json",
+  "title": "Card Face v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "face_id",
+    "oracle_id",
+    "face_index",
+    "name",
+    "normalized_name",
+    "layout",
+    "provenance"
+  ],
+  "properties": {
+    "schema_version": {
+      "const": "card-face.v1"
+    },
+    "face_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "oracle_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "face_index": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "normalized_name": {
+      "type": "string",
+      "minLength": 1
+    },
+    "layout": {
+      "type": "string",
+      "minLength": 1
+    },
+    "mana_value": {
+      "type": [
+        "number",
+        "null"
+      ],
+      "minimum": 0
+    },
+    "mana_cost": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "colors": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "W",
+          "U",
+          "B",
+          "R",
+          "G"
+        ]
+      },
+      "uniqueItems": true,
+      "maxItems": 5
+    },
+    "color_identity": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "W",
+          "U",
+          "B",
+          "R",
+          "G"
+        ]
+      },
+      "uniqueItems": true,
+      "maxItems": 5
+    },
+    "supertypes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "types": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "subtypes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "keywords": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      },
+      "uniqueItems": true
+    },
+    "oracle_text": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "power": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "toughness": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "loyalty": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/$defs/provenance_reference"
+      }
+    }
+  },
+  "$defs": {
+    "provenance_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "source_object_id",
+        "raw_sha256"
+      ],
+      "properties": {
+        "source_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_snapshot_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "source_object_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "raw_sha256": {
+          "type": "string",
+          "pattern": "^[a-f0-9]{64}$"
+        },
+        "retrieved_at": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "format": "date-time"
+        },
+        "adapter_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "mapper_version": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "minLength": 1
+        },
+        "approval_status": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "enum": [
+            "APPROVED_LOCAL",
+            "APPROVED_REDISTRIBUTION",
+            null
+          ]
+        }
+      }
+    }
+  }
+}

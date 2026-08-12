@@ -1,0 +1,30 @@
+{
+  "schema_version": "dataset-leakage-report.v1",
+  "dataset_id": "commander-completion-v2-fixture",
+  "dataset_kind": "deck_completion",
+  "dataset_content_sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+  "input_manifests": [
+    {
+      "kind": "normalized_snapshot_manifest",
+      "id": "fixture-normalized-2026-08-10",
+      "path": "examples/normalized-snapshot-manifest.v1.json",
+      "sha256": "ca5f3e104d6f9d5dc7a0cac0a8314bd12390819e62f276dc6e2986f55d60aa26"
+    }
+  ],
+  "policy": {
+    "split_policy": {
+      "strategy": "temporal_grouped"
+    },
+    "split_policy_version": "temporal-grouped-v1",
+    "near_duplicate_algorithm": "quantity_weighted_jaccard",
+    "near_duplicate_version": "near-duplicate-v1",
+    "near_duplicate_threshold": 0.92
+  },
+  "group_splits": {
+    "fingerprint:fixture-deck": ["train"]
+  },
+  "event_splits": {},
+  "cross_split_group_ids": [],
+  "cross_split_event_ids": [],
+  "status": "PASS"
+}

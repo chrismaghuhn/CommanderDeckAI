@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/tournament-corpus.v1.schema.json",
+  "title": "Tournament Corpus Row v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["curated_id", "values", "layer"],
+  "properties": {
+    "curated_id": {"type": "string", "minLength": 1},
+    "layer": {"const": "curated"},
+    "values": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "schema_version", "record_id", "split", "event_id", "canonical_deck_id",
+        "observed_at", "familiar_stratum", "group_ids", "payload"
+      ],
+      "properties": {
+        "schema_version": {"const": "tournament-corpus.v1"},
+        "record_id": {"type": "string", "minLength": 1},
+        "split": {"enum": ["train", "validation", "test"]},
+        "event_id": {"type": "string", "minLength": 1},
+        "canonical_deck_id": {"type": "string", "minLength": 1},
+        "observed_at": {"type": "string", "format": "date-time"},
+        "familiar_stratum": {"enum": ["familiar", "unseen"]},
+        "group_ids": {
+          "type": "array",
+          "items": {"type": "string", "minLength": 1},
+          "uniqueItems": true
+        },
+        "payload": {"type": "object", "additionalProperties": true}
+      }
+    }
+  }
+}

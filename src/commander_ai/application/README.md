@@ -1,6 +1,6 @@
 # Application
 
-Use Cases und Ports. Orchestriert Domainobjekte, besitzt aber keine konkrete Infrastruktur.
+Use Cases und Ports. Orchestriert Domainobjekte, besitzt aber keine konkrete Infrastruktur. Die Source-Policy prüft typisierte Registry-/Current-use-Entscheidungen; die Configuration-Port referenziert bereits aufgelöste Konfigurationen, ohne YAML, HTTP oder DuckDB zu importieren.
 
 ## Unterteilung
 
