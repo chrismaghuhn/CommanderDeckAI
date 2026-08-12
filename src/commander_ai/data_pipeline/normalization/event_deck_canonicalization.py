@@ -154,21 +154,22 @@ def canonicalize_event_deck(
         )
 
     reference = source_manifest_object(record, source_manifest)
-    source_deck_id = _source_deck_id(
-        deck_values,
-        record,
-        allow_generic_id=deck_values is not values,
-        allow_deck_name=deck_values is not values,
-    )
-    source = DeckSourceReference(
-        source_id=record.source_id,
-        source_deck_id=source_deck_id,
-        source_snapshot_id=record.raw_locator.source_snapshot_id,
-        raw_object_id=record.raw_locator.raw_object_id,
-        raw_sha256=reference.sha256,
-        observed_at=observed_at,
-    )
     try:
+        source_deck_id = _source_deck_id(
+            deck_values,
+            record,
+            allow_generic_id=deck_values is not values,
+            allow_deck_name=deck_values is not values,
+            outer_values=values if deck_values is not values else None,
+        )
+        source = DeckSourceReference(
+            source_id=record.source_id,
+            source_deck_id=source_deck_id,
+            source_snapshot_id=record.raw_locator.source_snapshot_id,
+            raw_object_id=record.raw_locator.raw_object_id,
+            raw_sha256=reference.sha256,
+            observed_at=observed_at,
+        )
         deck = canonical_deck_from_input(
             DeckStructureInput(
                 source=source,
@@ -240,18 +241,9 @@ def _deck_values(values: Mapping[str, object]) -> Mapping[str, object]:
     if not isinstance(nested, Mapping):
         return values
     merged = dict(nested)
-    for key in (
-        *_COMMANDER_KEYS,
-        "partner",
-        "background",
-        "decklist",
-        "deckList",
-        *_DECK_ID_KEYS,
-    ):
+    for key in (*_COMMANDER_KEYS, "partner", "background", "decklist", "deckList"):
         if key in values:
             value = values[key]
-            if key in _DECK_ID_KEYS and _identifier_text(value) is None:
-                continue
             merged[key] = value
     return merged
 
@@ -303,17 +295,30 @@ def _source_deck_id(
     *,
     allow_generic_id: bool = False,
     allow_deck_name: bool = False,
+    outer_values: Mapping[str, object] | None = None,
 ) -> str:
-    keys: tuple[str, ...] = _DECK_ID_KEYS
+    candidates: list[str] = []
+
+    def collect(source: Mapping[str, object], keys: tuple[str, ...]) -> None:
+        for key in keys:
+            value = _identifier_text(source.get(key))
+            if value is not None:
+                candidates.append(value)
+
+    collect(values, _DECK_ID_KEYS)
+    if outer_values is not None:
+        collect(outer_values, _DECK_ID_KEYS)
     if allow_generic_id:
-        keys += ("id",)
+        collect(values, ("id",))
     if allow_deck_name:
-        keys += ("name",)
-    for key in keys:
-        value = _identifier_text(values.get(key))
-        if value is not None:
-            return value
-    return record.staging_record_id
+        collect(values, ("name",))
+    unique_candidates = tuple(dict.fromkeys(candidates))
+    if len(unique_candidates) > 1:
+        raise DeckCanonicalizationError(
+            "quality.source_deck_identity_ambiguous",
+            "source deck identity aliases disagree",
+        )
+    return unique_candidates[0] if unique_candidates else record.staging_record_id
 
 
 def _identifier_text(value: object) -> str | None:
