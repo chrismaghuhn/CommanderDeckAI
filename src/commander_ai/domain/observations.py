@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal
 
-from pydantic import AwareDatetime, Field, model_validator
+from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
 from .provenance import DomainModel, ProvenanceReference
 
@@ -79,7 +79,7 @@ class PodEntry(DomainModel):
     seat: int = Field(ge=1)
     canonical_deck_id: str = Field(pattern=r"^[a-f0-9]{64}$")
     result: Literal["win", "loss", "draw", "bye", "unknown"]
-    points: float | None = None
+    points: FiniteFloat | None = None
     placement: int | None = Field(default=None, ge=1)
     participant_reference: ParticipantReference | None = None
     provenance: tuple[ProvenanceReference, ...] = Field(min_length=1)

@@ -352,6 +352,19 @@ def test_persisted_number_fields_reject_non_finite_values() -> None:
             metrics={"win_rate": math.nan},
         )
 
+    for value in (math.nan, math.inf, -math.inf):
+        with pytest.raises(ValidationError):
+            PodEntry(
+                pod_id="pod-non-finite-points",
+                event_id="event-1",
+                round_number=1,
+                seat=1,
+                canonical_deck_id="d" * 64,
+                result="win",
+                points=value,
+                provenance=(provenance("fixture", "pod-non-finite-points"),),
+            )
+
 
 @pytest.mark.parametrize(
     "field_name",

@@ -270,6 +270,7 @@ def test_pod_successor_contract_serializes_to_versioned_schema() -> None:
                     seat=index,
                     canonical_deck_id=f"{index:x}" * 64,
                     result="win" if index == 1 else "loss",
+                    points=2.5 if index == 1 else 0.0,
                 )
                 for index in range(1, 5)
             ),
@@ -282,6 +283,7 @@ def test_pod_successor_contract_serializes_to_versioned_schema() -> None:
         result.pod.as_dict()
     )
     assert not list(errors)
+    json.dumps(result.pod.as_dict(), allow_nan=False)
 
 
 def test_participant_reference_contract_serializes_to_existing_schema() -> None:
