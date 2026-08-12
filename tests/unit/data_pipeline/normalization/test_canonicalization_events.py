@@ -267,6 +267,26 @@ def test_conflicting_outer_and_nested_deck_ids_are_rejected() -> None:
         )
 
 
+def test_nested_machine_id_takes_priority_over_nested_deck_name() -> None:
+    from commander_ai.data_pipeline.normalization.event_deck_canonicalization import (
+        _deck_values,
+        _source_deck_id,
+    )
+
+    record = _record("standing", {}, "/standing")
+    values = {"deckObj": {"id": "deck-42", "name": "My Deck"}}
+
+    assert (
+        _source_deck_id(
+            _deck_values(values),
+            record,
+            allow_generic_id=True,
+            allow_deck_name=True,
+        )
+        == "deck-42"
+    )
+
+
 def test_source_opaque_participant_ids_require_an_explicit_identity_policy() -> None:
     event = _record(
         "event",

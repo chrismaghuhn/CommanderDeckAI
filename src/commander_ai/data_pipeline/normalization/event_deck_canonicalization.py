@@ -297,28 +297,34 @@ def _source_deck_id(
     allow_deck_name: bool = False,
     outer_values: Mapping[str, object] | None = None,
 ) -> str:
-    candidates: list[str] = []
+    explicit_candidates: list[str] = []
 
     def collect(source: Mapping[str, object], keys: tuple[str, ...]) -> None:
         for key in keys:
             value = _identifier_text(source.get(key))
             if value is not None:
-                candidates.append(value)
+                explicit_candidates.append(value)
 
     collect(values, _DECK_ID_KEYS)
     if outer_values is not None:
         collect(outer_values, _DECK_ID_KEYS)
-    if allow_generic_id:
-        collect(values, ("id",))
-    if allow_deck_name:
-        collect(values, ("name",))
-    unique_candidates = tuple(dict.fromkeys(candidates))
-    if len(unique_candidates) > 1:
+    unique_explicit = tuple(dict.fromkeys(explicit_candidates))
+    if len(unique_explicit) > 1:
         raise DeckCanonicalizationError(
             "quality.source_deck_identity_ambiguous",
             "source deck identity aliases disagree",
         )
-    return unique_candidates[0] if unique_candidates else record.staging_record_id
+    if unique_explicit:
+        return unique_explicit[0]
+    if allow_generic_id:
+        generic_id = _identifier_text(values.get("id"))
+        if generic_id is not None:
+            return generic_id
+    if allow_deck_name:
+        deck_name = _identifier_text(values.get("name"))
+        if deck_name is not None:
+            return deck_name
+    return record.staging_record_id
 
 
 def _identifier_text(value: object) -> str | None:
