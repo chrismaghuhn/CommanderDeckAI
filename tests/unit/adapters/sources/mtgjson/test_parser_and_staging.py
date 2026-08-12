@@ -327,9 +327,7 @@ def test_malformed_json_object_keys_are_retained_through_staging_audit_and_parqu
         + b'":"retained"}'
     )
     member = (
-        b'{"meta":{},"data":{"BAD":{"code":"BAD","name":"Malformed Set","cards":['
-        + card
-        + b"]}}}"
+        b'{"meta":{},"data":{"BAD":{"code":"BAD","name":"Malformed Set","cards":[' + card + b"]}}}"
     )
     verified = _verified_snapshot(tmp_path, _zip_members({"AllPrintings.json": member}))
 
@@ -346,9 +344,7 @@ def test_malformed_json_object_keys_are_retained_through_staging_audit_and_parqu
     object_envelope = card_record.source_values
     assert object_envelope["encoding"] == "json_object_entries"
     malformed_entry = next(
-        entry
-        for entry in object_envelope["entries"]
-        if entry["key"].get("role") == "object_key"
+        entry for entry in object_envelope["entries"] if entry["key"].get("role") == "object_key"
     )
     key_envelope = malformed_entry["key"]
     assert key_envelope["scalar_type"] == "invalid_unicode_scalar"
@@ -430,8 +426,7 @@ def test_malformed_record_identity_uses_a_reconstructable_entry_locator(
         )
     else:
         value = (
-            b'{"code":"BAD","name":"Malformed Deck","mainBoard":[],'
-            b'"sideBoard":[],"type":"precon"}'
+            b'{"code":"BAD","name":"Malformed Deck","mainBoard":[],"sideBoard":[],"type":"precon"}'
         )
     member = b'{"meta":{},"data":{"' + malformed_key + b'":' + value + b"}}"
     archive = _zip_members({member_name: member})
@@ -487,10 +482,14 @@ def test_malformed_record_identity_uses_a_reconstructable_entry_locator(
     assert entry["key"]["role"] == "object_key"
     assert entry["key"]["data"] == location.key_base64
     assert entry["value"]["code"] == "BAD"
-    assert source_values["sha256"] == hashlib.sha256(
-        json.dumps({"entries": source_values["entries"]}, sort_keys=True, separators=(",", ":"))
-        .encode("utf-8")
-    ).hexdigest()
+    assert (
+        source_values["sha256"]
+        == hashlib.sha256(
+            json.dumps(
+                {"entries": source_values["entries"]}, sort_keys=True, separators=(",", ":")
+            ).encode("utf-8")
+        ).hexdigest()
+    )
 
     staging = MTGJSONStagingMapper().map_records((record,))
     row = staging[0]

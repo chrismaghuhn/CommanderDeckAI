@@ -44,8 +44,7 @@ def sanitize_json_scalars(value: object) -> object:
         return _sanitize_text(value)
     if isinstance(value, Mapping):
         return {
-            _sanitize_mapping_key(key): sanitize_json_scalars(item)
-            for key, item in value.items()
+            _sanitize_mapping_key(key): sanitize_json_scalars(item) for key, item in value.items()
         }
     if isinstance(value, (list, tuple)):
         return [sanitize_json_scalars(item) for item in value]

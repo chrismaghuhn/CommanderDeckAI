@@ -156,9 +156,7 @@ class MTGJSONParser:
             raw_object_path=reference.path,
             archive_member=archive_member,
             location=(
-                JsonPointerLocator(pointer=location)
-                if isinstance(location, str)
-                else location
+                JsonPointerLocator(pointer=location) if isinstance(location, str) else location
             ),
         )
 

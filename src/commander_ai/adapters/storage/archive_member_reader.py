@@ -33,9 +33,7 @@ def read_archive_member(
     archive_path = Path(path).expanduser()
     try:
         if zipfile.is_zipfile(archive_path):
-            with zipfile.ZipFile(archive_path) as archive, archive.open(
-                member_name, "r"
-            ) as stream:
+            with zipfile.ZipFile(archive_path) as archive, archive.open(member_name, "r") as stream:
                 return _read_bounded(stream, selected_limits, chunk_bytes)
         with tarfile.open(archive_path, mode="r:*") as tar_archive:
             tar_member = tar_archive.getmember(member_name)
