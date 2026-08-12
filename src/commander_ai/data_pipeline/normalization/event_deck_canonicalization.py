@@ -33,6 +33,7 @@ from .canonicalization_support import (
 
 _DECKLIST_LINE = re.compile(r"^\s*(?P<quantity>[1-9][0-9]*)\s+(?P<name>\S.+?)\s*$")
 _COMMANDER_KEYS = ("commander", "commanders")
+_DECK_ID_KEYS = ("deck_id", "deckId", "decklist_id", "decklistId")
 
 
 @dataclass(frozen=True, slots=True)
@@ -244,14 +245,15 @@ def _deck_values(values: Mapping[str, object]) -> Mapping[str, object]:
         "background",
         "decklist",
         "deckList",
-        "deck_id",
-        "deckId",
-        "decklist_id",
-        "decklistId",
-        "name",
+        *_DECK_ID_KEYS,
     ):
         if key in values:
-            merged[key] = values[key]
+            value = values[key]
+            if key in _DECK_ID_KEYS and (
+                not isinstance(value, (str, int)) or not str(value).strip()
+            ):
+                continue
+            merged[key] = value
     return merged
 
 
@@ -299,9 +301,10 @@ def _parse_text_decklist(value: str) -> tuple[tuple[Mapping[str, object], ...], 
 def _source_deck_id(
     values: Mapping[str, object], record: StagingRecord, *, allow_generic_id: bool = False
 ) -> str:
-    keys: tuple[str, ...] = ("deck_id", "deckId", "decklist_id", "decklistId", "name")
+    keys: tuple[str, ...] = _DECK_ID_KEYS
     if allow_generic_id:
         keys += ("id",)
+    keys += ("name",)
     for key in keys:
         value = values.get(key)
         if isinstance(value, (str, int)) and str(value).strip():

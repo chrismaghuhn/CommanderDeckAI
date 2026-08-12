@@ -221,7 +221,7 @@ class CardCooccurrenceV2Values(DomainModel):
             self.left_id.lower() not in card_ids or self.right_id.lower() not in card_ids
         ):
             raise ValueError("card-card relation must reference cards in card zones")
-        if self.relation_type == "card_card" and self.left_id == self.right_id:
+        if self.relation_type == "card_card" and self.left_id.lower() == self.right_id.lower():
             raise ValueError("card-card relations must contain two distinct cards")
         return self
 

@@ -212,6 +212,20 @@ def test_nested_deck_object_id_is_used_but_top_level_standing_id_is_not() -> Non
     assert _source_deck_id(nested_values, record, allow_generic_id=True) == "deck-42"
 
 
+def test_empty_outer_deck_id_does_not_shadow_nested_identity() -> None:
+    from commander_ai.data_pipeline.normalization.event_deck_canonicalization import (
+        _deck_values,
+        _source_deck_id,
+    )
+
+    record = _record("standing", {"deck_id": None}, "/standing")
+    values = {"deck_id": None, "name": "standing-name", "deckObj": {"id": "deck-42"}}
+
+    nested_values = _deck_values(values)
+
+    assert _source_deck_id(nested_values, record, allow_generic_id=True) == "deck-42"
+
+
 def test_source_opaque_participant_ids_require_an_explicit_identity_policy() -> None:
     event = _record(
         "event",
