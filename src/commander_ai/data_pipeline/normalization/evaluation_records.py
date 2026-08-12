@@ -34,6 +34,7 @@ def build_deck_evaluation_records(
     deck: CanonicalDeck,
     *,
     source_record: StagingRecord,
+    source_deck_id: str,
     source_manifest: SourceSnapshotManifest,
     card_facts: Mapping[str, CanonicalCard],
     resolutions: Sequence[CardResolution],
@@ -67,14 +68,14 @@ def build_deck_evaluation_records(
         (
             canonical_record_from_domain(
                 legality,
-                source_record_id=source_record.staging_record_id,
+                source_record_id=source_deck_id,
                 raw_locator=source_record.raw_locator,
                 provenance=provenance,
                 observed_at=evaluation_at,
             ),
             canonical_record_from_domain(
                 quality,
-                source_record_id=source_record.staging_record_id,
+                source_record_id=source_deck_id,
                 raw_locator=source_record.raw_locator,
                 provenance=provenance,
                 observed_at=evaluation_at,

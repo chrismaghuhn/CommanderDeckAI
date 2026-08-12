@@ -272,9 +272,10 @@ def _canonicalize_deck(
             )
         )
     object_reference = source_manifest_object(record, source_manifest)
+    deck_source_id = source_deck_id(values, record)
     source = DeckSourceReference(
         source_id=record.source_id,
-        source_deck_id=source_deck_id(values, record),
+        source_deck_id=deck_source_id,
         source_snapshot_id=record.raw_locator.source_snapshot_id,
         raw_object_id=record.raw_locator.raw_object_id,
         raw_sha256=object_reference.sha256,
@@ -297,7 +298,7 @@ def _canonicalize_deck(
         return canonicalization_result((), resolutions, attempts, (), (), quarantines, findings)
     canonical = canonical_record_from_domain(
         deck,
-        source_record_id=record.staging_record_id,
+        source_record_id=deck_source_id,
         raw_locator=record.raw_locator,
         provenance=provenance_for(record, source_manifest, "mtgjson-deck-mapper-v1"),
         observed_at=observed_at(record, source_manifest),
@@ -305,6 +306,7 @@ def _canonicalize_deck(
     evaluation_records, evaluation_findings = build_deck_evaluation_records(
         deck,
         source_record=record,
+        source_deck_id=deck_source_id,
         source_manifest=source_manifest,
         card_facts=card_facts,
         resolutions=resolutions,
