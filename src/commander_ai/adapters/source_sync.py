@@ -77,7 +77,12 @@ class ConfiguredSourceSync:
             self._runtime.data_root,
             max_object_bytes=entry.settings.max_download_bytes,
         )
-        result = self._download(entry.source_id, entry.settings, policy, store)
+        started_at = datetime.now(UTC)
+        try:
+            result = self._download(entry.source_id, entry.settings, policy, store)
+        except Exception as error:
+            self._write_failed_run_manifest(entry, started_at, error)
+            raise
         manifest_path = self._runtime.portable_data_path(result.snapshot_commit.manifest_path)
         self._write_run_manifest(entry, result)
         return SourceSyncResult(
@@ -108,13 +113,7 @@ class ConfiguredSourceSync:
             f"runs/{run_id}/source-snapshot-manifest.json",
             raw_manifest_bytes,
         )
-        config_snapshot = {
-            "source": serialize_config(entry.settings),
-            "historical_approval": serialize_config(entry.historical_approval),
-            "current_use": (
-                None if entry.current_use is None else serialize_config(entry.current_use)
-            ),
-        }
+        config_snapshot = self._configuration_snapshot(entry)
         status: Literal["succeeded", "failed"] = (
             "succeeded" if result.manifest.status == "COMPLETE" else "failed"
         )
@@ -150,6 +149,51 @@ class ConfiguredSourceSync:
             manifest_path=f"runs/{run_id}/manifest.json",
             configuration_snapshot=config_snapshot,
         )
+
+    def _write_failed_run_manifest(
+        self,
+        entry: SourceRegistryEntry,
+        started_at: datetime,
+        error: BaseException,
+    ) -> None:
+        run_id = f"source-sync-{entry.source_id}-failed-{started_at:%Y%m%dT%H%M%S%fZ}"
+        operation = operation_context(self._runtime.artifact_root, run_id)
+        config_snapshot = self._configuration_snapshot(entry)
+        run = build_run_manifest(
+            run_id=run_id,
+            run_kind="source_sync",
+            stage="data",
+            status="failed",
+            git_commit=operation.git_commit,
+            git_dirty=operation.git_dirty,
+            git_worktree_sha256=operation.git_worktree_sha256,
+            dependency_lock_hash=operation.dependency_lock_hash,
+            configuration_path=f"configs/source-sync/{entry.source_id}/{run_id}.json",
+            configuration_snapshot=config_snapshot,
+            schema_versions=("run-manifest.v1",),
+            policy_versions=("source-approval-gate-v1",),
+            artifacts=operation.artifacts,
+            determinism="EXTERNAL",
+            created_at=started_at,
+            started_at=started_at,
+            finished_at=datetime.now(UTC),
+            warnings=(_safe_failure_code(error),),
+        )
+        ManifestFileWriter(self._runtime.artifact_root).write_run_manifest(
+            run,
+            manifest_path=f"runs/{run_id}/manifest.json",
+            configuration_snapshot=config_snapshot,
+        )
+
+    @staticmethod
+    def _configuration_snapshot(entry: SourceRegistryEntry) -> dict[str, object]:
+        return {
+            "source": serialize_config(entry.settings),
+            "historical_approval": serialize_config(entry.historical_approval),
+            "current_use": (
+                None if entry.current_use is None else serialize_config(entry.current_use)
+            ),
+        }
 
     @staticmethod
     def _download(
@@ -215,6 +259,20 @@ class ConfiguredSourceSync:
             return downloader.download()
         finally:
             downloader.client.close()
+
+
+def _safe_failure_code(error: BaseException) -> str:
+    candidate = getattr(error, "code", None)
+    if (
+        isinstance(candidate, str)
+        and candidate
+        and all(
+            character.isascii() and (character.isupper() or character.isdigit() or character == "_")
+            for character in candidate
+        )
+    ):
+        return candidate
+    return "ACQ_SOURCE_SYNC_FAILED"
 
 
 __all__ = ["ConfiguredSourceSync"]

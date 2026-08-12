@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import UTC, datetime
 
 import pytest
 from typer.testing import CliRunner
@@ -29,6 +30,12 @@ from commander_ai.application.use_cases import (
 from commander_ai.cli.composition import CliServices, build_default_services
 from commander_ai.cli.main import app
 from commander_ai.config import RuntimeConfig
+from commander_ai.config.source_registry import (
+    HistoricalApprovalMetadata,
+    SourceRegistry,
+    SourceRegistryEntry,
+)
+from commander_ai.config.source_settings import SourceApprovalStatus, SourceSettings
 
 
 class SourceCatalog:
@@ -125,6 +132,56 @@ def test_plain_source_settings_cannot_bypass_registry_gate() -> None:
         ConfiguredSourceSync(runtime).sync_source("topdeck", "configs/sources/topdeck.yaml")
 
     assert error.value.code == "POLICY_SOURCE_REGISTRY_REQUIRED"
+
+
+def test_failed_source_sync_persists_a_failed_run_manifest(tmp_path, monkeypatch) -> None:
+    runtime = RuntimeConfig(data_root=tmp_path / "data", artifact_root=tmp_path / "artifacts")
+    settings = SourceSettings(
+        source_id="example",
+        approval_status=SourceApprovalStatus.APPROVED_LOCAL,
+        review_path="docs/03-data/source-reviews/example.md",
+        endpoints=("https://example.invalid/api",),
+        host_allowlist=("example.invalid",),
+    )
+    historical = HistoricalApprovalMetadata(
+        source_id="example",
+        approval_status=SourceApprovalStatus.APPROVED_LOCAL,
+        review_path="docs/03-data/source-reviews/example.md",
+        reviewed_at=datetime.now(UTC),
+        effective_at=datetime.now(UTC),
+        reason="fixture approval",
+    )
+    registry = SourceRegistry(
+        entries=(
+            SourceRegistryEntry(
+                source_id="example",
+                settings=settings,
+                historical_approval=historical,
+            ),
+        )
+    )
+
+    class DownloadFailure(RuntimeError):
+        code = "ACQ_FIXTURE_FAILED"
+
+    def fail_download(*args, **kwargs):
+        raise DownloadFailure("https://user:secret@example.invalid")
+
+    monkeypatch.setattr(
+        "commander_ai.adapters.source_sync.load_config",
+        lambda *_args, **_kwargs: registry,
+    )
+    monkeypatch.setattr(ConfiguredSourceSync, "_download", staticmethod(fail_download))
+
+    with pytest.raises(DownloadFailure):
+        ConfiguredSourceSync(runtime).sync_source("example", "configs/example.yaml")
+
+    manifests = list((runtime.artifact_root / "runs").glob("*/manifest.json"))
+    assert len(manifests) == 1
+    payload = json.loads(manifests[0].read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"
+    assert payload["warnings"] == ["ACQ_FIXTURE_FAILED"]
+    assert "secret" not in manifests[0].read_text(encoding="utf-8")
 
 
 def test_default_cli_services_inject_authoritative_ruleset_provider(tmp_path) -> None:
