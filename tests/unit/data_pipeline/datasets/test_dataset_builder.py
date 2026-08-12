@@ -671,8 +671,8 @@ def test_dataset_inspection_rejects_cross_split_group_even_after_rehashing(
     second_values = dict(second["values"])
     first["curated_id"] = "fixture-dataset:record-train"
     second["curated_id"] = "fixture-dataset:record-test"
-    first_values.update(record_id="record-train", split="train", group_ids=["tampered-group"])
-    second_values.update(record_id="record-test", split="test", group_ids=["tampered-group"])
+    first_values.update(record_id="record-train", split="train", group_ids=["tampered-train"])
+    second_values.update(record_id="record-test", split="test", group_ids=["tampered-test"])
     first["values"] = first_values
     second["values"] = second_values
     tampered_rows = [DeckCorpusRow.model_validate(first), DeckCorpusRow.model_validate(second)]
