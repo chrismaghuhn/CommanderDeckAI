@@ -247,6 +247,10 @@ def _row_payload(
         return value
     if contract is CardResolution:
         return value
+    if contract is ProvenanceRow:
+        if layer != "audit" or value.get("layer") not in {"normalized", "audit"}:
+            raise ValueError(f"{layer} rows must carry the validated layer metadata")
+        return value
     declared_layer = value.get("layer")
     expected_layers = {"staging", "normalized"} if layer == "normalized" else {layer}
     if declared_layer not in expected_layers:

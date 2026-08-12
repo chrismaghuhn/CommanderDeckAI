@@ -221,6 +221,34 @@ def test_provenance_rows_bind_raw_hash_to_verified_object(tmp_path: Path) -> Non
         )
 
 
+def test_normalized_provenance_rows_can_be_stored_in_audit_table(tmp_path: Path) -> None:
+    verified = verified_snapshot(tmp_path)
+    raw = verified.manifest.objects[0]
+    locator = staging_record().raw_locator
+    provenance = ProvenanceRow(
+        provenance_id="provenance-normalized-1",
+        entity_id="entity-1",
+        source_id="fixture",
+        source_snapshot_id="snapshot-1",
+        raw_object_id="object-1",
+        raw_object_path=raw.path,
+        raw_sha256=raw.sha256,
+        raw_locator=locator,
+        adapter_version="fixture-v1",
+        layer="normalized",
+    )
+
+    artifact = ParquetTableWriter(tmp_path).write_table(
+        "provenance",
+        [provenance],
+        layer="audit",
+        row_contract=ProvenanceRow,
+        verified_snapshot=verified,
+    )
+
+    assert artifact.rows == 1
+
+
 def test_parquet_persistence_requires_an_explicit_layer_contract(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="layer"):
         ParquetTableWriter(tmp_path).write_table("audit", [])
