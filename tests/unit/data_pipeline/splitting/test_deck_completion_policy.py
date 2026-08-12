@@ -78,6 +78,8 @@ def _record(
     resolved: bool = True,
     legal_status: str = "legal",
     quality_status: str = "accepted",
+    legality_evaluation_record_id: str | None = "auto",
+    quality_evaluation_record_id: str | None = "auto",
 ) -> DeckCompletionRecord:
     return DeckCompletionRecord(
         record_id=record_id,
@@ -88,6 +90,16 @@ def _record(
         resolution_complete=resolved,
         legal_status=legal_status,
         quality_status=quality_status,
+        legality_evaluation_record_id=(
+            f"legality-{record_id}"
+            if legality_evaluation_record_id == "auto"
+            else legality_evaluation_record_id
+        ),
+        quality_evaluation_record_id=(
+            f"quality-{record_id}"
+            if quality_evaluation_record_id == "auto"
+            else quality_evaluation_record_id
+        ),
     )
 
 
@@ -155,7 +167,32 @@ def test_completion_record_defaults_fail_closed_without_evaluations() -> None:
         _policy(legal_decks_only=True, group_revisions=False, group_near_duplicates=False),
     )
     assert result.assignments == ()
-    assert result.exclusions[0].code == "legality.deck_not_eligible"
+    assert result.exclusions[0].code == "legality.evaluation_missing"
+
+
+def test_status_strings_without_evaluation_bindings_are_excluded() -> None:
+    observed = datetime(2024, 1, 1, tzinfo=UTC)
+    missing_legality = _record(
+        "missing-legality",
+        _occurrence("missing-legality", "s1", observed),
+        legality_evaluation_record_id=None,
+    )
+    missing_quality = _record(
+        "missing-quality",
+        _occurrence("missing-quality", "s1", observed),
+        quality_evaluation_record_id=None,
+    )
+
+    result = build_deck_completion_splits(
+        (missing_legality, missing_quality),
+        _policy(legal_decks_only=True, group_revisions=False, group_near_duplicates=False),
+    )
+
+    assert result.assignments == ()
+    assert {(item.record_id, item.code) for item in result.exclusions} == {
+        ("missing-legality", "legality.evaluation_missing"),
+        ("missing-quality", "quality.evaluation_missing"),
+    }
 
 
 def test_revision_group_promotes_all_source_revisions_forward() -> None:

@@ -17,6 +17,7 @@ if TYPE_CHECKING:
 from .participants import ParticipantInput, ParticipantResolution, resolve_participant
 
 PodStatus = Literal["complete", "incomplete", "cancelled", "unknown"]
+_COMPLETE_RESULTS = frozenset({"win", "loss", "draw"})
 
 
 @dataclass(frozen=True, slots=True)
@@ -133,7 +134,11 @@ def index_complete_pods(
     complete_groups = {
         key: entries
         for key, entries in grouped.items()
-        if len(entries) >= 2 and len({entry.seat for entry in entries}) == len(entries)
+        if (
+            len(entries) >= 2
+            and len({entry.seat for entry in entries}) == len(entries)
+            and all(entry.result in _COMPLETE_RESULTS for entry in entries)
+        )
     }
     return PodCompletenessIndex(
         complete_pod_ids=tuple(sorted({key[0] for key in complete_groups})),

@@ -351,6 +351,8 @@ def _record(record_id: str = "record-1"):
         resolution_complete=True,
         legal_status="legal",
         quality_status="accepted",
+        legality_evaluation_record_id="legality-record-1",
+        quality_evaluation_record_id="quality-record-1",
     )
 
 
@@ -837,6 +839,8 @@ def test_card_cooccurrence_projection_emits_commander_and_card_relations(tmp_pat
                 payload={},
                 legal_status="legal",
                 quality_status="accepted",
+                legality_evaluation_record_id="legality-deck-1",
+                quality_evaluation_record_id="quality-deck-1",
             )
         ],
     )

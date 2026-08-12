@@ -220,6 +220,23 @@ def test_topdeck_frozen_table_players_produce_one_four_player_pod() -> None:
     )
 
 
+@pytest.mark.parametrize("pod_result", ["unknown", "bye"])
+def test_topdeck_non_outcome_results_do_not_mark_pod_complete(pod_result: str) -> None:
+    players = _four_topdeck_players()
+    for player in players:
+        player["result"] = pod_result
+    event, round_record, table = _topdeck_table_records(players)
+
+    result = canonicalize_event_sources(
+        [event, round_record, table],
+        source_manifest=_manifest().model_copy(update={"source_id": "topdeck"}),
+    )
+
+    assert len(result.records) == 4
+    assert result.pod_index.complete_pod_ids == ()
+    assert result.pod_index.complete_event_deck_keys == ()
+
+
 @pytest.mark.parametrize(
     ("table_values", "players", "finding"),
     [

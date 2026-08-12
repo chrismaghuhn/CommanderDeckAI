@@ -45,6 +45,8 @@ class DeckCompletionRecord:
     resolution_complete: bool = True
     legal_status: str = "unknown"
     quality_status: str = "unknown"
+    legality_evaluation_record_id: str | None = None
+    quality_evaluation_record_id: str | None = None
     mode: str | None = None
 
     def __post_init__(self) -> None:
@@ -193,8 +195,13 @@ def _exclusion_code(record: DeckCompletionRecord, policy: DeckCompletionPolicy) 
         return "quality.decklist_incomplete"
     if policy.require_resolution and not record.resolution_complete:
         return "resolution.card_unresolved"
-    if policy.legal_decks_only and record.legal_status != "legal":
-        return "legality.deck_not_eligible"
+    if policy.legal_decks_only:
+        if record.legality_evaluation_record_id is None:
+            return "legality.evaluation_missing"
+        if record.legal_status != "legal":
+            return "legality.deck_not_eligible"
+    if record.quality_evaluation_record_id is None:
+        return "quality.evaluation_missing"
     if record.quality_status not in policy.accepted_quality_statuses:
         return "quality.deck_not_eligible"
     return None

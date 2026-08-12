@@ -92,6 +92,19 @@ def test_dataset_records_join_evaluations_and_missing_legality_is_unknown() -> N
     assert len(records) == 1
     assert records[0].legal_status == "legal"
     assert records[0].quality_status == "accepted"
+    assert records[0].legality_evaluation_record_id == legality["record_id"]
+    assert records[0].quality_evaluation_record_id == quality["record_id"]
+    complete_split = build_deck_completion_splits(
+        tuple(records),
+        DeckCompletionPolicy(
+            cutoffs=TemporalCutoffs(
+                train_until=datetime(2025, 1, 1, tzinfo=UTC),
+                validation_until=datetime(2026, 1, 1, tzinfo=UTC),
+            ),
+            legal_decks_only=True,
+        ),
+    )
+    assert [item.record_id for item in complete_split.eligible_records] == [records[0].record_id]
 
     missing = _dataset_records(
         "deck_completion",
@@ -101,6 +114,8 @@ def test_dataset_records_join_evaluations_and_missing_legality_is_unknown() -> N
     )[0]
     assert missing.legal_status == "unknown"
     assert missing.quality_status == "unknown"
+    assert missing.legality_evaluation_record_id is None
+    assert missing.quality_evaluation_record_id is None
     missing_legality = _dataset_records(
         "deck_completion",
         [deck, quality],
@@ -120,7 +135,7 @@ def test_dataset_records_join_evaluations_and_missing_legality_is_unknown() -> N
         ),
     )
     assert split.assignments == ()
-    assert split.exclusions[0].code == "legality.deck_not_eligible"
+    assert split.exclusions[0].code == "legality.evaluation_missing"
 
 
 def test_report_metrics_read_legality_and_quality_evaluations() -> None:

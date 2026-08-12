@@ -23,6 +23,8 @@ class DeckEvaluationIndex:
 
     legality: Mapping[tuple[str, str], DeckLegalityEvaluation]
     quality: Mapping[tuple[str, str], DeckQualityEvaluation]
+    legality_record_ids: Mapping[tuple[str, str], str]
+    quality_record_ids: Mapping[tuple[str, str], str]
 
 
 def build_deck_evaluation_records(
@@ -79,18 +81,31 @@ def index_deck_evaluations(records: Sequence[CanonicalRecord]) -> DeckEvaluation
 
     legality: dict[tuple[str, str], DeckLegalityEvaluation] = {}
     quality: dict[tuple[str, str], DeckQualityEvaluation] = {}
+    legality_record_ids: dict[tuple[str, str], str] = {}
+    quality_record_ids: dict[tuple[str, str], str] = {}
     for record in records:
         if record.record_type == "deck_legality_evaluation":
             legality_evaluation = DeckLegalityEvaluation.model_validate(record.payload)
             legality[(record.source_record_id, legality_evaluation.canonical_deck_id)] = (
                 legality_evaluation
             )
+            legality_record_ids[
+                (record.source_record_id, legality_evaluation.canonical_deck_id)
+            ] = record.record_id
         elif record.record_type == "deck_quality_evaluation":
             quality_evaluation = DeckQualityEvaluation.model_validate(record.payload)
             quality[(record.source_record_id, quality_evaluation.canonical_deck_id)] = (
                 quality_evaluation
             )
-    return DeckEvaluationIndex(legality=legality, quality=quality)
+            quality_record_ids[(record.source_record_id, quality_evaluation.canonical_deck_id)] = (
+                record.record_id
+            )
+    return DeckEvaluationIndex(
+        legality=legality,
+        quality=quality,
+        legality_record_ids=legality_record_ids,
+        quality_record_ids=quality_record_ids,
+    )
 
 
 __all__ = ["DeckEvaluationIndex", "build_deck_evaluation_records", "index_deck_evaluations"]

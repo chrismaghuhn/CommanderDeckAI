@@ -14,6 +14,8 @@ deduplication:
 splits:
   strategy: temporal_event_grouped
   version: temporal-event-grouped-v1
+  train_until: "2025-01-01T00:00:00Z"
+  validation_until: "2026-01-01T00:00:00Z"
   group_key: event_id
 privacy:
   player_identifiers: pseudonymize_for_audit

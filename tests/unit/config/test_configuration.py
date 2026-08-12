@@ -698,6 +698,8 @@ def test_checked_in_source_and_dataset_configs_are_explicit_and_offline_loadable
     for filename in ("completion-v1.yaml", "cedh-outcome-v1.yaml"):
         dataset = load_dataset_settings(project_root / "configs" / "datasets" / filename)
         assert dataset.split_policy.version
+        assert dataset.split_policy.train_until == datetime(2025, 1, 1, tzinfo=UTC)
+        assert dataset.split_policy.validation_until == datetime(2026, 1, 1, tzinfo=UTC)
         assert dataset.near_duplicate_policy.algorithm
         assert dataset.near_duplicate_policy.version
         assert 0 <= dataset.near_duplicate_policy.threshold <= 1

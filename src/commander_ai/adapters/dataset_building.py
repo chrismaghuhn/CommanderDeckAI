@@ -310,6 +310,7 @@ def _dataset_records(
             evaluation_key = (canonical.source_record_id, deck.canonical_deck_id)
             legality = evaluations.legality.get(evaluation_key)
             quality = evaluations.quality.get(evaluation_key)
+            ids = evaluations.legality_record_ids, evaluations.quality_record_ids
             raw_reference = _raw_reference(canonical)
             source = DeckSourceReference(
                 source_id=source_id,
@@ -330,6 +331,8 @@ def _dataset_records(
                     and "quality.card_resolution_incomplete" not in quality.finding_codes,
                     legal_status="unknown" if legality is None else legality.legal_status,
                     quality_status="unknown" if quality is None else quality.quality_status,
+                    legality_evaluation_record_id=ids[0].get(evaluation_key),
+                    quality_evaluation_record_id=ids[1].get(evaluation_key),
                 )
             )
         elif dataset_kind == "tournament_outcomes":
@@ -386,13 +389,12 @@ def _raw_reference(canonical: CanonicalRecord) -> ProvenanceReference:
 
 
 def _dataset_schema_version(dataset_kind: str) -> str:
-    versions = {
-        "deck_completion": "deck-corpus.v1",
-        "card_cooccurrence": "card-cooccurrence.v1",
-        "tournament_outcomes": "tournament-corpus.v1",
-        "combo": "combo-corpus.v1",
-    }
     try:
-        return versions[dataset_kind]
+        return {
+            "deck_completion": "deck-corpus.v1",
+            "card_cooccurrence": "card-cooccurrence.v1",
+            "tournament_outcomes": "tournament-corpus.v1",
+            "combo": "combo-corpus.v1",
+        }[dataset_kind]
     except KeyError as error:
         raise ApplicationError("CONFIG_DATASET_KIND_INVALID") from error

@@ -14,6 +14,8 @@ deduplication:
 splits:
   strategy: temporal_grouped
   version: temporal-grouped-v1
+  train_until: "2025-01-01T00:00:00Z"
+  validation_until: "2026-01-01T00:00:00Z"
 masking:
   strategies: [random_10_40, late_build, early_build, role_hole]
   masks_per_deck: 4
