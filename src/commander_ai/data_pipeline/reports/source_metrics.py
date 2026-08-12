@@ -57,6 +57,7 @@ class DeckMetricRecord:
     complete_decklist: bool
     resolution_complete: bool
     legal_status: str
+    quality_status: str = "unknown"
     mode: str | None = None
     usable_outcome: bool = False
     full_pod: bool = False
@@ -79,6 +80,8 @@ class DeckMetricRecord:
             raise ValueError("observed_at must include a timezone")
         if not self.legal_status.strip():
             raise ValueError("legal_status must be non-empty")
+        if not self.quality_status.strip():
+            raise ValueError("quality_status must be non-empty")
         if self.mode is not None and not self.mode.strip():
             object.__setattr__(self, "mode", None)
         if self.unresolved_cards < 0:
@@ -272,6 +275,7 @@ def _source_summary(source: SourceMetricsInput) -> dict[str, object]:
     observed = sorted(deck.observed_at for deck in decks if deck.observed_at is not None)
     mode_counts = Counter(_mode_class(deck.mode) for deck in decks)
     legality_counts = Counter(deck.legal_status for deck in decks)
+    quality_counts = Counter(deck.quality_status for deck in decks)
     resolution_rate = (
         source.card_resolution_resolved / source.card_resolution_total
         if source.card_resolution_total
@@ -311,6 +315,11 @@ def _source_summary(source: SourceMetricsInput) -> dict[str, object]:
             "unknown": legality_counts.get("unknown", 0),
         },
         "legality_unknown_count": legality_counts.get("unknown", 0),
+        "quality": {
+            "by_status": dict(sorted(quality_counts.items())),
+            "unknown": quality_counts.get("unknown", 0),
+        },
+        "quality_unknown_count": quality_counts.get("unknown", 0),
         "mode_availability": {
             "casual": mode_counts.get("casual", 0),
             "competitive": mode_counts.get("competitive", 0),

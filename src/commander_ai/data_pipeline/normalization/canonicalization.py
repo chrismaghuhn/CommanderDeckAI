@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Mapping, Sequence
 from datetime import datetime
-from typing import Literal, cast
+from typing import Literal
 
 from commander_ai.data_pipeline.combos.normalized import normalize_combo
 from commander_ai.data_pipeline.decks.canonical_decks import (
@@ -14,13 +14,12 @@ from commander_ai.data_pipeline.decks.canonical_decks import (
     DeckStructureInput,
     canonical_deck_from_input,
 )
-from commander_ai.data_pipeline.provenance.rows import AuditRecord, ProvenanceRow, ResolutionAttempt
-from commander_ai.data_pipeline.quality.finding_codes import FindingNamespace
+from commander_ai.data_pipeline.provenance.rows import ResolutionAttempt
 from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord, quarantine_record
 from commander_ai.data_pipeline.resolution.card_catalog import build_card_catalog
 from commander_ai.data_pipeline.resolution.card_resolution import CardResolver
 from commander_ai.data_pipeline.staging.records import StagingRecord
-from commander_ai.domain.cards import CardResolution
+from commander_ai.domain.cards import CanonicalCard, CardResolution
 from commander_ai.domain.decks import (
     CardZone,
     CommandZoneEntry,
@@ -30,7 +29,12 @@ from commander_ai.domain.provenance import SourceSnapshotManifest
 
 from .canonical_records import CanonicalRecord, canonical_record_from_domain
 from .canonicalization_events import canonicalize_event_sources
-from .canonicalization_result import CanonicalizationResult
+from .canonicalization_result import (
+    CanonicalizationResult,
+    audit_for_quarantines,
+    canonicalization_result,
+    failed_canonicalization,
+)
 from .canonicalization_support import (
     domain_combo_card,
     items,
@@ -43,6 +47,7 @@ from .canonicalization_support import (
     source_manifest_object,
     spellbook_combo_record,
 )
+from .evaluation_records import build_deck_evaluation_records
 
 
 def canonicalize_staging(
@@ -133,6 +138,7 @@ def _canonicalize_mtgjson(
             deck_record,
             source_manifest=source_manifest,
             resolver=resolver,
+            card_facts={card.oracle_id: card for card in catalog_result.catalog.cards},
             attempted_at=attempted_at,
         )
         canonical.extend(deck_result.records)
@@ -141,8 +147,8 @@ def _canonicalize_mtgjson(
         quarantines.extend(deck_result.quarantines)
         findings.update(deck_result.finding_codes)
 
-    audits = _audit_for_quarantines(quarantines)
-    return _result(
+    audits = audit_for_quarantines(quarantines)
+    return canonicalization_result(
         canonical,
         resolutions,
         attempts,
@@ -158,11 +164,12 @@ def _canonicalize_deck(
     *,
     source_manifest: SourceSnapshotManifest,
     resolver: CardResolver,
+    card_facts: Mapping[str, CanonicalCard],
     attempted_at: datetime,
 ) -> CanonicalizationResult:
     values = record.original_source_values
     if not isinstance(values, Mapping):
-        return _failed_record(record, "quality.deck_source_values_not_object")
+        return failed_canonicalization(record, "quality.deck_source_values_not_object")
     resolutions: list[CardResolution] = []
     attempts: list[ResolutionAttempt] = []
     quarantines: list[QuarantineRecord] = []
@@ -215,7 +222,7 @@ def _canonicalize_deck(
 
     zones: list[CardZone] = []
     for zone_name, raw_value in (
-        ("main_deck", values.get("mainBoard")),
+        ("mainboard", values.get("mainBoard")),
         ("sideboard", values.get("sideBoard")),
     ):
         zone_cards = resolve_zone(
@@ -237,7 +244,7 @@ def _canonicalize_deck(
         findings.add("quality.card_zones_missing")
     if findings:
         quarantines.append(quarantine_record(record, reason_code=sorted(findings)[0]))
-        return _result((), resolutions, attempts, (), (), quarantines, findings)
+        return canonicalization_result((), resolutions, attempts, (), (), quarantines, findings)
 
     relationships: list[CommandZoneRelationship] = []
     if len(role_ids["partner"]) == 1 and len(role_ids["commander"]) == 1:
@@ -275,7 +282,7 @@ def _canonicalize_deck(
         code = getattr(error, "reason_code", "quality.invalid_deck_structure")
         quarantines.append(quarantine_record(record, reason_code=code))
         findings.add(code)
-        return _result((), resolutions, attempts, (), (), quarantines, findings)
+        return canonicalization_result((), resolutions, attempts, (), (), quarantines, findings)
     canonical = canonical_record_from_domain(
         deck,
         source_record_id=record.staging_record_id,
@@ -283,7 +290,23 @@ def _canonicalize_deck(
         provenance=provenance_for(record, source_manifest, "mtgjson-deck-mapper-v1"),
         observed_at=observed_at(record, source_manifest),
     )
-    return _result((canonical,), resolutions, attempts, (), (), quarantines, findings)
+    evaluation_records, evaluation_findings = build_deck_evaluation_records(
+        deck,
+        source_record=record,
+        source_manifest=source_manifest,
+        card_facts=card_facts,
+        resolutions=resolutions,
+    )
+    findings.update(evaluation_findings)
+    return canonicalization_result(
+        (canonical, *evaluation_records),
+        resolutions,
+        attempts,
+        (),
+        (),
+        quarantines,
+        findings,
+    )
 
 
 def _canonicalize_spellbook(
@@ -334,57 +357,14 @@ def _canonicalize_spellbook(
                     observed_at=observed_at(record, source_manifest),
                 )
             )
-    return _result(
+    return canonicalization_result(
         canonical,
         (),
         (),
-        _audit_for_quarantines(quarantines),
+        audit_for_quarantines(quarantines),
         (),
         quarantines,
         findings,
-    )
-
-
-def _failed_record(record: StagingRecord, code: str) -> CanonicalizationResult:
-    return _result((), (), (), (), (), (quarantine_record(record, reason_code=code),), {code})
-
-
-def _audit_for_quarantines(quarantines: Sequence[QuarantineRecord]) -> tuple[AuditRecord, ...]:
-    return tuple(
-        AuditRecord(
-            audit_id=f"canonical-audit-{item.quarantine_id}",
-            entity_id=item.staging_record_id,
-            stage=cast(FindingNamespace, item.reason_code.split(".", maxsplit=1)[0]),
-            finding_code=item.reason_code,
-            raw_locator=item.raw_locator,
-            details={"quarantine_id": item.quarantine_id},
-        )
-        for item in sorted(quarantines, key=lambda item: item.quarantine_id)
-    )
-
-
-def _result(
-    records: Sequence[CanonicalRecord],
-    resolutions: Sequence[CardResolution],
-    attempts: Sequence[ResolutionAttempt],
-    audits: Sequence[AuditRecord],
-    provenance: Sequence[ProvenanceRow],
-    quarantines: Sequence[QuarantineRecord],
-    findings: Iterable[str],
-) -> CanonicalizationResult:
-    return CanonicalizationResult(
-        records=tuple(sorted(records, key=lambda item: item.record_id)),
-        resolutions=tuple(sorted(resolutions, key=lambda item: item.resolution_id)),
-        resolution_attempts=tuple(sorted(attempts, key=lambda item: item.attempt_id)),
-        audits=tuple(sorted(audits, key=lambda item: item.audit_id)),
-        provenance=tuple(sorted(provenance, key=lambda item: item.provenance_id)),
-        quarantines=tuple(
-            sorted(
-                {item.quarantine_id: item for item in quarantines}.values(),
-                key=lambda item: item.quarantine_id,
-            )
-        ),
-        finding_codes=tuple(sorted(set(findings))),
     )
 
 

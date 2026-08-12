@@ -1,0 +1,96 @@
+"""Build and index canonical deck evaluation records."""
+
+from __future__ import annotations
+
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+
+from commander_ai.data_pipeline.decks.quality import evaluate_deck_quality
+from commander_ai.data_pipeline.decks.ruleset_evaluation import evaluate_deck_legality
+from commander_ai.data_pipeline.staging.records import StagingRecord
+from commander_ai.domain.cards import CanonicalCard, CardResolution
+from commander_ai.domain.decks import CanonicalDeck
+from commander_ai.domain.evaluations import DeckLegalityEvaluation, DeckQualityEvaluation
+from commander_ai.domain.provenance import SourceSnapshotManifest
+
+from .canonical_records import CanonicalRecord, canonical_record_from_domain
+from .canonicalization_support import observed_at, provenance_for
+
+
+@dataclass(frozen=True, slots=True)
+class DeckEvaluationIndex:
+    """Evaluation records keyed by their source deck observation and structure."""
+
+    legality: Mapping[tuple[str, str], DeckLegalityEvaluation]
+    quality: Mapping[tuple[str, str], DeckQualityEvaluation]
+
+
+def build_deck_evaluation_records(
+    deck: CanonicalDeck,
+    *,
+    source_record: StagingRecord,
+    source_manifest: SourceSnapshotManifest,
+    card_facts: Mapping[str, CanonicalCard],
+    resolutions: Sequence[CardResolution],
+) -> tuple[tuple[CanonicalRecord, ...], tuple[str, ...]]:
+    """Evaluate one canonical deck using only supplied facts and provenance."""
+
+    evaluation_at = observed_at(source_record, source_manifest)
+    resolution_rate = (
+        sum(resolution.status == "resolved" for resolution in resolutions) / len(resolutions)
+        if resolutions
+        else None
+    )
+    legality = evaluate_deck_legality(
+        deck,
+        card_facts,
+        None,
+        evaluated_at=evaluation_at,
+    )
+    quality = evaluate_deck_quality(
+        deck,
+        evaluated_at=evaluation_at,
+        resolution_rate=resolution_rate,
+    )
+    provenance = provenance_for(source_record, source_manifest, "mtgjson-deck-mapper-v1")
+    return (
+        (
+            canonical_record_from_domain(
+                legality,
+                source_record_id=source_record.staging_record_id,
+                raw_locator=source_record.raw_locator,
+                provenance=provenance,
+                observed_at=evaluation_at,
+            ),
+            canonical_record_from_domain(
+                quality,
+                source_record_id=source_record.staging_record_id,
+                raw_locator=source_record.raw_locator,
+                provenance=provenance,
+                observed_at=evaluation_at,
+            ),
+        ),
+        tuple(sorted({*legality.finding_codes, *quality.finding_codes})),
+    )
+
+
+def index_deck_evaluations(records: Sequence[CanonicalRecord]) -> DeckEvaluationIndex:
+    """Index persisted evaluations without treating missing records as accepted."""
+
+    legality: dict[tuple[str, str], DeckLegalityEvaluation] = {}
+    quality: dict[tuple[str, str], DeckQualityEvaluation] = {}
+    for record in records:
+        if record.record_type == "deck_legality_evaluation":
+            legality_evaluation = DeckLegalityEvaluation.model_validate(record.payload)
+            legality[(record.source_record_id, legality_evaluation.canonical_deck_id)] = (
+                legality_evaluation
+            )
+        elif record.record_type == "deck_quality_evaluation":
+            quality_evaluation = DeckQualityEvaluation.model_validate(record.payload)
+            quality[(record.source_record_id, quality_evaluation.canonical_deck_id)] = (
+                quality_evaluation
+            )
+    return DeckEvaluationIndex(legality=legality, quality=quality)
+
+
+__all__ = ["DeckEvaluationIndex", "build_deck_evaluation_records", "index_deck_evaluations"]

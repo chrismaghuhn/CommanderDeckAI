@@ -16,6 +16,9 @@ from commander_ai.config import RuntimeConfig
 from commander_ai.config.current_use_policy import PolicyOperation
 from commander_ai.config.source_settings import SourceApprovalStatus
 from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
+from commander_ai.data_pipeline.normalization.evaluation_records import (
+    index_deck_evaluations,
+)
 from commander_ai.data_pipeline.provenance.canonical_snapshot_verifier import (
     read_canonical_snapshot_manifest,
 )
@@ -310,6 +313,7 @@ def _canonical_metrics(
     tuple[int, int],
 ]:
     records = tuple(CanonicalRecord.model_validate(row) for row in canonical_rows)
+    evaluations = index_deck_evaluations(records)
     outcome_decks: set[str] = set()
     event_ids: set[str] = set()
     pod_ids: set[str] = set()
@@ -328,6 +332,9 @@ def _canonical_metrics(
         if record.record_type != "canonical_deck":
             continue
         deck = CanonicalDeck.model_validate(record.payload)
+        evaluation_key = (record.source_record_id, deck.canonical_deck_id)
+        legality = evaluations.legality.get(evaluation_key)
+        quality = evaluations.quality.get(evaluation_key)
         card_ids = [entry.oracle_id for entry in deck.command_zone]
         card_ids.extend(card.oracle_id for zone in deck.card_zones for card in zone.cards)
         decks.append(
@@ -339,8 +346,10 @@ def _canonical_metrics(
                 card_ids=tuple(card_ids),
                 observed_at=record.observed_at,
                 complete_decklist=True,
-                resolution_complete=True,
-                legal_status="unknown",
+                resolution_complete=quality is not None
+                and "quality.card_resolution_incomplete" not in quality.finding_codes,
+                legal_status="unknown" if legality is None else legality.legal_status,
+                quality_status="unknown" if quality is None else quality.quality_status,
                 usable_outcome=deck.canonical_deck_id in outcome_decks,
             )
         )

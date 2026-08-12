@@ -24,6 +24,9 @@ from commander_ai.data_pipeline.datasets.dataset_builder import (
 )
 from commander_ai.data_pipeline.decks.canonical_decks import DeckOccurrence, DeckSourceReference
 from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
+from commander_ai.data_pipeline.normalization.evaluation_records import (
+    index_deck_evaluations,
+)
 from commander_ai.data_pipeline.provenance.canonical_snapshot_verifier import (
     read_canonical_snapshot_manifest,
 )
@@ -281,13 +284,17 @@ def _dataset_records(
     source_id: str,
     source_snapshot_id: str,
 ) -> tuple[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord, ...]:
+    canonical_rows = tuple(CanonicalRecord.model_validate(row) for row in rows)
+    evaluations = index_deck_evaluations(canonical_rows)
     records: list[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord] = []
-    for row in rows:
-        canonical = CanonicalRecord.model_validate(row)
+    for canonical in canonical_rows:
         if dataset_kind in {"deck_completion", "card_cooccurrence"}:
             if canonical.record_type != "canonical_deck":
                 continue
             deck = CanonicalDeck.model_validate(canonical.payload)
+            evaluation_key = (canonical.source_record_id, deck.canonical_deck_id)
+            legality = evaluations.legality.get(evaluation_key)
+            quality = evaluations.quality.get(evaluation_key)
             raw_reference = _raw_reference(canonical)
             source = DeckSourceReference(
                 source_id=source_id,
@@ -304,9 +311,10 @@ def _dataset_records(
                     observed_at=canonical.observed_at,
                     payload=canonical.payload,
                     complete_decklist=True,
-                    resolution_complete=True,
-                    legal_status="unknown",
-                    quality_status="accepted",
+                    resolution_complete=quality is not None
+                    and "quality.card_resolution_incomplete" not in quality.finding_codes,
+                    legal_status="unknown" if legality is None else legality.legal_status,
+                    quality_status="unknown" if quality is None else quality.quality_status,
                 )
             )
         elif dataset_kind == "tournament_outcomes":

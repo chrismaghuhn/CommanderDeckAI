@@ -38,6 +38,7 @@ def _deck(
     complete: bool = True,
     resolved: bool = True,
     legal_status: str = "legal",
+    quality_status: str = "accepted",
     mode: str | None = "casual",
     usable_outcome: bool = False,
     full_pod: bool = False,
@@ -54,6 +55,7 @@ def _deck(
         complete_decklist=complete,
         resolution_complete=resolved,
         legal_status=legal_status,
+        quality_status=quality_status,
         mode=mode,
         usable_outcome=usable_outcome,
         full_pod=full_pod,
@@ -238,6 +240,23 @@ def test_source_report_exposes_event_and_pod_coverage() -> None:
     assert summary["event_observations"]["complete"] == 3
     assert summary["pods"]["total"] == 1
     assert summary["pods"]["complete"] == 0
+
+
+def test_source_report_counts_quality_evaluation_statuses() -> None:
+    source = _input(
+        decks=(
+            _deck("accepted", quality_status="accepted"),
+            _deck("unknown", quality_status="unknown"),
+        ),
+        current_use=_decision("fixture"),
+    )
+
+    summary = build_source_metrics_report(
+        [source], report_id="quality-report", reported_at=datetime(2026, 8, 11, tzinfo=UTC)
+    ).as_dict()["sources"][0]
+
+    assert summary["quality"]["by_status"] == {"accepted": 1, "unknown": 1}
+    assert summary["quality_unknown_count"] == 1
 
 
 def test_source_report_derives_exact_and_cross_source_overlap_counts() -> None:
