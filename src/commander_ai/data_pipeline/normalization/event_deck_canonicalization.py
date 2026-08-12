@@ -153,9 +153,14 @@ def canonicalize_event_deck(
         )
 
     reference = source_manifest_object(record, source_manifest)
+    source_deck_id = _source_deck_id(
+        deck_values,
+        record,
+        allow_generic_id=deck_values is not values,
+    )
     source = DeckSourceReference(
         source_id=record.source_id,
-        source_deck_id=_source_deck_id(deck_values, record),
+        source_deck_id=source_deck_id,
         source_snapshot_id=record.raw_locator.source_snapshot_id,
         raw_object_id=record.raw_locator.raw_object_id,
         raw_sha256=reference.sha256,
@@ -291,8 +296,13 @@ def _parse_text_decklist(value: str) -> tuple[tuple[Mapping[str, object], ...], 
     return tuple(rows), None
 
 
-def _source_deck_id(values: Mapping[str, object], record: StagingRecord) -> str:
-    for key in ("deck_id", "deckId", "decklist_id", "decklistId", "name"):
+def _source_deck_id(
+    values: Mapping[str, object], record: StagingRecord, *, allow_generic_id: bool = False
+) -> str:
+    keys: tuple[str, ...] = ("deck_id", "deckId", "decklist_id", "decklistId", "name")
+    if allow_generic_id:
+        keys += ("id",)
+    for key in keys:
         value = values.get(key)
         if isinstance(value, (str, int)) and str(value).strip():
             return str(value).strip()

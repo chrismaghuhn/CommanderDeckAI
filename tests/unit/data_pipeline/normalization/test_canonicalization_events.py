@@ -197,6 +197,21 @@ def test_event_observation_preserves_explicit_deck_and_minimized_participant() -
     assert all("display_name" not in str(item.model_dump()) for item in result.records)
 
 
+def test_nested_deck_object_id_is_used_but_top_level_standing_id_is_not() -> None:
+    from commander_ai.data_pipeline.normalization.event_deck_canonicalization import (
+        _deck_values,
+        _source_deck_id,
+    )
+
+    record = _record("standing", {"id": "standing-1"}, "/standing")
+    values = {"id": "standing-1", "deckObj": {"id": "deck-42"}}
+
+    nested_values = _deck_values(values)
+
+    assert _source_deck_id(values, record) == record.staging_record_id
+    assert _source_deck_id(nested_values, record, allow_generic_id=True) == "deck-42"
+
+
 def test_source_opaque_participant_ids_require_an_explicit_identity_policy() -> None:
     event = _record(
         "event",

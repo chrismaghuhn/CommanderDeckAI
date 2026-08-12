@@ -91,6 +91,15 @@ def test_card_cooccurrence_v2_rejects_relation_outside_persisted_zones() -> None
         CardCooccurrenceV2Row.model_validate(candidate)
 
 
+def test_card_cooccurrence_v2_rejects_case_variant_self_relation() -> None:
+    _, candidate = _contract("card-cooccurrence.v2")
+    candidate["values"]["relation_type"] = "card_card"  # type: ignore[index]
+    candidate["values"]["left_id"] = candidate["values"]["right_id"].upper()  # type: ignore[index]
+
+    with pytest.raises(ValidationError, match="distinct cards"):
+        CardCooccurrenceV2Row.model_validate(candidate)
+
+
 @pytest.mark.parametrize("field", ("command_zone", "card_zones"))
 def test_deck_corpus_rejects_duplicate_outer_collection_items(field: str) -> None:
     _, candidate = _contract("deck-corpus.v1")

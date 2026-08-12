@@ -181,7 +181,7 @@ class CardCooccurrenceValues(DomainModel):
 
     @model_validator(mode="after")
     def reject_self_relation(self) -> CardCooccurrenceValues:
-        if self.relation_type == "card_card" and self.left_id == self.right_id:
+        if self.relation_type == "card_card" and self.left_id.lower() == self.right_id.lower():
             raise ValueError("card-card relations must contain two distinct cards")
         return self
 
