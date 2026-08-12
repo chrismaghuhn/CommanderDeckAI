@@ -28,6 +28,7 @@ class TournamentRecord:
     canonical_deck_id: str | None
     payload: Mapping[str, object]
     complete_event: bool = False
+    complete_decklist: bool = False
     source_id: str | None = None
     source_snapshot_id: str | None = None
 
@@ -50,6 +51,7 @@ class TournamentRecord:
 class TournamentSplitPolicy:
     cutoffs: TemporalCutoffs
     require_complete_event: bool = True
+    require_complete_decklists: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -81,6 +83,8 @@ def build_tournament_splits(
     for record in ordered:
         if policy.require_complete_event and record.event_id in incomplete_events:
             exclusions.append(TournamentExclusion(record.record_id, "quality.event_incomplete"))
+        elif policy.require_complete_decklists and not record.complete_decklist:
+            exclusions.append(TournamentExclusion(record.record_id, "quality.decklist_incomplete"))
         else:
             eligible.append(record)
     provisional = assign_provisional_splits(

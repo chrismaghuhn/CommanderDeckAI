@@ -36,6 +36,14 @@ zurückverschoben. Ein Cluster mit `TRAIN`, `TRAIN`, `TEST` wird deshalb vollst�
 `TEST`. Algorithmus, Version, Schwelle und Promotion-Regel gehören in das
 Dataset-Manifest.
 
+Die produktiven Completion-Beispiele konfigurieren nur die implementierte
+`temporal_grouped`-Policy. `revision_group_id`,
+`near_duplicate_cluster_id` und optionale Cold-Start-Benchmarks sind keine
+freien Konfigurationsfelder des aktuellen Builders; sie werden aus der
+versionierten Split-/Deduplication-Policy beziehungsweise als getrennte
+Benchmark-Projektionen gebildet. Unbekannte Grouping- oder Segment-Felder
+werden deshalb abgewiesen und nicht stillschweigend ignoriert.
+
 Outcome-Datasets gruppieren vollständige Events statt wiederholte CanonicalDecks
 global zu sperren. Strenge Zusatzbenchmarks können kalte Fingerprints, Command-Zone-
 Kombinationen und Low-Data-Commander separat ausweisen.

@@ -1,4 +1,5 @@
 dataset_id: cedh-pod-outcome-v1
+dataset_kind: tournament_outcomes
 inputs:
   sources: [topdeck, spicerack]
   require_complete_decklists: true

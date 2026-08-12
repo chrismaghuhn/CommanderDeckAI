@@ -21,9 +21,16 @@ from commander_ai.data_pipeline.splitting.deck_completion_policy import (
 def validate_selector_configuration(settings: DatasetSettings, kind: str) -> None:
     """Reject selectors whose record type cannot apply them deterministically."""
 
-    if settings.split_policy.strategy != "temporal_grouped":
+    strategy = settings.split_policy.strategy
+    group_keys = settings.split_policy.group_keys
+    if kind == "tournament_outcomes" and strategy == "temporal_event_grouped":
+        if group_keys != ("event_id",) or settings.split_policy.extra_segments:
+            raise ValueError(
+                "tournament_outcomes temporal_event_grouped requires group_key event_id"
+            )
+    elif strategy != "temporal_grouped":
         raise ValueError(f"{kind} dataset split strategy is not implemented")
-    if settings.split_policy.group_keys or settings.split_policy.extra_segments:
+    elif group_keys or settings.split_policy.extra_segments:
         raise ValueError(f"{kind} dataset split grouping options are not implemented")
     if settings.inclusions or settings.exclusions:
         raise ValueError(
@@ -34,11 +41,11 @@ def validate_selector_configuration(settings: DatasetSettings, kind: str) -> Non
         and settings.inputs.require_complete_pod_result
     ):
         raise ValueError(f"{kind} datasets do not support pod-result completeness filters")
-    if kind in {"tournament_outcomes", "combo"} and (
+    if kind == "combo" and (
         settings.inputs.require_approved_sources
         or settings.inputs.require_complete_decklists
         or settings.inputs.legal_decks_only
-        or (kind == "combo" and settings.inputs.require_complete_pod_result)
+        or settings.inputs.require_complete_pod_result
         or settings.source_ids
         or settings.inputs.modes
         or settings.filters.modes
@@ -48,6 +55,16 @@ def validate_selector_configuration(settings: DatasetSettings, kind: str) -> Non
         or settings.filters.observed_until is not None
     ):
         raise ValueError(f"{kind} dataset source/mode/status filters require source-aware records")
+    if kind == "tournament_outcomes" and (
+        settings.inputs.legal_decks_only
+        or settings.inputs.modes
+        or settings.filters.modes
+        or settings.filters.legal_statuses
+        or settings.filters.quality_statuses
+        or settings.filters.observed_from is not None
+        or settings.filters.observed_until is not None
+    ):
+        raise ValueError(f"{kind} dataset mode/status filters are not implemented")
 
 
 def filter_completion_records(

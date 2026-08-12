@@ -276,6 +276,7 @@ def _build_tournament(
         TournamentSplitPolicy(
             cutoffs=_settings_cutoffs(settings),
             require_complete_event=settings.inputs.require_complete_pod_result,
+            require_complete_decklists=settings.inputs.require_complete_decklists,
         ),
     )
 

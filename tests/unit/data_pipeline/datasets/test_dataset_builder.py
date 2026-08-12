@@ -893,6 +893,50 @@ def test_tournament_and_combo_builders_publish_separate_task_artifacts(tmp_path:
     assert combo.output_artifacts[0].name == "combo_corpus"
 
 
+def test_event_grouped_tournament_strategy_applies_complete_record_filters(
+    tmp_path: Path,
+) -> None:
+    from commander_ai.data_pipeline.splitting.tournament_policy import TournamentRecord
+
+    base = _settings(
+        dataset_id="fixture-event-grouped-tournament",
+        dataset_kind="tournament_outcomes",
+        completion_constraints=False,
+    )
+    split_policy = base.split_policy.model_dump(mode="python")
+    split_policy.pop("group_keys")
+    split_policy.update(strategy="temporal_event_grouped", group_key="event_id")
+    settings = DatasetSettings.model_validate(
+        {
+            **base.model_dump(mode="python"),
+            "inputs": {
+                "require_complete_decklists": True,
+                "require_complete_pod_result": True,
+            },
+            "split_policy": split_policy,
+        }
+    )
+    result = build_dataset(
+        _request(settings, tmp_path),
+        [
+            TournamentRecord(
+                record_id="entry-1",
+                event_id="event-1",
+                observed_at=datetime(2024, 1, 1, tzinfo=UTC),
+                canonical_deck_id="a" * 64,
+                payload={},
+                complete_event=True,
+                complete_decklist=True,
+                source_id="fixture",
+                source_snapshot_id="snapshot-1",
+            )
+        ],
+    )
+
+    assert result.output_artifacts[0].name == "tournament_corpus"
+    assert result.manifest.counts["eligible_records"] == 1
+
+
 def test_observation_datasets_require_record_source_binding(tmp_path: Path) -> None:
     from commander_ai.data_pipeline.datasets.dataset_builder import DatasetProjectionRecord
 

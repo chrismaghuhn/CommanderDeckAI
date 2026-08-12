@@ -114,6 +114,15 @@ task-specific Parquet and a bound `run-manifest.v1`.
 `run-manifest.v1` is reused for source sync, normalize, validate, report, and
 dataset build; no competing data-run contract is used.
 
+`cda data report <source>` publishes the existing source-quality report. For
+`cda data report all`, the same measured `SourceMetricsInput` values also feed
+an additional `dataset-audit-report.v1` JSON/Markdown artifact; both report
+artifacts and their hashes are bound in the report's `run-manifest.v1` and
+returned in the stable result summary. Sources without an acquired snapshot
+appear only as explicit assessment-only/status rows with zero measured data.
+They are never fetched as part of reporting, and their status does not create
+a synthetic `SourceMetricsInput`.
+
 Source adapters publish source DTOs and staging records only. The normalize
 pipeline then performs deterministic identity resolution and source-neutral
 canonicalization into the separately verified canonical snapshot. A staging

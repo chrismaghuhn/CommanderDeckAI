@@ -14,8 +14,6 @@ deduplication:
 splits:
   strategy: temporal_grouped
   version: temporal-grouped-v1
-  group_keys: [revision_group_id, near_duplicate_cluster_id]
-  extra_segments: [cold_commander, new_card, precon_holdout]
 masking:
   strategies: [random_10_40, late_build, early_build, role_hole]
   masks_per_deck: 4

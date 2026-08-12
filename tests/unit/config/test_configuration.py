@@ -26,6 +26,7 @@ from commander_ai.config.yaml_loader import (
     serialize_config,
     serialize_config_json,
 )
+from commander_ai.data_pipeline.datasets.dataset_filters import validate_selector_configuration
 
 
 def minimal_source_payload() -> dict[str, object]:
@@ -700,6 +701,25 @@ def test_checked_in_source_and_dataset_configs_are_explicit_and_offline_loadable
         assert dataset.near_duplicate_policy.algorithm
         assert dataset.near_duplicate_policy.version
         assert 0 <= dataset.near_duplicate_policy.threshold <= 1
+
+
+def test_checked_in_dataset_examples_match_supported_selector_semantics() -> None:
+    project_root = Path(__file__).resolve().parents[3]
+
+    for filename in ("tournament-outcomes.example.yaml", "cedh-outcome-v1.yaml"):
+        dataset = load_dataset_settings(project_root / "configs" / "datasets" / filename)
+        assert dataset.dataset_kind == "tournament_outcomes"
+        assert dataset.split_policy.strategy == "temporal_event_grouped"
+        assert dataset.split_policy.group_keys == ("event_id",)
+        validate_selector_configuration(dataset, dataset.dataset_kind)
+
+    for filename in ("deck-completion.example.yaml", "completion-v1.yaml"):
+        dataset = load_dataset_settings(project_root / "configs" / "datasets" / filename)
+        assert dataset.dataset_kind == "deck_completion"
+        assert dataset.split_policy.strategy == "temporal_grouped"
+        assert dataset.split_policy.group_keys == ()
+        assert dataset.split_policy.extra_segments == ()
+        validate_selector_configuration(dataset, dataset.dataset_kind)
 
 
 def test_dataset_rejects_conflicting_source_filters_instead_of_merging() -> None:

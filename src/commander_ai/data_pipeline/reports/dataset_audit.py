@@ -10,6 +10,7 @@ from typing import Literal
 
 from commander_ai.config.current_use_policy import CurrentUsePolicy, PolicyOperation
 
+from .source_assessments import SourceAssessment
 from .source_metrics import (
     DeckMetricRecord,
     ReportInputBinding,
@@ -65,6 +66,7 @@ def build_dataset_audit_report(
     *,
     report_id: str,
     reported_at: datetime,
+    source_assessments: Sequence[SourceAssessment] = (),
 ) -> DatasetAuditReport:
     """Summarize measured coverage without treating missing data as negative evidence."""
 
@@ -72,6 +74,7 @@ def build_dataset_audit_report(
         raise ValueError("report_id must be non-empty")
     _require_aware(reported_at, "reported_at")
     ordered_sources = tuple(sorted(sources, key=lambda item: (item.source_id, item.snapshot_id)))
+    ordered_assessments = tuple(sorted(source_assessments, key=lambda item: item.source_id))
     source_report = build_source_metrics_report(
         ordered_sources,
         report_id=f"{report_id}:sources",
@@ -125,6 +128,7 @@ def build_dataset_audit_report(
             "tournaments": tournament_events,
             "event_observations": complete_event_observations,
             "pods": pod_count,
+            "assessment_only_sources": len(ordered_assessments),
         },
         classification={
             "casual": mode_counts.get("casual", 0),
@@ -171,10 +175,29 @@ def build_dataset_audit_report(
         suitability={
             "deck_completion_training": _deck_training_suitability(eligible, unresolved_cards),
             "performance_modeling": _performance_suitability(eligible),
-            "research_only_sources": str(sum(source.research_only for source in ordered_sources)),
+            "research_only_sources": str(
+                sum(source.research_only for source in ordered_sources)
+                + sum(item.research_only for item in ordered_assessments)
+            ),
         },
-        source_reports=source_report.sources,
-        current_use=source_report.current_use,
+        source_reports=tuple(
+            sorted(
+                (
+                    *source_report.sources,
+                    *(item.as_source_report() for item in ordered_assessments),
+                ),
+                key=lambda item: str(item.get("source_id", "")),
+            )
+        ),
+        current_use=tuple(
+            sorted(
+                (
+                    *source_report.current_use,
+                    *(item.as_current_use() for item in ordered_assessments),
+                ),
+                key=lambda item: str(item.get("source_id", "")),
+            )
+        ),
     )
 
 

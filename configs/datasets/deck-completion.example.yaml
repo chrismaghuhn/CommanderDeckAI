@@ -10,8 +10,6 @@ splits:
   version: temporal-grouped-v1
   train_until: "2025-01-01T00:00:00Z"
   validation_until: "2026-01-01T00:00:00Z"
-  group_keys: [revision_group_id, near_duplicate_cluster_id]
-  extra_segments: [cold_fingerprint, cold_command_zone, cold_commander]
 deduplication:
   exact_fingerprint: true
   group_revisions: true

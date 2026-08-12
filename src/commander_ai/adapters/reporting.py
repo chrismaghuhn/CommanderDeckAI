@@ -2,9 +2,9 @@
 
 from __future__ import annotations
 
-import hashlib
 import json
 from collections import Counter
+from dataclasses import replace
 from pathlib import Path
 
 from commander_ai.adapters.storage.manifest_files import ManifestFileWriter
@@ -15,10 +15,6 @@ from commander_ai.application.source_policy import SourcePolicy, SourcePolicyErr
 from commander_ai.config import RuntimeConfig
 from commander_ai.config.current_use_policy import PolicyOperation
 from commander_ai.config.source_settings import SourceApprovalStatus
-from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
-from commander_ai.data_pipeline.normalization.evaluation_records import (
-    index_deck_evaluations,
-)
 from commander_ai.data_pipeline.provenance.canonical_snapshot_verifier import (
     read_canonical_snapshot_manifest,
 )
@@ -30,20 +26,22 @@ from commander_ai.data_pipeline.provenance.run_manifests import (
     RunInputReference,
     build_run_manifest,
 )
+from commander_ai.data_pipeline.reports.dataset_audit import build_dataset_audit_report
 from commander_ai.data_pipeline.reports.report_writer import ReportWriter
 from commander_ai.data_pipeline.reports.source_metrics import (
-    DeckMetricRecord,
     ReportInputBinding,
     SourceMetricsInput,
     build_source_metrics_report,
 )
-from commander_ai.domain.cards import CardResolution
-from commander_ai.domain.decks import CanonicalDeck
-from commander_ai.domain.observations import EventDeckObservation, PodEntry
-from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
 
 from .operation_provenance import operation_context
 from .registry_context import SourceRegistryProvider
+from .report_assessment import reported_at as _reported_at
+from .report_assessment import source_assessments as _source_assessments
+from .report_metrics import canonical_metrics as _canonical_metrics
+from .report_provenance import report_digest as _digest
+from .report_provenance import sha256_path as _sha256
+from .report_provenance import unique_run_inputs as _unique_run_inputs
 
 
 class ConfiguredReport:
@@ -57,7 +55,7 @@ class ConfiguredReport:
         registry, _ = self._registry_provider.load()
         runtime = self._runtime
         manifests = _select_manifests(runtime.artifact_root, selector)
-        if not manifests:
+        if not manifests and selector != "all" and registry.get(selector) is None:
             raise ApplicationError("INTEGRITY_NORMALIZED_SNAPSHOT_NOT_FOUND")
         source_inputs: list[SourceMetricsInput] = []
         run_inputs: list[RunInputReference] = []
@@ -186,22 +184,62 @@ class ConfiguredReport:
                     ),
                 )
             )
+        measured_sources = {item.source_id for item in source_inputs}
+        assessments = _source_assessments(registry, selector, measured_sources)
         ordered_ids = tuple(
             item.snapshot_id for item in sorted(source_inputs, key=lambda x: x.snapshot_id)
         )
-        report_id = f"source-quality-{_digest((selector, *ordered_ids))[:24]}"
-        reported_at = max(item.snapshot_date for item in source_inputs)
-        report = build_source_metrics_report(
+        input_ids = tuple(
+            sorted(
+                f"{binding.kind}:{binding.identifier}:{binding.sha256}"
+                for source in source_inputs
+                for binding in source.input_manifests
+            )
+        )
+        assessment_ids = tuple(
+            f"{item.source_id}:{item.approval_status}:{item.current_use_status}:"
+            f"{item.policy_code}:{item.decision_sha256 or ''}"
+            for item in assessments
+        )
+        report_id = (
+            f"source-quality-{_digest((selector, *ordered_ids, *input_ids, *assessment_ids))[:24]}"
+        )
+        reported_at = _reported_at(source_inputs, registry, selector)
+        source_report = build_source_metrics_report(
             source_inputs,
             report_id=report_id,
             reported_at=reported_at,
         )
+        if assessments:
+            source_report = replace(
+                source_report,
+                sources=tuple(
+                    (*source_report.sources, *(item.as_source_report() for item in assessments))
+                ),
+                current_use=tuple(
+                    (*source_report.current_use, *(item.as_current_use() for item in assessments))
+                ),
+            )
         report_writer = ReportWriter(runtime.artifact_root)
         artifacts = report_writer.write_report(
-            report,
+            source_report,
             json_path=f"reports/{report_id}.json",
             markdown_path=f"reports/{report_id}.md",
         )
+        audit_artifacts = None
+        if selector == "all":
+            audit_id = f"dataset-audit-{_digest((report_id, 'audit'))[:24]}"
+            audit_report = build_dataset_audit_report(
+                source_inputs,
+                report_id=audit_id,
+                reported_at=reported_at,
+                source_assessments=assessments,
+            )
+            audit_artifacts = report_writer.write_report(
+                audit_report,
+                json_path=f"reports/{audit_id}.json",
+                markdown_path=f"reports/{audit_id}.md",
+            )
         operation = operation_context(runtime.artifact_root, f"report-{report_id}")
         config_snapshot = {
             "selector": selector,
@@ -209,7 +247,62 @@ class ConfiguredReport:
             "input_manifest_ids": [
                 item.identifier for source in source_inputs for item in source.input_manifests
             ],
+            "assessment_sources": [
+                {
+                    "source_id": item.source_id,
+                    "approval_status": item.approval_status,
+                    "current_use_status": item.current_use_status,
+                    "policy_code": item.policy_code,
+                    "policy_allowed": item.policy_allowed,
+                    "research_only": item.research_only,
+                }
+                for item in assessments
+            ],
         }
+        report_artifacts = [
+            RunArtifactReference(
+                path=artifacts.json.path,
+                sha256=artifacts.json.sha256,
+                kind="report",
+            )
+        ]
+        if artifacts.markdown is not None:
+            report_artifacts.append(
+                RunArtifactReference(
+                    path=artifacts.markdown.path,
+                    sha256=artifacts.markdown.sha256,
+                    kind="report_markdown",
+                )
+            )
+        schema_versions = ["source-quality-report.v1"]
+        transform_versions = ["report-v1"]
+        if audit_artifacts is not None:
+            schema_versions.append("dataset-audit-report.v1")
+            transform_versions.append("dataset-audit-v1")
+            report_artifacts.append(
+                RunArtifactReference(
+                    path=audit_artifacts.json.path,
+                    sha256=audit_artifacts.json.sha256,
+                    kind="dataset_audit_report",
+                )
+            )
+            if audit_artifacts.markdown is not None:
+                report_artifacts.append(
+                    RunArtifactReference(
+                        path=audit_artifacts.markdown.path,
+                        sha256=audit_artifacts.markdown.sha256,
+                        kind="dataset_audit_report_markdown",
+                    )
+                )
+        for assessment in assessments:
+            if assessment.decision_reference and assessment.decision_sha256:
+                run_inputs.append(
+                    RunInputReference(
+                        kind="current_use_decision",
+                        id=assessment.decision_reference,
+                        sha256=assessment.decision_sha256,
+                    )
+                )
         run = build_run_manifest(
             run_id=f"report-{report_id}",
             run_kind="report",
@@ -222,27 +315,12 @@ class ConfiguredReport:
             configuration_path=f"configs/reports/{report_id}.json",
             configuration_snapshot=config_snapshot,
             inputs=_unique_run_inputs(run_inputs),
-            schema_versions=("source-quality-report.v1",),
-            transform_versions=("report-v1",),
+            schema_versions=tuple(schema_versions),
+            transform_versions=tuple(transform_versions),
             policy_versions=("current-use-v1",),
             artifacts=(
                 *operation.artifacts,
-                RunArtifactReference(
-                    path=artifacts.json.path,
-                    sha256=artifacts.json.sha256,
-                    kind="report",
-                ),
-                *(
-                    (
-                        RunArtifactReference(
-                            path=artifacts.markdown.path,
-                            sha256=artifacts.markdown.sha256,
-                            kind="report_markdown",
-                        ),
-                    )
-                    if artifacts.markdown is not None
-                    else ()
-                ),
+                *report_artifacts,
             ),
             determinism=operation.determinism,
             created_at=reported_at,
@@ -259,7 +337,22 @@ class ConfiguredReport:
             status="COMPLETE",
             report_path=artifacts.json.path,
             report_sha256=artifacts.json.sha256,
-            summary={"report_id": report_id, "sources": len(source_inputs)},
+            summary={
+                "report_id": report_id,
+                "sources": len(source_inputs),
+                "assessment_only_sources": len(assessments),
+                **(
+                    {
+                        "audit_report_path": audit_artifacts.json.path,
+                        "audit_report_sha256": audit_artifacts.json.sha256,
+                        "audit_markdown_path": audit_artifacts.markdown.path
+                        if audit_artifacts.markdown is not None
+                        else None,
+                    }
+                    if audit_artifacts is not None
+                    else {}
+                ),
+            },
         )
 
 
@@ -299,95 +392,3 @@ def _manifest_index(
         ):
             values.append((path.relative_to(root).as_posix(), identity))
     return tuple(sorted(values))
-
-
-def _canonical_metrics(
-    canonical_rows: list[dict[str, object]],
-    resolution_rows: list[dict[str, object]],
-    *,
-    source_id: str,
-) -> tuple[
-    tuple[DeckMetricRecord, ...],
-    tuple[int, int, int, int],
-    tuple[int, int],
-    tuple[int, int],
-]:
-    records = tuple(CanonicalRecord.model_validate(row) for row in canonical_rows)
-    evaluations = index_deck_evaluations(records)
-    outcome_decks: set[str] = set()
-    event_ids: set[str] = set()
-    pod_ids: set[str] = set()
-    observation_count = 0
-    for record in records:
-        if record.record_type == "event_deck_observation":
-            observation = EventDeckObservation.model_validate(record.payload)
-            outcome_decks.add(observation.canonical_deck_id)
-            event_ids.add(observation.event_id)
-            observation_count += 1
-        elif record.record_type == "pod_entry":
-            pod_ids.add(PodEntry.model_validate(record.payload).pod_id)
-
-    decks: list[DeckMetricRecord] = []
-    for record in records:
-        if record.record_type != "canonical_deck":
-            continue
-        deck = CanonicalDeck.model_validate(record.payload)
-        evaluation_key = (record.source_record_id, deck.canonical_deck_id)
-        legality = evaluations.legality.get(evaluation_key)
-        quality = evaluations.quality.get(evaluation_key)
-        card_ids = [entry.oracle_id for entry in deck.command_zone]
-        card_ids.extend(card.oracle_id for zone in deck.card_zones for card in zone.cards)
-        decks.append(
-            DeckMetricRecord(
-                deck_id=record.source_record_id,
-                source_id=source_id,
-                canonical_deck_id=deck.canonical_deck_id,
-                commander_ids=tuple(entry.oracle_id for entry in deck.command_zone),
-                card_ids=tuple(card_ids),
-                observed_at=record.observed_at,
-                complete_decklist=True,
-                resolution_complete=quality is not None
-                and "quality.card_resolution_incomplete" not in quality.finding_codes,
-                legal_status="unknown" if legality is None else legality.legal_status,
-                quality_status="unknown" if quality is None else quality.quality_status,
-                usable_outcome=deck.canonical_deck_id in outcome_decks,
-            )
-        )
-
-    resolution_counts = Counter(
-        CardResolution.model_validate(row).status for row in resolution_rows
-    )
-    total = sum(resolution_counts.values())
-    return (
-        tuple(sorted(decks, key=lambda item: item.deck_id)),
-        (
-            total,
-            resolution_counts.get("resolved", 0),
-            resolution_counts.get("ambiguous", 0),
-            resolution_counts.get("unresolved", 0) + resolution_counts.get("rejected", 0),
-        ),
-        (len(event_ids), observation_count),
-        (len(pod_ids), 0),
-    )
-
-
-def _sha256(path: Path) -> str:
-    return hashlib.sha256(path.read_bytes()).hexdigest()
-
-
-def _digest(values: tuple[str, ...]) -> str:
-    return sha256_hex(canonical_json_bytes(list(values)))
-
-
-def _unique_run_inputs(values: list[RunInputReference]) -> tuple[RunInputReference, ...]:
-    unique: dict[tuple[str, str], RunInputReference] = {}
-    for value in values:
-        key = (value.kind, value.id)
-        previous = unique.get(key)
-        if previous is not None and previous != value:
-            raise ApplicationError("INTEGRITY_REPORT_INPUT_BINDING")
-        unique[key] = value
-    return tuple(unique[key] for key in sorted(unique))
-
-
-__all__ = ["ConfiguredReport"]

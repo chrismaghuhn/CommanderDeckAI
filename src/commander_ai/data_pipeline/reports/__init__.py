@@ -2,6 +2,7 @@
 
 from .dataset_audit import DatasetAuditReport, build_dataset_audit_report
 from .report_writer import ReportArtifact, ReportArtifacts, ReportWriter, render_markdown
+from .source_assessments import SourceAssessment
 from .source_metrics import (
     DeckMetricRecord,
     ReportInputBinding,
@@ -17,6 +18,7 @@ __all__ = [
     "ReportArtifacts",
     "ReportInputBinding",
     "ReportWriter",
+    "SourceAssessment",
     "SourceMetricsInput",
     "SourceMetricsReport",
     "build_dataset_audit_report",

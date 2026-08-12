@@ -23,7 +23,7 @@ from commander_ai.data_pipeline.datasets.dataset_builder import (
     build_dataset,
 )
 from commander_ai.data_pipeline.decks.canonical_decks import DeckOccurrence, DeckSourceReference
-from commander_ai.data_pipeline.events.pod_completeness import complete_pod_observation_keys
+from commander_ai.data_pipeline.events.pod_entries import index_complete_pods
 from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
 from commander_ai.data_pipeline.normalization.evaluation_records import (
     index_deck_evaluations,
@@ -47,7 +47,7 @@ from commander_ai.domain.serialization import canonical_json_bytes
 
 from .operation_provenance import operation_context
 from .registry_context import SourceRegistryProvider
-from .reporting import _sha256
+from .report_provenance import sha256_path as _sha256
 
 
 class ConfiguredDatasetBuild:
@@ -295,7 +295,12 @@ def _dataset_records(
 ) -> tuple[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord, ...]:
     canonical_rows = tuple(CanonicalRecord.model_validate(row) for row in rows)
     evaluations = index_deck_evaluations(canonical_rows)
-    complete_pod_keys = complete_pod_observation_keys(canonical_rows)
+    complete_pod_keys = index_complete_pods(canonical_rows).complete_event_deck_keys
+    canonical_deck_ids = {
+        CanonicalDeck.model_validate(item.payload).canonical_deck_id
+        for item in canonical_rows
+        if item.record_type == "canonical_deck"
+    }
     records: list[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord] = []
     for canonical in canonical_rows:
         if dataset_kind in {"deck_completion", "card_cooccurrence"}:
@@ -340,6 +345,7 @@ def _dataset_records(
                     payload=canonical.payload,
                     complete_event=(observation.event_id, observation.canonical_deck_id)
                     in complete_pod_keys,
+                    complete_decklist=observation.canonical_deck_id in canonical_deck_ids,
                     source_id=source_id,
                     source_snapshot_id=source_snapshot_id,
                 )
@@ -390,6 +396,3 @@ def _dataset_schema_version(dataset_kind: str) -> str:
         return versions[dataset_kind]
     except KeyError as error:
         raise ApplicationError("CONFIG_DATASET_KIND_INVALID") from error
-
-
-__all__ = ["ConfiguredDatasetBuild"]
