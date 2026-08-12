@@ -158,6 +158,7 @@ def canonicalize_event_deck(
         deck_values,
         record,
         allow_generic_id=deck_values is not values,
+        allow_deck_name=deck_values is not values,
     )
     source = DeckSourceReference(
         source_id=record.source_id,
@@ -249,9 +250,7 @@ def _deck_values(values: Mapping[str, object]) -> Mapping[str, object]:
     ):
         if key in values:
             value = values[key]
-            if key in _DECK_ID_KEYS and (
-                not isinstance(value, (str, int)) or not str(value).strip()
-            ):
+            if key in _DECK_ID_KEYS and _identifier_text(value) is None:
                 continue
             merged[key] = value
     return merged
@@ -299,17 +298,29 @@ def _parse_text_decklist(value: str) -> tuple[tuple[Mapping[str, object], ...], 
 
 
 def _source_deck_id(
-    values: Mapping[str, object], record: StagingRecord, *, allow_generic_id: bool = False
+    values: Mapping[str, object],
+    record: StagingRecord,
+    *,
+    allow_generic_id: bool = False,
+    allow_deck_name: bool = False,
 ) -> str:
     keys: tuple[str, ...] = _DECK_ID_KEYS
     if allow_generic_id:
         keys += ("id",)
-    keys += ("name",)
+    if allow_deck_name:
+        keys += ("name",)
     for key in keys:
-        value = values.get(key)
-        if isinstance(value, (str, int)) and str(value).strip():
-            return str(value).strip()
+        value = _identifier_text(values.get(key))
+        if value is not None:
+            return value
     return record.staging_record_id
+
+
+def _identifier_text(value: object) -> str | None:
+    if isinstance(value, bool) or not isinstance(value, (str, int)):
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def _explicit_deck_id(values: Mapping[str, object]) -> str | None:

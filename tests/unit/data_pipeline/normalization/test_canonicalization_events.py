@@ -226,6 +226,28 @@ def test_empty_outer_deck_id_does_not_shadow_nested_identity() -> None:
     assert _source_deck_id(nested_values, record, allow_generic_id=True) == "deck-42"
 
 
+def test_inline_standing_name_is_not_used_as_source_deck_identity() -> None:
+    from commander_ai.data_pipeline.normalization.event_deck_canonicalization import (
+        _source_deck_id,
+    )
+
+    record = _record("standing", {"name": "player-name"}, "/standing")
+
+    assert _source_deck_id({"name": "player-name"}, record) == record.staging_record_id
+
+
+def test_boolean_deck_id_alias_does_not_shadow_nested_identity() -> None:
+    from commander_ai.data_pipeline.normalization.event_deck_canonicalization import (
+        _deck_values,
+        _source_deck_id,
+    )
+
+    record = _record("standing", {"deck_id": False}, "/standing")
+    values = {"deck_id": False, "deckObj": {"id": "deck-42"}}
+
+    assert _source_deck_id(_deck_values(values), record, allow_generic_id=True) == "deck-42"
+
+
 def test_source_opaque_participant_ids_require_an_explicit_identity_policy() -> None:
     event = _record(
         "event",

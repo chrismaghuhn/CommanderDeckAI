@@ -93,8 +93,17 @@ def test_card_cooccurrence_v2_rejects_relation_outside_persisted_zones() -> None
 
 def test_card_cooccurrence_v2_rejects_case_variant_self_relation() -> None:
     _, candidate = _contract("card-cooccurrence.v2")
+    from commander_ai.domain.decks import compute_structural_fingerprint
+
+    variant = "a2222222-2222-4222-8222-222222222222"
     candidate["values"]["relation_type"] = "card_card"  # type: ignore[index]
-    candidate["values"]["left_id"] = candidate["values"]["right_id"].upper()  # type: ignore[index]
+    candidate["values"]["left_id"] = variant  # type: ignore[index]
+    candidate["values"]["right_id"] = variant.upper()  # type: ignore[index]
+    candidate["values"]["card_zones"][0]["cards"][0]["oracle_id"] = variant  # type: ignore[index]
+    candidate["values"]["canonical_deck_id"] = compute_structural_fingerprint(  # type: ignore[index]
+        candidate["values"]["command_zone"],
+        candidate["values"]["card_zones"],  # type: ignore[index]
+    )
 
     with pytest.raises(ValidationError, match="distinct cards"):
         CardCooccurrenceV2Row.model_validate(candidate)
