@@ -33,6 +33,7 @@ def standing_result(
     *,
     resolver: CardResolver | None,
     attempted_at: datetime,
+    allow_source_opaque_participant_id: bool,
 ) -> EventCanonicalizationResult:
     """Resolve one final-standing row and retain its deck evidence."""
 
@@ -84,7 +85,7 @@ def standing_result(
             source_status=event.source_status,
         ),
         standing,
-        allow_source_opaque_participant_id=True,
+        allow_source_opaque_participant_id=allow_source_opaque_participant_id,
     )
     if normalized.observation is None:
         return merge_result_values(

@@ -53,6 +53,7 @@ def canonicalize_topdeck_table(
     round_number: int | None,
     source_manifest: SourceSnapshotManifest,
     deck_bindings: Mapping[tuple[str, str], str] | None = None,
+    allow_source_opaque_participant_id: bool = False,
 ) -> TopDeckPodMapping:
     """Map one complete TopDeck table to grouped PodEntry records."""
 
@@ -91,7 +92,7 @@ def canonicalize_topdeck_table(
             members=members,
             evidence=evidence,
         ),
-        allow_source_opaque_participant_id=True,
+        allow_source_opaque_participant_id=allow_source_opaque_participant_id,
     )
     if normalized.pod is None:
         return _failure(*normalized.finding_codes)

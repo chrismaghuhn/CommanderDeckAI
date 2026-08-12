@@ -181,7 +181,11 @@ def test_event_observation_preserves_explicit_deck_and_minimized_participant() -
         "/standing",
     )
 
-    result = canonicalize_event_sources([event, standing], source_manifest=_manifest())
+    result = canonicalize_event_sources(
+        [event, standing],
+        source_manifest=_manifest(),
+        allow_source_opaque_participant_id=True,
+    )
 
     assert len(result.records) == 1
     observation = result.records[0].payload
@@ -189,6 +193,33 @@ def test_event_observation_preserves_explicit_deck_and_minimized_participant() -
     assert observation["participant_reference"]["scope"] == "source"  # type: ignore[index]
     assert "player-1" in observation["participant_reference"]["reference_id"]  # type: ignore[index]
     assert all("display_name" not in str(item.model_dump()) for item in result.records)
+
+
+def test_source_opaque_participant_ids_require_an_explicit_identity_policy() -> None:
+    event = _record(
+        "event",
+        {"TID": "event-1", "format": "EDH", "startDate": "2026-08-10T18:00:00Z"},
+        "/event",
+    )
+    standing = _record(
+        "standing",
+        {
+            "event_id": "event-1",
+            "player_id": "player-1",
+            "canonical_deck_id": "a" * 64,
+            "wins": 3,
+            "losses": 0,
+            "draws": 0,
+            "place": 1,
+            "record": "3-0-0",
+        },
+        "/standing",
+    )
+
+    result = canonicalize_event_sources([event, standing], source_manifest=_manifest())
+
+    assert result.records[0].payload["participant_reference"] is None
+    assert "quality.participant_source_id_not_retained" in result.finding_codes
 
 
 def test_topdeck_style_table_without_context_is_quarantined_not_flattened() -> None:
@@ -262,6 +293,7 @@ def test_topdeck_frozen_table_players_produce_one_four_player_pod() -> None:
     result = canonicalize_event_sources(
         [event, round_record, table],
         source_manifest=manifest,
+        allow_source_opaque_participant_id=True,
     )
 
     assert len(result.records) == 4

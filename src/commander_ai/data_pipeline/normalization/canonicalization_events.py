@@ -36,6 +36,7 @@ def canonicalize_event_sources(
     source_manifest: SourceSnapshotManifest,
     card_catalog: CardCatalog | None = None,
     attempted_at: datetime | None = None,
+    allow_source_opaque_participant_id: bool = False,
 ) -> EventCanonicalizationResult:
     """Map only source records with enough semantics for safe canonicalization."""
 
@@ -94,6 +95,7 @@ def canonicalize_event_sources(
                 events,
                 resolver=resolver,
                 attempted_at=resolution_at,
+                allow_source_opaque_participant_id=allow_source_opaque_participant_id,
             )
             merge_event_result(
                 result,
@@ -125,6 +127,7 @@ def canonicalize_event_sources(
                 deck_bindings={
                     (event_id, player_id): deck_id for event_id, player_id, deck_id in deck_bindings
                 },
+                allow_source_opaque_participant_id=allow_source_opaque_participant_id,
             )
             if table_result.records:
                 canonical.extend(table_result.records)

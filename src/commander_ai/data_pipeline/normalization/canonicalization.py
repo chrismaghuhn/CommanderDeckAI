@@ -59,6 +59,7 @@ def canonicalize_staging(
     attempted_at: datetime | None = None,
     ruleset_inputs: Sequence[RulesetSnapshotInput] = (),
     card_catalog: CardCatalog | None = None,
+    allow_source_opaque_participant_id: bool = False,
 ) -> CanonicalizationResult:
     """Canonicalize only observed staging rows with source-specific mappings."""
 
@@ -75,6 +76,7 @@ def canonicalize_staging(
             source_manifest=source_manifest,
             card_catalog=card_catalog,
             attempted_at=resolution_at,
+            allow_source_opaque_participant_id=allow_source_opaque_participant_id,
         )
         return CanonicalizationResult(
             records=event_result.records,
