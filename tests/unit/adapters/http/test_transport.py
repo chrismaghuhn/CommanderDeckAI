@@ -6,7 +6,7 @@ from collections.abc import Callable
 import httpx
 import pytest
 
-from commander_ai.adapters.http.transport import HttpTransport, HttpTransportError
+from commander_ai.adapters.http.transport import MAX_HTTP_RETRIES, HttpTransport, HttpTransportError
 
 
 def _transport(
@@ -58,6 +58,13 @@ def test_transport_exposes_exact_iter_raw_entity_bytes_and_safe_response_metadat
     }
     assert response.sanitized_endpoint == "https://fixture.invalid/download"
     assert "secret" not in repr(response.metadata.as_dict())
+
+
+def test_shared_transport_rejects_retry_counts_above_intrinsic_ceiling() -> None:
+    with pytest.raises(ValueError, match="retry"):
+        _transport(
+            lambda request: httpx.Response(200, request=request), max_retries=MAX_HTTP_RETRIES + 1
+        )
 
 
 def test_redirect_to_non_allowlisted_host_is_rejected_before_following() -> None:

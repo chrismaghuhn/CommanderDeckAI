@@ -28,6 +28,7 @@ from .redirect_policy import RedirectPolicy, RedirectPolicyError
 from .response_history import validate_response_history
 
 MAX_RATE_LIMIT_PER_MINUTE = 1_000_000
+MAX_HTTP_RETRIES = 8
 
 
 class HttpTransportError(RuntimeError):
@@ -157,6 +158,7 @@ class HttpTransport:
             or not isinstance(max_retries, int)
             or isinstance(max_retries, bool)
             or max_retries < 0
+            or max_retries > MAX_HTTP_RETRIES
             or not isinstance(max_response_bytes, int)
             or isinstance(max_response_bytes, bool)
             or max_response_bytes < 1
@@ -389,4 +391,10 @@ def _retry_after_seconds(value: str) -> float | None:
             return None
 
 
-__all__ = ["HttpResponseMetadata", "HttpTransport", "HttpTransportError", "SafeHttpResponse"]
+__all__ = [
+    "MAX_HTTP_RETRIES",
+    "HttpResponseMetadata",
+    "HttpTransport",
+    "HttpTransportError",
+    "SafeHttpResponse",
+]
