@@ -3,6 +3,8 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
+import pyarrow as pa
+import pyarrow.parquet as pq
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
@@ -711,6 +713,48 @@ def test_dataset_inspection_rejects_cross_split_group_even_after_rehashing(
     manifest_path.write_bytes(canonical_json_bytes(payload))
 
     with pytest.raises(ValueError, match="cross-split leakage"):
+        inspect_dataset(tmp_path, result.manifest.dataset_id)
+
+
+def test_dataset_inspection_rejects_rows_outside_the_declared_typed_contract(
+    tmp_path: Path,
+) -> None:
+    result = _build(tmp_path)
+    malformed = {
+        "curated_id": "fixture-dataset:record-1",
+        "layer": "curated",
+        "values": {"record_id": "record-1", "split": "train"},
+    }
+    malformed_path = tmp_path / "datasets/fixture-dataset/malformed.parquet"
+    malformed_path.parent.mkdir(parents=True, exist_ok=True)
+    pq.write_table(
+        pa.Table.from_arrays(
+            [pa.array([canonical_json_bytes(malformed).decode("utf-8")], type=pa.string())],
+            names=["row_json"],
+        ),
+        malformed_path,
+    )
+    payload = json.loads((tmp_path / result.manifest_artifact.path).read_bytes())
+    malformed_bytes = malformed_path.read_bytes()
+    payload["outputs"] = [
+        {
+            "name": "deck_corpus",
+            "path": "datasets/fixture-dataset/malformed.parquet",
+            "sha256": sha256_hex(malformed_bytes),
+            "rows": 1,
+            "bytes": len(malformed_bytes),
+        }
+    ]
+    payload["dataset_content_sha256"] = compute_dataset_content_sha256(
+        dataset_id=result.manifest.dataset_id,
+        dataset_kind=result.manifest.dataset_kind,
+        table_name="deck_corpus",
+        rows=[malformed],
+    )
+    payload["manifest_sha256"] = detached_manifest_sha256(payload)
+    (tmp_path / result.manifest_artifact.path).write_bytes(canonical_json_bytes(payload))
+
+    with pytest.raises(ValueError, match="typed layer contract"):
         inspect_dataset(tmp_path, result.manifest.dataset_id)
 
 

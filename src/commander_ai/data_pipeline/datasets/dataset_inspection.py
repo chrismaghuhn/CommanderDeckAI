@@ -9,12 +9,16 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from commander_ai.adapters.storage.manifest_files import JsonArtifact
-from commander_ai.adapters.storage.parquet_tables import ParquetTableWriter
+from commander_ai.adapters.storage.parquet_tables import (
+    ParquetTableWriter,
+    validate_parquet_table_rows,
+)
 from commander_ai.adapters.storage.path_policy import resolve_under_root
 from commander_ai.adapters.storage.raw_snapshot_io import sha256_file
 from commander_ai.data_pipeline.datasets.dataset_content import compute_dataset_content_sha256
 from commander_ai.data_pipeline.datasets.leakage_reports import build_leakage_report
 from commander_ai.domain.dataset_contracts import DatasetManifest, DatasetOutputReference
+from commander_ai.domain.dataset_row_contracts import row_contract_for_schema
 from commander_ai.domain.provenance import detached_manifest_sha256
 from commander_ai.domain.serialization import canonical_json_bytes
 
@@ -63,7 +67,12 @@ def inspect_dataset(root: Path | str, dataset_id: str) -> DatasetInspection:
     table_reader = ParquetTableWriter(artifact_root)
     content_inputs: list[tuple[str, list[dict[str, object]]]] = []
     for output in manifest.outputs:
-        _verify_output_artifact(artifact_root, dataset_id, output)
+        output_path = _verify_output_artifact(artifact_root, dataset_id, output)
+        validate_parquet_table_rows(
+            output_path,
+            layer="curated",
+            row_contract=row_contract_for_schema(_dataset_row_schema(manifest)),
+        )
         rows = table_reader.read_table(output.path)
         if len(rows) != output.rows:
             raise ValueError(f"dataset output row count mismatch: {output.path}")
@@ -117,6 +126,18 @@ def _validate_dataset_output_path(path: str, dataset_id: str) -> None:
     expected_prefix = f"datasets/{dataset_id}/"
     if not path.startswith(expected_prefix):
         raise ValueError("dataset output path escapes its dataset directory")
+
+
+def _dataset_row_schema(manifest: DatasetManifest) -> str:
+    try:
+        return {
+            "deck_completion": "deck-corpus.v1",
+            "tournament_outcomes": "tournament-corpus.v1",
+            "card_cooccurrence": "card-cooccurrence.v1",
+            "combo": "combo-corpus.v1",
+        }[manifest.dataset_kind]
+    except KeyError as error:
+        raise ValueError("dataset kind has no typed curated row contract") from error
 
 
 def _verify_output_artifact(root: Path, dataset_id: str, output: DatasetOutputReference) -> Path:
