@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 
 from commander_ai.adapters.storage.manifest_files import JsonArtifact, ManifestFileWriter
-from commander_ai.adapters.storage.parquet_tables import CuratedRow, ParquetTableWriter
+from commander_ai.adapters.storage.parquet_tables import ParquetTableWriter
 from commander_ai.config.current_use_policy import CurrentUseDecision
 from commander_ai.config.dataset_settings import DatasetSettings
 from commander_ai.config.source_settings import SourceApprovalStatus
@@ -35,6 +35,7 @@ from commander_ai.domain.dataset_contracts import (
     DatasetManifest,
     DatasetOutputReference,
 )
+from commander_ai.domain.dataset_row_contracts import DatasetRow, row_contract_for_schema
 from commander_ai.domain.serialization import canonical_json_bytes
 
 from .dataset_builder_types import DatasetProjectionRecord
@@ -116,6 +117,7 @@ def build_dataset(
     )
     verify_dataset_inputs(request)
     split_result: DeckCompletionSplitResult | TournamentSplitResult | tuple[SplitAssignment, ...]
+    rows: tuple[DatasetRow, ...]
     if kind in {"deck_completion", "card_cooccurrence"}:
         if not all(isinstance(record, DeckCompletionRecord) for record in records):
             raise TypeError(f"{kind} datasets require DeckCompletionRecord inputs")
@@ -205,7 +207,7 @@ def build_dataset(
         relative_path=relative_path,
         schema_version=row_schema,
         layer="curated",
-        row_contract=CuratedRow,
+        row_contract=row_contract_for_schema(row_schema),
     )
     try:
         output_reference = DatasetOutputReference(

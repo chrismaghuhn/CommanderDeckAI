@@ -7,7 +7,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from commander_ai.adapters.storage.parquet_tables import CuratedRow
 from commander_ai.adapters.storage.path_policy import resolve_under_root
 from commander_ai.adapters.storage.raw_snapshot_io import sha256_file
 from commander_ai.config.current_use_policy import (
@@ -30,6 +29,7 @@ from commander_ai.domain.dataset_contracts import (
     DatasetManifest,
     DatasetOutputReference,
 )
+from commander_ai.domain.dataset_row_contracts import DatasetRow
 from commander_ai.domain.provenance import detached_manifest_sha256
 from commander_ai.domain.serialization import sha256_hex
 
@@ -49,7 +49,7 @@ def build_dataset_manifest(
     request: DatasetBuildRequest,
     row_schema: str,
     table_name: str,
-    rows: tuple[CuratedRow, ...],
+    rows: tuple[DatasetRow, ...],
     output: DatasetOutputReference,
     exclusions: tuple[DatasetExclusion, ...],
     counts: dict[str, int],

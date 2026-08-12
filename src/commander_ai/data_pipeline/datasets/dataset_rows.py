@@ -6,7 +6,6 @@ from collections.abc import Mapping
 from itertools import combinations
 from typing import TYPE_CHECKING
 
-from commander_ai.adapters.storage.parquet_tables import CuratedRow
 from commander_ai.config.dataset_settings import DatasetSettings
 from commander_ai.data_pipeline.splitting.deck_completion_policy import (
     DeckCompletionSplitResult,
@@ -18,6 +17,16 @@ from commander_ai.data_pipeline.splitting.group_promotion import (
     assign_provisional_splits,
 )
 from commander_ai.data_pipeline.splitting.tournament_policy import TournamentSplitResult
+from commander_ai.domain.dataset_row_contracts import (
+    CardCooccurrenceRow,
+    CardCooccurrenceValues,
+    ComboCorpusRow,
+    ComboCorpusValues,
+    DeckCorpusRow,
+    DeckCorpusValues,
+    TournamentCorpusRow,
+    TournamentCorpusValues,
+)
 
 if TYPE_CHECKING:
     from .dataset_builder import DatasetProjectionRecord
@@ -98,9 +107,9 @@ def completion_rows(
     result: DeckCompletionSplitResult,
     *,
     row_schema: str,
-) -> tuple[CuratedRow, ...]:
+) -> tuple[DeckCorpusRow, ...]:
     records = {record.record_id: record for record in result.eligible_records}
-    rows: list[CuratedRow] = []
+    rows: list[DeckCorpusRow] = []
     for assignment in result.assignments:
         record = records[assignment.record_id]
         deck = record.occurrence.deck
@@ -119,18 +128,23 @@ def completion_rows(
             "card_zones": [zone.model_dump(mode="json") for zone in deck.card_zones],
             "payload": safe_payload(record.payload),
         }
-        rows.append(CuratedRow(curated_id=f"{dataset_id}:{record.record_id}", values=values))
+        rows.append(
+            DeckCorpusRow(
+                curated_id=f"{dataset_id}:{record.record_id}",
+                values=DeckCorpusValues.model_validate(values),
+            )
+        )
     return tuple(rows)
 
 
 def cooccurrence_rows(
     dataset_id: str,
     result: DeckCompletionSplitResult,
-) -> tuple[CuratedRow, ...]:
+) -> tuple[CardCooccurrenceRow, ...]:
     """Project each eligible deck into commander-card and card-card relations."""
 
     records = {record.record_id: record for record in result.eligible_records}
-    rows: list[CuratedRow] = []
+    rows: list[CardCooccurrenceRow] = []
     for assignment in result.assignments:
         record = records[assignment.record_id]
         deck = record.occurrence.deck
@@ -151,35 +165,41 @@ def cooccurrence_rows(
             (commander_id, card_id) for commander_id in commanders for card_id in cards
         ):
             rows.append(
-                CuratedRow(
+                CardCooccurrenceRow(
                     curated_id=f"{dataset_id}:{record.record_id}:commander_card:{commander_id}:{card_id}",
-                    values={
-                        **base_values,
-                        "relation_type": "commander_card",
-                        "left_id": commander_id,
-                        "right_id": card_id,
-                    },
+                    values=CardCooccurrenceValues.model_validate(
+                        {
+                            **base_values,
+                            "relation_type": "commander_card",
+                            "left_id": commander_id,
+                            "right_id": card_id,
+                        }
+                    ),
                 )
             )
         for left_id, right_id in combinations(cards, 2):
             rows.append(
-                CuratedRow(
+                CardCooccurrenceRow(
                     curated_id=f"{dataset_id}:{record.record_id}:card_card:{left_id}:{right_id}",
-                    values={
-                        **base_values,
-                        "relation_type": "card_card",
-                        "left_id": left_id,
-                        "right_id": right_id,
-                    },
+                    values=CardCooccurrenceValues.model_validate(
+                        {
+                            **base_values,
+                            "relation_type": "card_card",
+                            "left_id": left_id,
+                            "right_id": right_id,
+                        }
+                    ),
                 )
             )
     return tuple(rows)
 
 
-def tournament_rows(dataset_id: str, result: TournamentSplitResult) -> tuple[CuratedRow, ...]:
+def tournament_rows(
+    dataset_id: str, result: TournamentSplitResult
+) -> tuple[TournamentCorpusRow, ...]:
     records = {record.record_id: record for record in result.eligible_records}
     strata = dict(result.familiar_strata)
-    rows: list[CuratedRow] = []
+    rows: list[TournamentCorpusRow] = []
     for assignment in result.assignments:
         record = records[assignment.record_id]
         values = {
@@ -193,7 +213,12 @@ def tournament_rows(dataset_id: str, result: TournamentSplitResult) -> tuple[Cur
             "group_ids": list(assignment.group_ids),
             "payload": safe_payload(record.payload),
         }
-        rows.append(CuratedRow(curated_id=f"{dataset_id}:{record.record_id}", values=values))
+        rows.append(
+            TournamentCorpusRow(
+                curated_id=f"{dataset_id}:{record.record_id}",
+                values=TournamentCorpusValues.model_validate(values),
+            )
+        )
     return tuple(rows)
 
 
@@ -201,7 +226,7 @@ def projection_rows(
     settings: DatasetSettings,
     records: tuple[DatasetProjectionRecord, ...],
     row_schema: str,
-) -> tuple[tuple[CuratedRow, ...], tuple[SplitAssignment, ...]]:
+) -> tuple[tuple[ComboCorpusRow, ...], tuple[SplitAssignment, ...]]:
     train_until = settings.split_policy.train_until
     validation_until = settings.split_policy.validation_until
     if train_until is None or validation_until is None:
@@ -212,15 +237,17 @@ def projection_rows(
     )
     by_id = {record.record_id: record for record in records}
     rows = tuple(
-        CuratedRow(
+        ComboCorpusRow(
             curated_id=f"{settings.dataset_id}:{assignment.record_id}",
-            values={
-                "schema_version": row_schema,
-                "record_id": assignment.record_id,
-                "split": assignment.split,
-                "observed_at": by_id[assignment.record_id].observed_at.isoformat(),
-                "payload": safe_payload(by_id[assignment.record_id].payload),
-            },
+            values=ComboCorpusValues.model_validate(
+                {
+                    "schema_version": row_schema,
+                    "record_id": assignment.record_id,
+                    "split": assignment.split,
+                    "observed_at": by_id[assignment.record_id].observed_at.isoformat(),
+                    "payload": safe_payload(by_id[assignment.record_id].payload),
+                }
+            ),
         )
         for assignment in temporal
     )

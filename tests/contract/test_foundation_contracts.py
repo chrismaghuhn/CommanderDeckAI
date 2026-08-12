@@ -46,6 +46,10 @@ NEW_CONTRACT_STEMS = (
     "dataset-manifest.v2",
     "canonical-record.v1",
     "canonical-snapshot-manifest.v1",
+    "deck-corpus.v1",
+    "card-cooccurrence.v1",
+    "tournament-corpus.v1",
+    "combo-corpus.v1",
 )
 
 

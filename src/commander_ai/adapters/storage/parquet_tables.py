@@ -29,6 +29,7 @@ from commander_ai.data_pipeline.staging.raw_locators import (
 )
 from commander_ai.data_pipeline.staging.records import StagingRecord
 from commander_ai.domain.cards import CanonicalCard, CardFace, CardResolution, Printing
+from commander_ai.domain.dataset_row_contracts import TASK_DATASET_ROW_CONTRACTS
 from commander_ai.domain.provenance import DomainModel
 from commander_ai.domain.serialization import canonical_json_bytes
 
@@ -45,6 +46,14 @@ class CuratedRow(DomainModel):
     curated_id: str
     values: Mapping[str, object]
     layer: Literal["curated"] = "curated"
+
+
+_CURATED_BASE_CONTRACTS = (CanonicalCard, CardFace, Printing)
+_CURATED_CONTRACTS: tuple[type[BaseModel], ...] = (
+    CuratedRow,
+    *TASK_DATASET_ROW_CONTRACTS,
+    *_CURATED_BASE_CONTRACTS,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -220,7 +229,7 @@ def _require_row_contract(layer: str, contract: type[BaseModel] | None) -> type[
         "normalized": (StagingRecord, CanonicalRecord),
         "audit": (AuditRecord, CardResolution, ResolutionAttempt, ProvenanceRow),
         "quarantine": (QuarantineRecord,),
-        "curated": (CuratedRow, CanonicalCard, CardFace, Printing),
+        "curated": _CURATED_CONTRACTS,
     }
     if contract not in allowed[layer]:
         raise ValueError(f"row contract is not valid for the {layer} layer")
@@ -347,7 +356,7 @@ def validate_parquet_table_rows(
         "normalized": (StagingRecord, CanonicalRecord),
         "audit": (AuditRecord, CardResolution, ResolutionAttempt, ProvenanceRow),
         "quarantine": QuarantineRecord,
-        "curated": (CuratedRow, CanonicalCard, CardFace, Printing),
+        "curated": _CURATED_CONTRACTS,
     }
     contracts = contracts_by_layer[layer]
     if row_contract is not None:

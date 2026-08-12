@@ -1,0 +1,18 @@
+{
+  "curated_id": "cedh-pod-outcome-v1:entry-1",
+  "layer": "curated",
+  "values": {
+    "schema_version": "tournament-corpus.v1",
+    "record_id": "entry-1",
+    "split": "validation",
+    "event_id": "event-1",
+    "canonical_deck_id": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "observed_at": "2024-06-01T00:00:00Z",
+    "familiar_stratum": "unseen",
+    "group_ids": ["event:event-1"],
+    "payload": {
+      "standing": 1,
+      "participant_reference": "source:topdeck:participant-1"
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "curated_id": "combo-fixture-v1:combo-1",
+  "layer": "curated",
+  "values": {
+    "schema_version": "combo-corpus.v1",
+    "record_id": "combo-1",
+    "split": "test",
+    "observed_at": "2024-08-01T00:00:00Z",
+    "payload": {
+      "cards": [
+        "11111111-1111-4111-8111-111111111111",
+        "22222222-2222-4222-8222-222222222222"
+      ],
+      "result": "infinite"
+    }
+  }
+}

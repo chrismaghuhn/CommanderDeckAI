@@ -6,7 +6,10 @@ from pathlib import Path
 import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 
-from commander_ai.adapters.storage.parquet_tables import ParquetTableWriter
+from commander_ai.adapters.storage.parquet_tables import (
+    ParquetTableWriter,
+    validate_parquet_table_rows,
+)
 from commander_ai.config.current_use_policy import (
     CurrentUseDecision,
     current_use_decision_binding,
@@ -33,6 +36,12 @@ from commander_ai.data_pipeline.provenance.run_manifests import (
     run_manifest_bytes,
 )
 from commander_ai.domain.dataset_contracts import DatasetInputReference
+from commander_ai.domain.dataset_row_contracts import (
+    CardCooccurrenceRow,
+    ComboCorpusRow,
+    DeckCorpusRow,
+    TournamentCorpusRow,
+)
 from commander_ai.domain.decks import CardQuantity, CardZone, CommandZoneEntry
 from commander_ai.domain.provenance import (
     NormalizedSnapshotManifest,
@@ -251,6 +260,15 @@ def _build(root: Path):
     return result
 
 
+def _assert_rows_match_schema(root: Path, artifact_path: str, schema_stem: str) -> None:
+    schema = json.loads((PROJECT_ROOT / "schemas" / f"{schema_stem}.schema.json").read_text())
+    rows = ParquetTableWriter(root).read_table(artifact_path)
+    validator = Draft202012Validator(schema, format_checker=FormatChecker())
+    for row in rows:
+        errors = list(validator.iter_errors(row))
+        assert errors == [], [error.message for error in errors]
+
+
 def _publish_final_run(request: DatasetBuildRequest, result) -> None:
     from commander_ai.adapters.storage.manifest_files import ManifestFileWriter
 
@@ -374,6 +392,8 @@ def test_dataset_build_is_reproducible_and_manifest_binds_inputs_and_policy(tmp_
 
     first_table = tmp_path / "first" / first.output_artifacts[0].path
     second_table = tmp_path / "second" / second.output_artifacts[0].path
+    validate_parquet_table_rows(first_table, layer="curated", row_contract=DeckCorpusRow)
+    _assert_rows_match_schema(tmp_path / "first", first.output_artifacts[0].path, "deck-corpus.v1")
     assert first_table.read_bytes() == second_table.read_bytes()
     first_manifest = tmp_path / "first" / first.manifest_artifact.path
     second_manifest = tmp_path / "second" / second.manifest_artifact.path
@@ -846,6 +866,12 @@ def test_card_cooccurrence_projection_emits_commander_and_card_relations(tmp_pat
     )
 
     rows = ParquetTableWriter(tmp_path).read_table(result.output_artifacts[0].path)
+    validate_parquet_table_rows(
+        tmp_path / result.output_artifacts[0].path,
+        layer="curated",
+        row_contract=CardCooccurrenceRow,
+    )
+    _assert_rows_match_schema(tmp_path, result.output_artifacts[0].path, "card-cooccurrence.v1")
     relations = {row["values"]["relation_type"] for row in rows}
     assert relations == {"commander_card", "card_card"}
     assert len(rows) == 3
@@ -876,6 +902,12 @@ def test_tournament_and_combo_builders_publish_separate_task_artifacts(tmp_path:
         ],
     )
     assert tournament.output_artifacts[0].name == "tournament_corpus"
+    validate_parquet_table_rows(
+        tmp_path / tournament.output_artifacts[0].path,
+        layer="curated",
+        row_contract=TournamentCorpusRow,
+    )
+    _assert_rows_match_schema(tmp_path, tournament.output_artifacts[0].path, "tournament-corpus.v1")
 
     combo_settings = _settings(
         dataset_id="fixture-combo",
@@ -895,6 +927,12 @@ def test_tournament_and_combo_builders_publish_separate_task_artifacts(tmp_path:
         ],
     )
     assert combo.output_artifacts[0].name == "combo_corpus"
+    validate_parquet_table_rows(
+        tmp_path / combo.output_artifacts[0].path,
+        layer="curated",
+        row_contract=ComboCorpusRow,
+    )
+    _assert_rows_match_schema(tmp_path, combo.output_artifacts[0].path, "combo-corpus.v1")
 
 
 def test_event_grouped_tournament_strategy_applies_complete_record_filters(
