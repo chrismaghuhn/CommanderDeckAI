@@ -29,11 +29,11 @@ from commander_ai.data_pipeline.staging.raw_locators import (
 )
 from commander_ai.data_pipeline.staging.records import StagingRecord
 from commander_ai.domain.cards import CanonicalCard, CardFace, CardResolution, Printing
-from commander_ai.domain.dataset_row_contracts import TASK_DATASET_ROW_CONTRACTS
 from commander_ai.domain.provenance import DomainModel
 from commander_ai.domain.serialization import canonical_json_bytes
 
 from .archive_safety import ArchiveLimits
+from .curated_contracts import curated_row_contracts
 from .path_policy import resolve_under_root, validate_portable_relative_path
 from .raw_snapshot_io import fsync_directory, publish_new, sha256_file
 
@@ -48,12 +48,7 @@ class CuratedRow(DomainModel):
     layer: Literal["curated"] = "curated"
 
 
-_CURATED_BASE_CONTRACTS = (CanonicalCard, CardFace, Printing)
-_CURATED_CONTRACTS: tuple[type[BaseModel], ...] = (
-    CuratedRow,
-    *TASK_DATASET_ROW_CONTRACTS,
-    *_CURATED_BASE_CONTRACTS,
-)
+_CURATED_CONTRACTS = curated_row_contracts(CuratedRow)
 
 
 @dataclass(frozen=True, slots=True)
