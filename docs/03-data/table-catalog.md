@@ -78,3 +78,13 @@ and their manifests remain authoritative and sufficient to rebuild these tables.
 The versioned `event.v1`, `pod.v2`, and
 `combo-commander-compatibility.v1` contracts define the newly persisted row
 semantics; no event or combo result is inferred from a different source snapshot.
+
+## Task-specific curated corpora
+
+The dataset builder writes separate curated projections with versioned row
+contracts: `deck-corpus.v1` for deck completion, `card-cooccurrence.v1` for
+commander/card and card/card relations, `tournament-corpus.v1` for event-grouped
+outcomes, and `combo-corpus.v1` for combo projections. Their JSON Schemas and
+small examples are tracked under `schemas/` and `examples/`; the Parquet files
+and dataset manifests are the authoritative artifacts, while DuckDB remains
+rebuildable local infrastructure.

@@ -128,6 +128,15 @@ task-specific Parquet and a bound `run-manifest.v1`.
 `run-manifest.v1` is reused for source sync, normalize, validate, report, and
 dataset build; no competing data-run contract is used.
 
+Task-specific Parquet rows use their own versioned contracts and JSON Schemas;
+the generic `CuratedRow` envelope is not the semantic authority for these
+outputs. The current projections are `deck-corpus.v1`,
+`card-cooccurrence.v1`, `tournament-corpus.v1`, and `combo-corpus.v1` under
+`schemas/`, with small matching examples under `examples/`. The dataset builder
+validates each emitted row through its matching domain contract before writing
+Parquet, and the dataset manifest binds the resulting row schema and artifact
+hash.
+
 `cda data report <source>` publishes the existing source-quality report. For
 `cda data report all`, the same measured `SourceMetricsInput` values also feed
 an additional `dataset-audit-report.v1` JSON/Markdown artifact; both report
@@ -178,9 +187,11 @@ near-duplicate algorithm/threshold.
 
 ## Offline verification
 
-Normal CI uses no live source or private credential. The small fixture workflow
-in `tests/e2e/test_data_foundation_workflow.py` proves raw-to-normalized,
-report, dataset-build, integrity, and rebuild behavior using local bytes only.
+Normal CI uses no live source or private credential. The small fixture workflows
+in `tests/e2e/test_cli_data_foundation_workflow.py` and
+`tests/e2e/test_data_foundation_workflow.py` prove the CLI/Application
+source-sync-to-inspect path plus raw-to-normalized, report, dataset-build,
+integrity, and rebuild behavior using local bytes only.
 Opt-in live smoke tests, if added later, must remain separate from normal PR
 verification.
 

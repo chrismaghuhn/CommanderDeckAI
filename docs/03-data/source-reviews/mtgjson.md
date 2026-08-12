@@ -3,6 +3,7 @@
 **Status:** APPROVED_LOCAL<br>
 **Reviewed:** 2026-08-10<br>
 **Downloads:** https://mtgjson.com/downloads/all-files/<br>
+**Checksum-FAQ:** https://mtgjson.com/faq/<br>
 **Projektlizenz:** https://github.com/mtgjson/mtgjson
 
 ## Geplanter Scope
@@ -33,6 +34,10 @@
 
 ## Konfigurierte Bulk-Dateien
 
+Die [MTGJSON-Bulk-Dateiseite](https://mtgjson.com/downloads/all-files/) bestätigt
+die verfügbaren `AllPrintings`- und `AllDeckFiles`-Datensätze. Die
+[MTGJSON-FAQ](https://mtgjson.com/faq/) dokumentiert ausdrücklich, dass zu jeder
+Datei eine SHA-256-Datei am gleichen Ort mit dem Suffix `.sha256` verfügbar ist.
 Die konfigurierte MTGJSON-v5-Basis ist `https://mtgjson.com/api/v5/`.
 Verwendet werden ausschließlich die veröffentlichten Dateinamen
 `AllPrintings.json.zip` und `AllPrintings.json.zip.sha256` sowie
