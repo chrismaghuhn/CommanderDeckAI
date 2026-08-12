@@ -30,7 +30,8 @@ def verify_run_manifest(
         if input_reference.path is not None:
             input_root = (
                 external_root
-                if input_reference.kind == "source_snapshot_manifest" and external_root is not None
+                if input_reference.kind in {"source_snapshot_manifest", "ruleset_snapshot"}
+                and external_root is not None
                 else root_path
             )
             _verify_file_binding(input_root, input_reference.path, input_reference.sha256)

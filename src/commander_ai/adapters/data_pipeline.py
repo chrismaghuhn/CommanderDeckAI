@@ -18,6 +18,7 @@ from commander_ai.config import RuntimeConfig
 from commander_ai.config.current_use_policy import PolicyOperation
 from commander_ai.config.yaml_loader import serialize_config
 from commander_ai.data_pipeline.datasets.dataset_inspection import inspect_dataset
+from commander_ai.data_pipeline.decks.ruleset_inputs import RulesetSnapshotProvider
 from commander_ai.data_pipeline.provenance.normalized_snapshot_contracts import (
     NormalizedSnapshotManifestV2,
 )
@@ -44,9 +45,11 @@ class VerifiedSnapshotNormalizer:
         self,
         runtime: RuntimeConfig,
         registry_provider: SourceRegistryProvider | None = None,
+        ruleset_provider: RulesetSnapshotProvider | None = None,
     ) -> None:
         self._runtime = runtime
         self._registry_provider = registry_provider
+        self._ruleset_provider = ruleset_provider
 
     def normalize_snapshot(self, snapshot_id: str) -> NormalizeResult:
         if self._registry_provider is None:
@@ -68,6 +71,7 @@ class VerifiedSnapshotNormalizer:
             self._runtime.data_root,
             self._runtime.artifact_root,
             registry,
+            self._ruleset_provider,
         )
         return pipeline.normalize_snapshot(snapshot_id)
 

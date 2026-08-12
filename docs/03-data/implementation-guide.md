@@ -22,6 +22,13 @@ non-reloadable `<external-root>` marker.
 Do not put raw snapshots, Parquet corpora, DuckDB files, credentials, or cache
 fragments in Git.
 
+Historical Commander rulesets are separate immutable inputs under
+`<data-root>/rulesets/*.json`. Each file must satisfy the existing
+`ruleset.v1`/`RulesetSnapshot` contract. The default CLI composition injects a
+read-only provider for this directory; it does not download or infer a current
+ruleset. The provider records both the ruleset contract hash and the exact file
+byte hash in operation provenance.
+
 ## Source review and approval
 
 Before a source can be synchronized, its full typed `SourceRegistry` entry must
@@ -103,6 +110,13 @@ snapshot-content digest, detached manifest digest, and current-use policy before
 parsing. Staging and audit records retain the source snapshot, raw object, and
 JSON-pointer/record-index/byte-range locator. Unresolved and malformed records
 are preserved; they are not silently discarded or guessed into canonical cards.
+
+During canonicalization, the provider selects a ruleset only when its explicit
+`effective_from`/`effective_until` range covers the observation date. No matching
+or ambiguous input leaves legality `unknown`; downstream legal-only dataset
+construction therefore remains fail-closed. The canonicalization run binds each
+ruleset input by version ID, portable path, and exact file-byte hash. Existing
+`ruleset.v1` and `canonical-snapshot-manifest.v1` contracts remain unchanged.
 
 The authoritative staging output is the versioned
 `normalized-snapshot-manifest.v1` plus its staging, audit, and quarantine

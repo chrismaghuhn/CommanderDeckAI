@@ -2,6 +2,7 @@
 
 ```text
 data/
+├── rulesets/{ruleset_version}.json
 ├── raw/{source}/{snapshot_id}/
 │   ├── objects/
 │   └── manifest.json
@@ -26,6 +27,13 @@ data/
 `artifacts/` may contain the same run, report, and dataset outputs when an
 external artifact root is configured. All persisted paths are portable and
 root-relative; absolute machine paths are never part of a manifest.
+
+`data/rulesets/` is the authoritative local input directory for existing
+`ruleset.v1` JSON snapshots. The file provider reads only these versioned input
+files; an absent directory or absent applicable effective-date snapshot produces
+an unknown legality evaluation and never falls back to a current ruleset. The
+embedded `RulesetSnapshot.sha256` remains the semantic hash in the frozen
+contract, while run inputs bind the SHA-256 of the exact ruleset file bytes.
 
 ## Raw snapshot boundary (Task 4)
 

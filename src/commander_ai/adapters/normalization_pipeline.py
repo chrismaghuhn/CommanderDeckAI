@@ -2,9 +2,8 @@
 
 from __future__ import annotations
 
-import hashlib
 import tempfile
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -38,20 +37,21 @@ from commander_ai.application.ports.data_pipeline import NormalizeResult
 from commander_ai.application.source_policy import SourcePolicy
 from commander_ai.config.source_registry import SourceRegistry
 from commander_ai.config.yaml_loader import serialize_config
-from commander_ai.data_pipeline.provenance.normalized_snapshot_contracts import (
-    NormalizedTableArtifact,
+from commander_ai.data_pipeline.decks.ruleset_inputs import (
+    RulesetSnapshotInput,
+    RulesetSnapshotProvider,
 )
 from commander_ai.data_pipeline.provenance.normalized_snapshot_manifests import (
     build_normalized_snapshot_manifest,
     validate_normalized_snapshot_manifest,
 )
 from commander_ai.data_pipeline.provenance.rows import AuditRecord
-from commander_ai.data_pipeline.quality.finding_codes import FindingCode
 from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord, quarantine_record
 from commander_ai.data_pipeline.staging.records import StagingRecord
 from commander_ai.domain.provenance import QuarantineReference
 
 from .canonical_snapshot_publisher import publish_canonical_snapshot
+from .normalization_artifacts import audit_records, table_artifact
 from .normalization_run import build_final_normalization_run, build_normalization_run
 from .operation_provenance import operation_context
 from .snapshot_locator import find_source_for_snapshot
@@ -60,11 +60,18 @@ from .snapshot_locator import find_source_for_snapshot
 class SourceNormalizationPipeline:
     """Normalize a verified raw snapshot into staging, audit, and quarantine tables."""
 
-    def __init__(self, data_root: Path, artifact_root: Path, registry: SourceRegistry) -> None:
+    def __init__(
+        self,
+        data_root: Path,
+        artifact_root: Path,
+        registry: SourceRegistry,
+        ruleset_provider: RulesetSnapshotProvider | None = None,
+    ) -> None:
         self._data_root = data_root
         self._artifact_root = artifact_root
         self._registry = registry
         self._policy = SourcePolicy(registry)
+        self._ruleset_provider = ruleset_provider
 
     def normalize_snapshot(self, snapshot_id: str) -> NormalizeResult:
         source_id = find_source_for_snapshot(self._data_root, snapshot_id)
@@ -73,6 +80,7 @@ class SourceNormalizationPipeline:
                 self._policy,
                 SnapshotVerifier(self._data_root),
             ).prepare(source_id, snapshot_id)
+            ruleset_inputs = self._load_ruleset_inputs()
             entry = self._registry.lookup(source_id)
             staging, audits, quarantine, mapper_version = self._stage(
                 entry.settings, prepared.verified_snapshot
@@ -84,6 +92,7 @@ class SourceNormalizationPipeline:
                 audits=audits,
                 quarantine=quarantine,
                 mapper_version=mapper_version,
+                ruleset_inputs=ruleset_inputs,
             )
         except ApplicationError:
             raise
@@ -103,7 +112,7 @@ class SourceNormalizationPipeline:
     ]:
         records, mapper_version = self._parse(settings, verified)
         staging = self._map_staging(settings, records, verified)
-        audits = _audit_records(records, staging)
+        audits = audit_records(records, staging)
         quarantine = tuple(
             quarantine_record(record, reason_code=record.finding_codes[0])
             for record in staging
@@ -204,6 +213,7 @@ class SourceNormalizationPipeline:
         audits: tuple[AuditRecord, ...],
         quarantine: tuple[QuarantineRecord, ...],
         mapper_version: str,
+        ruleset_inputs: tuple[RulesetSnapshotInput, ...] = (),
     ) -> NormalizeResult:
         source_id = prepared.source_id
         snapshot_id = prepared.source_snapshot_id
@@ -238,7 +248,7 @@ class SourceNormalizationPipeline:
                 verified_snapshot=prepared.verified_snapshot,
             ),
         )
-        table_artifacts = tuple(_table_artifact(item) for item in artifacts)
+        table_artifacts = tuple(table_artifact(item) for item in artifacts)
         run_id = f"normalize-{source_id}-{snapshot_id}"
         config_snapshot: dict[str, object] = {
             "source": serialize_config(entry.settings),
@@ -246,6 +256,14 @@ class SourceNormalizationPipeline:
             "current_use": None
             if entry.current_use is None
             else serialize_config(entry.current_use),
+            "ruleset_inputs": [
+                {
+                    "id": item.snapshot_id,
+                    "path": item.path,
+                    "sha256": item.input_sha256,
+                }
+                for item in ruleset_inputs
+            ],
         }
         operation = operation_context(self._artifact_root, run_id)
         started_at = prepared.manifest.started_at
@@ -253,6 +271,15 @@ class SourceNormalizationPipeline:
         current = prepared.policy_decision
         if current.decision_reference is None or current.decision_sha256 is None:
             raise ValueError("normalization policy decision is not bound")
+        ruleset_run_inputs = tuple(
+            {
+                "kind": "ruleset_snapshot",
+                "id": item.snapshot_id,
+                "path": item.path,
+                "sha256": item.input_sha256,
+            }
+            for item in ruleset_inputs
+        )
         run_inputs = (
             {
                 "kind": "source_snapshot_manifest",
@@ -265,6 +292,7 @@ class SourceNormalizationPipeline:
                 "id": current.decision_reference,
                 "sha256": current.decision_sha256,
             },
+            *ruleset_run_inputs,
         )
         run = build_normalization_run(
             run_id=run_id,
@@ -276,6 +304,7 @@ class SourceNormalizationPipeline:
             mapper_version=mapper_version,
             started_at=started_at,
             completed_at=completed_at,
+            ruleset_snapshot_ids=tuple(item.snapshot_id for item in ruleset_inputs),
         )
         manifest_writer = ManifestFileWriter(self._artifact_root)
         normalized = build_normalized_snapshot_manifest(
@@ -321,6 +350,7 @@ class SourceNormalizationPipeline:
             completed_at=completed_at,
             manifest_artifact=manifest_artifact,
             manifest_sidecar=manifest_sidecar,
+            ruleset_snapshot_ids=tuple(item.snapshot_id for item in ruleset_inputs),
         )
         validate_normalized_snapshot_manifest(
             normalized.manifest,
@@ -342,6 +372,7 @@ class SourceNormalizationPipeline:
             normalized=normalized,
             normalized_manifest_path=manifest_artifact.path,
             normalized_manifest_sha256=manifest_artifact.sha256,
+            ruleset_inputs=ruleset_inputs,
         )
         return NormalizeResult(
             source_id=source_id,
@@ -352,47 +383,18 @@ class SourceNormalizationPipeline:
             manifest_sha256=manifest_artifact.sha256,
         )
 
+    def _load_ruleset_inputs(self) -> tuple[RulesetSnapshotInput, ...]:
+        if self._ruleset_provider is None:
+            return ()
+        values = tuple(self._ruleset_provider.load())
+        if any(not isinstance(item, RulesetSnapshotInput) for item in values):
+            raise ValueError("ruleset provider returned an invalid input")
+        return values
+
     def _temporary_root(self) -> str:
         root = self._data_root / "tmp"
         root.mkdir(parents=True, exist_ok=True)
         return str(root)
-
-
-def _table_artifact(item: Any) -> NormalizedTableArtifact:
-    return NormalizedTableArtifact(
-        table_name=item.table_name,
-        layer=item.layer,
-        path=item.path,
-        sha256=item.sha256,
-        rows=item.rows,
-        bytes=item.bytes,
-    )
-
-
-def _audit_records(
-    records: Sequence[Any], staging: Sequence[StagingRecord]
-) -> tuple[AuditRecord, ...]:
-    by_locator = {item.raw_locator.exact_locator: item for item in staging}
-    audits: list[AuditRecord] = []
-    for record in records:
-        staged = by_locator.get(record.raw_locator.exact_locator)
-        if staged is None:
-            continue
-        for finding in record.findings:
-            digest = hashlib.sha256(
-                f"{staged.staging_record_id}|{finding.code}|{finding.raw_locator.exact_locator}".encode()
-            ).hexdigest()[:32]
-            audits.append(
-                AuditRecord(
-                    audit_id=f"audit-{digest}",
-                    entity_id=staged.staging_record_id,
-                    stage=FindingCode.parse(finding.code).namespace,
-                    finding_code=finding.code,
-                    raw_locator=finding.raw_locator,
-                    details={"record_type": record.record_type, "message": finding.message},
-                )
-            )
-    return tuple(sorted(audits, key=lambda item: item.audit_id))
 
 
 __all__ = ["SourceNormalizationPipeline"]

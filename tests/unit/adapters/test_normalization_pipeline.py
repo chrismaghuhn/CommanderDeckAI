@@ -18,6 +18,10 @@ from commander_ai.config.source_registry import (
     SourceRegistryEntry,
 )
 from commander_ai.config.source_settings import SourceApprovalStatus, SourceSettings
+from commander_ai.data_pipeline.decks.ruleset_inputs import RulesetSnapshotInput
+from commander_ai.data_pipeline.provenance.canonical_snapshot_verifier import (
+    read_canonical_snapshot_manifest,
+)
 from commander_ai.data_pipeline.provenance.normalized_snapshot_verifier import (
     read_normalized_snapshot_manifest,
 )
@@ -25,6 +29,7 @@ from commander_ai.data_pipeline.provenance.run_manifests import verify_run_manif
 from commander_ai.data_pipeline.staging.raw_locators import JsonPointerLocator, RawLocator
 from commander_ai.data_pipeline.staging.records import SourceRecordDTO, StagingRecord
 from commander_ai.domain.provenance import SourceSnapshotRequest
+from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
 
 NOW = datetime(2026, 8, 11, 12, 0, tzinfo=UTC)
 RUN_ID = "normalize-fixture-snapshot-1"
@@ -98,7 +103,54 @@ def test_normalize_failure_before_final_run_is_not_consumable(monkeypatch, tmp_p
         read_normalized_snapshot_manifest(tmp_path, MANIFEST_PATH)
 
 
-def _publish_fixture(root: Path, *, acquire: bool = True):
+def test_normalization_run_binds_ruleset_snapshot_input(tmp_path: Path) -> None:
+    ruleset = _ruleset_snapshot()
+    ruleset_bytes = canonical_json_bytes(ruleset.model_dump(mode="json"))
+    ruleset_path = tmp_path / "rulesets" / "commander-fixture.json"
+    ruleset_path.parent.mkdir()
+    ruleset_path.write_bytes(ruleset_bytes)
+    ruleset_sha256 = sha256_hex(ruleset_bytes)
+    result, root = _publish_fixture(
+        tmp_path,
+        ruleset_inputs=(
+            RulesetSnapshotInput(
+                snapshot=ruleset,
+                path="rulesets/commander-fixture.json",
+                input_sha256=ruleset_sha256,
+            ),
+        ),
+    )
+
+    run = verify_run_manifest(root, RUN_PATH, external_input_root=root)
+    inputs = [item for item in run.inputs if item.kind == "ruleset_snapshot"]
+    assert [(item.id, item.path, item.sha256) for item in inputs] == [
+        ("commander-fixture", "rulesets/commander-fixture.json", ruleset_sha256)
+    ]
+    assert run.ruleset_versions == ("commander-fixture",)
+    assert result.status == "COMPLETE"
+
+    canonical_run = verify_run_manifest(
+        root,
+        "runs/canonicalize-fixture-snapshot-1/manifest.json",
+        external_input_root=root,
+    )
+    assert [item.id for item in canonical_run.inputs if item.kind == "ruleset_snapshot"] == [
+        "commander-fixture"
+    ]
+    verified_canonical = read_canonical_snapshot_manifest(
+        root,
+        "canonical/fixture/snapshot-1/manifest.json",
+        raw_root=root,
+    )
+    assert verified_canonical.producing_run.run_id == canonical_run.run_id
+
+
+def _publish_fixture(
+    root: Path,
+    *,
+    acquire: bool = True,
+    ruleset_inputs: tuple[RulesetSnapshotInput, ...] = (),
+):
     root.mkdir(parents=True, exist_ok=True)
     if acquire:
         writer = RawSnapshotStore(root).start_snapshot(
@@ -191,5 +243,26 @@ def _publish_fixture(root: Path, *, acquire: bool = True):
         audits=(),
         quarantine=(),
         mapper_version="fixture-mapper-v1",
+        ruleset_inputs=ruleset_inputs,
     )
     return result, root
+
+
+def _ruleset_snapshot():
+    from datetime import date
+
+    from commander_ai.domain.rulesets import CommandZonePolicy, RulesetSnapshot
+
+    return RulesetSnapshot(
+        ruleset_version="commander-fixture",
+        effective_from=date(2026, 1, 1),
+        required_total_cards=2,
+        default_copy_limit=1,
+        command_zone_policy=CommandZonePolicy(
+            min_cards=1,
+            max_cards=1,
+            validator_version="command-zone-v1",
+        ),
+        source_references=("https://fixture.invalid/ruleset",),
+        sha256="e" * 64,
+    )

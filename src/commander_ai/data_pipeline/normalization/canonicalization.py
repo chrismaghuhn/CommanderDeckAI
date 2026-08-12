@@ -14,6 +14,7 @@ from commander_ai.data_pipeline.decks.canonical_decks import (
     DeckStructureInput,
     canonical_deck_from_input,
 )
+from commander_ai.data_pipeline.decks.ruleset_inputs import RulesetSnapshotInput
 from commander_ai.data_pipeline.provenance.rows import ResolutionAttempt
 from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord, quarantine_record
 from commander_ai.data_pipeline.resolution.card_catalog import build_card_catalog
@@ -55,6 +56,7 @@ def canonicalize_staging(
     *,
     source_manifest: SourceSnapshotManifest,
     attempted_at: datetime | None = None,
+    ruleset_inputs: Sequence[RulesetSnapshotInput] = (),
 ) -> CanonicalizationResult:
     """Canonicalize only observed staging rows with source-specific mappings."""
 
@@ -62,7 +64,7 @@ def canonicalize_staging(
         raise ValueError("canonicalization requires a COMPLETE source manifest")
     resolution_at = attempted_at or source_manifest.completed_at or source_manifest.started_at
     if source_manifest.source_id == "mtgjson":
-        return _canonicalize_mtgjson(records, source_manifest, resolution_at)
+        return _canonicalize_mtgjson(records, source_manifest, resolution_at, ruleset_inputs)
     if source_manifest.source_id == "commander_spellbook":
         return _canonicalize_spellbook(records, source_manifest)
     if source_manifest.source_id in {"topdeck", "spicerack"}:
@@ -87,6 +89,7 @@ def _canonicalize_mtgjson(
     records: Sequence[StagingRecord],
     source_manifest: SourceSnapshotManifest,
     attempted_at: datetime,
+    ruleset_inputs: Sequence[RulesetSnapshotInput],
 ) -> CanonicalizationResult:
     card_mapper = "mtgjson-card-mapper-v1"
     catalog_result = build_card_catalog(
@@ -141,6 +144,7 @@ def _canonicalize_mtgjson(
             resolver=resolver,
             card_facts={card.oracle_id: card for card in catalog_result.catalog.cards},
             attempted_at=attempted_at,
+            ruleset_inputs=ruleset_inputs,
         )
         canonical.extend(deck_result.records)
         resolutions.extend(deck_result.resolutions)
@@ -167,6 +171,7 @@ def _canonicalize_deck(
     resolver: CardResolver,
     card_facts: Mapping[str, CanonicalCard],
     attempted_at: datetime,
+    ruleset_inputs: Sequence[RulesetSnapshotInput],
 ) -> CanonicalizationResult:
     values = record.original_source_values
     if not isinstance(values, Mapping):
@@ -297,6 +302,7 @@ def _canonicalize_deck(
         source_manifest=source_manifest,
         card_facts=card_facts,
         resolutions=resolutions,
+        ruleset_inputs=ruleset_inputs,
     )
     findings.update(evaluation_findings)
     return canonicalization_result(

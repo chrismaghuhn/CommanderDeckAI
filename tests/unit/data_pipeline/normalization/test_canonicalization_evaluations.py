@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from commander_ai.data_pipeline.decks.ruleset_inputs import RulesetSnapshotInput
 from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
 from commander_ai.data_pipeline.normalization.canonicalization import canonicalize_staging
 from commander_ai.data_pipeline.staging.raw_locators import JsonPointerLocator, RawLocator
@@ -12,6 +13,7 @@ from commander_ai.domain.provenance import (
     SourceSnapshotRequest,
     derive_request_parameters_summary,
 )
+from commander_ai.domain.rulesets import RulesetSnapshot
 
 NOW = datetime(2026, 8, 10, 18, 0, tzinfo=UTC)
 ORACLE_ID = "11111111-1111-4111-8111-111111111111"
@@ -131,3 +133,117 @@ def test_mtgjson_canonicalization_emits_deterministic_evaluations() -> None:
     assert evaluations["deck_quality_evaluation"].observed_at == NOW
     for evaluation in evaluations.values():
         assert CanonicalRecord.model_validate(evaluation.model_dump(mode="json")) == evaluation
+
+
+def test_mtgjson_canonicalization_selects_effective_ruleset_input() -> None:
+    card_values = _card_values()
+    deck_values = {
+        "name": "Fixture Deck",
+        "fileName": "fixture-deck",
+        "code": "TST",
+        "type": "commander",
+        "commander": [{"name": "Fixture Commander", "count": 1}],
+        "mainBoard": [{"name": "Fixture Commander", "count": 1}],
+        "sideBoard": [],
+    }
+    ruleset_payload = {
+        "schema_version": "ruleset.v1",
+        "ruleset_version": "commander-historical",
+        "format": "commander",
+        "effective_from": "2026-01-01",
+        "required_total_cards": 2,
+        "default_copy_limit": 2,
+        "banned_oracle_ids": [],
+        "banned_as_companion_oracle_ids": [],
+        "copy_limit_overrides": {},
+        "unlimited_copy_oracle_ids": [],
+        "command_zone_policy": {
+            "min_cards": 1,
+            "max_cards": 2,
+            "validator_version": "command-zone-v1",
+        },
+        "source_references": ["https://fixture.invalid/ruleset"],
+        "sha256": "c" * 64,
+    }
+
+    result = canonicalize_staging(
+        (
+            _record("card", card_values, "/cards/0"),
+            _record("card_face", card_values, "/cards/0/face"),
+            _record("printing", card_values, "/cards/0/printing"),
+            _record("deck_product", deck_values, "/decks/0"),
+        ),
+        source_manifest=_manifest(),
+        ruleset_inputs=(
+            RulesetSnapshotInput(
+                snapshot=RulesetSnapshot.model_validate(ruleset_payload),
+                path="rulesets/commander-historical.json",
+                input_sha256="d" * 64,
+            ),
+        ),
+    )
+
+    legality = next(
+        item for item in result.records if item.record_type == "deck_legality_evaluation"
+    )
+    assert legality.payload["ruleset_version"] == "commander-historical"
+    assert legality.payload["ruleset_snapshot_sha256"] == "c" * 64
+    assert legality.payload["legal_status"] == "unknown"
+    assert legality.payload["finding_codes"] == ("legality.command_zone_unverified",)
+
+
+def test_mtgjson_canonicalization_does_not_use_future_ruleset_as_current_fallback() -> None:
+    card_values = _card_values()
+    deck_values = {
+        "name": "Fixture Deck",
+        "fileName": "fixture-deck",
+        "code": "TST",
+        "type": "commander",
+        "commander": [{"name": "Fixture Commander", "count": 1}],
+        "mainBoard": [{"name": "Fixture Commander", "count": 1}],
+        "sideBoard": [],
+    }
+    future = RulesetSnapshot.model_validate(
+        {
+            "schema_version": "ruleset.v1",
+            "ruleset_version": "commander-future",
+            "format": "commander",
+            "effective_from": "2027-01-01",
+            "required_total_cards": 2,
+            "default_copy_limit": 1,
+            "banned_oracle_ids": [],
+            "banned_as_companion_oracle_ids": [],
+            "copy_limit_overrides": {},
+            "unlimited_copy_oracle_ids": [],
+            "command_zone_policy": {
+                "min_cards": 1,
+                "max_cards": 2,
+                "validator_version": "command-zone-v1",
+            },
+            "source_references": ["https://fixture.invalid/ruleset"],
+            "sha256": "e" * 64,
+        }
+    )
+
+    result = canonicalize_staging(
+        (
+            _record("card", card_values, "/cards/0"),
+            _record("card_face", card_values, "/cards/0/face"),
+            _record("printing", card_values, "/cards/0/printing"),
+            _record("deck_product", deck_values, "/decks/0"),
+        ),
+        source_manifest=_manifest(),
+        ruleset_inputs=(
+            RulesetSnapshotInput(
+                snapshot=future,
+                path="rulesets/commander-future.json",
+                input_sha256="f" * 64,
+            ),
+        ),
+    )
+
+    legality = next(
+        item for item in result.records if item.record_type == "deck_legality_evaluation"
+    )
+    assert legality.payload["ruleset_version"] == "unknown"
+    assert legality.payload["finding_codes"] == ("legality.ruleset_unresolved",)

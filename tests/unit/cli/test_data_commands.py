@@ -6,6 +6,7 @@ import pytest
 from typer.testing import CliRunner
 
 from commander_ai.adapters.data_pipeline import VerifiedSnapshotNormalizer
+from commander_ai.adapters.ruleset_snapshots import FileRulesetSnapshotProvider
 from commander_ai.adapters.source_sync import ConfiguredSourceSync, SourceSyncConfigurationError
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
 from commander_ai.application.errors import ApplicationError
@@ -25,7 +26,7 @@ from commander_ai.application.use_cases import (
     SourceCommands,
     ValidateData,
 )
-from commander_ai.cli.composition import CliServices
+from commander_ai.cli.composition import CliServices, build_default_services
 from commander_ai.cli.main import app
 from commander_ai.config import RuntimeConfig
 
@@ -124,3 +125,10 @@ def test_plain_source_settings_cannot_bypass_registry_gate() -> None:
         ConfiguredSourceSync(runtime).sync_source("topdeck", "configs/sources/topdeck.yaml")
 
     assert error.value.code == "POLICY_SOURCE_REGISTRY_REQUIRED"
+
+
+def test_default_cli_services_inject_authoritative_ruleset_provider(tmp_path) -> None:
+    services = build_default_services(tmp_path)
+
+    assert isinstance(services.normalize._pipeline, VerifiedSnapshotNormalizer)
+    assert isinstance(services.normalize._pipeline._ruleset_provider, FileRulesetSnapshotProvider)

@@ -31,6 +31,7 @@ def build_normalization_run(
     completed_at: datetime,
     additional_artifacts: Sequence[RunArtifactReference] = (),
     schema_versions: Sequence[str] = ("staging.v1",),
+    ruleset_snapshot_ids: Sequence[str] = (),
 ) -> RunManifest:
     """Create the deterministic run record for one normalized snapshot."""
 
@@ -50,6 +51,7 @@ def build_normalization_run(
         mapper_versions=(mapper_version,),
         transform_versions=("normalize-v1",),
         policy_versions=("current-use-v1",),
+        ruleset_snapshot_ids=ruleset_snapshot_ids,
         artifacts=(
             *operation.artifacts,
             *(
@@ -77,6 +79,7 @@ def build_final_normalization_run(
     completed_at: datetime,
     manifest_artifact: JsonArtifact,
     manifest_sidecar: JsonArtifact,
+    ruleset_snapshot_ids: Sequence[str] = (),
 ) -> RunManifest:
     """Bind the normalized manifest outputs to the final frozen run record."""
 
@@ -103,6 +106,7 @@ def build_final_normalization_run(
                 kind="normalized_snapshot_manifest_digest",
             ),
         ),
+        ruleset_snapshot_ids=ruleset_snapshot_ids,
     )
 
 

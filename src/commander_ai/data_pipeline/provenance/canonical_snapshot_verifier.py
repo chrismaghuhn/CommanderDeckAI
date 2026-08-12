@@ -80,6 +80,7 @@ def read_canonical_snapshot_manifest(
     producing_run = verify_run_manifest(
         selected_run_root,
         f"runs/{manifest.producing_run_id}/manifest.json",
+        external_input_root=selected_raw_root,
     )
     if producing_run.run_id != manifest.producing_run_id or producing_run.status != "succeeded":
         raise ValueError("canonical manifest run is not the referenced succeeded run")

@@ -13,6 +13,7 @@ from commander_ai.adapters.data_pipeline import (
 from commander_ai.adapters.dataset_building import ConfiguredDatasetBuild
 from commander_ai.adapters.registry_context import SourceRegistryProvider
 from commander_ai.adapters.reporting import ConfiguredReport
+from commander_ai.adapters.ruleset_snapshots import FileRulesetSnapshotProvider
 from commander_ai.adapters.source_catalog import ConfiguredSourceCatalog
 from commander_ai.adapters.source_sync import ConfiguredSourceSync
 from commander_ai.application.ports.data_pipeline import NormalizeDataPort, ValidateDataPort
@@ -46,7 +47,12 @@ def build_default_services(repository_root: Path | str | None = None) -> CliServ
     registry_provider = SourceRegistryProvider(root)
     catalog: SourceCatalogPort = ConfiguredSourceCatalog(root)
     sync: SourceSyncPort = ConfiguredSourceSync(runtime)
-    normalizer: NormalizeDataPort = VerifiedSnapshotNormalizer(runtime, registry_provider)
+    ruleset_provider = FileRulesetSnapshotProvider(runtime.data_root)
+    normalizer: NormalizeDataPort = VerifiedSnapshotNormalizer(
+        runtime,
+        registry_provider,
+        ruleset_provider,
+    )
     validator: ValidateDataPort = VerifiedNormalizedSnapshot(runtime, registry_provider)
     reporter: ReportDataPort = ConfiguredReport(runtime, registry_provider)
     dataset_builder: DatasetBuildPort = ConfiguredDatasetBuild(runtime, registry_provider)

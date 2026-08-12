@@ -8,6 +8,7 @@ from typing import Any, Literal
 
 from commander_ai.adapters.storage.manifest_files import ManifestFileWriter
 from commander_ai.adapters.storage.parquet_tables import ParquetTableWriter
+from commander_ai.data_pipeline.decks.ruleset_inputs import RulesetSnapshotInput
 from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
 from commander_ai.data_pipeline.normalization.canonical_snapshot_manifests import (
     build_canonical_snapshot_manifest,
@@ -55,6 +56,7 @@ def publish_canonical_snapshot(
     normalized: Any,
     normalized_manifest_path: str,
     normalized_manifest_sha256: str,
+    ruleset_inputs: tuple[RulesetSnapshotInput, ...] = (),
 ) -> None:
     """Canonicalize verified staging rows and publish all derived artifacts."""
 
@@ -62,6 +64,7 @@ def publish_canonical_snapshot(
         staging,
         source_manifest=prepared.manifest,
         attempted_at=prepared.manifest.completed_at or prepared.manifest.started_at,
+        ruleset_inputs=ruleset_inputs,
     )
     all_audits = tuple(sorted((*audits, *result.audits), key=lambda item: item.audit_id))
     all_quarantine = tuple((*quarantine, *result.quarantines))
@@ -151,6 +154,15 @@ def publish_canonical_snapshot(
     current = prepared.policy_decision
     if current.decision_reference is None or current.decision_sha256 is None:
         raise ValueError("canonicalization policy decision is not bound")
+    ruleset_run_inputs = tuple(
+        RunInputReference(
+            kind="ruleset_snapshot",
+            id=item.snapshot_id,
+            path=item.path,
+            sha256=item.input_sha256,
+        )
+        for item in ruleset_inputs
+    )
     run_inputs = (
         RunInputReference(
             kind="normalized_snapshot_manifest",
@@ -163,6 +175,7 @@ def publish_canonical_snapshot(
             id=current.decision_reference,
             sha256=current.decision_sha256,
         ),
+        *ruleset_run_inputs,
     )
     run_artifacts = (
         *operation.artifacts,
@@ -177,6 +190,14 @@ def publish_canonical_snapshot(
         "normalized_snapshot_id": normalized.manifest.normalized_snapshot_id,
         "mapper_version": mapper_version,
         "canonicalizer_version": "canonicalizer-v1",
+        "ruleset_inputs": [
+            {
+                "id": item.snapshot_id,
+                "path": item.path,
+                "sha256": item.input_sha256,
+            }
+            for item in ruleset_inputs
+        ],
     }
     run = build_run_manifest(
         run_id=run_id,
@@ -194,6 +215,7 @@ def publish_canonical_snapshot(
         mapper_versions=(mapper_version, "canonicalizer-v1"),
         transform_versions=("canonicalize-v1",),
         policy_versions=("current-use-v1",),
+        ruleset_snapshot_ids=tuple(item.snapshot_id for item in ruleset_inputs),
         artifacts=run_artifacts,
         determinism=operation.determinism,
         created_at=started_at,
@@ -264,6 +286,7 @@ def publish_canonical_snapshot(
         mapper_versions=(mapper_version, "canonicalizer-v1"),
         transform_versions=("canonicalize-v1",),
         policy_versions=("current-use-v1",),
+        ruleset_snapshot_ids=tuple(item.snapshot_id for item in ruleset_inputs),
         artifacts=(
             *run_artifacts,
             RunArtifactReference(

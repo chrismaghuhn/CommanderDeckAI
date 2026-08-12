@@ -7,6 +7,8 @@ from dataclasses import dataclass
 
 from commander_ai.data_pipeline.decks.quality import evaluate_deck_quality
 from commander_ai.data_pipeline.decks.ruleset_evaluation import evaluate_deck_legality
+from commander_ai.data_pipeline.decks.ruleset_inputs import RulesetSnapshotInput
+from commander_ai.data_pipeline.decks.ruleset_selection import select_applicable_ruleset
 from commander_ai.data_pipeline.staging.records import StagingRecord
 from commander_ai.domain.cards import CanonicalCard, CardResolution
 from commander_ai.domain.decks import CanonicalDeck
@@ -34,6 +36,7 @@ def build_deck_evaluation_records(
     source_manifest: SourceSnapshotManifest,
     card_facts: Mapping[str, CanonicalCard],
     resolutions: Sequence[CardResolution],
+    ruleset_inputs: Sequence[RulesetSnapshotInput] = (),
 ) -> tuple[tuple[CanonicalRecord, ...], tuple[str, ...]]:
     """Evaluate one canonical deck using only supplied facts and provenance."""
 
@@ -43,10 +46,14 @@ def build_deck_evaluation_records(
         if resolutions
         else None
     )
+    ruleset_selection = select_applicable_ruleset(
+        (item.snapshot for item in ruleset_inputs),
+        evaluation_at,
+    )
     legality = evaluate_deck_legality(
         deck,
         card_facts,
-        None,
+        ruleset_selection,
         evaluated_at=evaluation_at,
     )
     quality = evaluate_deck_quality(
