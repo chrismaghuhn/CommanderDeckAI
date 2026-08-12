@@ -113,7 +113,7 @@ def _downloader(
         settings=settings,
         policy=SourcePolicy(registry),
         store=RawSnapshotStore(tmp_path, max_object_bytes=source.max_download_bytes),
-        client=MTGJSONClient(settings, http_client=client),
+        client=MTGJSONClient(settings, policy=SourcePolicy(registry), http_client=client),
     )
     return adapter, client
 
@@ -300,6 +300,93 @@ def test_downloader_blocks_a_non_allowlisted_current_use_decision(tmp_path: Path
 
 @pytest.mark.parametrize(
     "status",
+    [
+        SourceApprovalStatus.PROPOSED,
+        SourceApprovalStatus.REVIEWED,
+        SourceApprovalStatus.REJECTED,
+        SourceApprovalStatus.PAUSED,
+    ],
+)
+def test_direct_mtgjson_client_blocks_non_allowlisted_source_before_any_request(
+    status: SourceApprovalStatus,
+) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"fixture", request=request)
+
+    registry = _registry(status)
+    settings = MTGJSONSettings.from_source_settings(registry.lookup("mtgjson").settings)
+    http_client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    client = MTGJSONClient(settings, policy=SourcePolicy(registry), http_client=http_client)
+    try:
+        with pytest.raises(MTGJSONClientError) as error:
+            client.fetch_archive(MTGJSONProduct.ALL_PRINTINGS)
+    finally:
+        client.close()
+        http_client.close()
+
+    assert error.value.code == "POLICY_SOURCE_NOT_APPROVED"
+    assert calls == 0
+
+
+def test_direct_mtgjson_client_blocks_current_use_takedown_before_any_request() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"fixture", request=request)
+
+    registry = _registry(SourceApprovalStatus.APPROVED_LOCAL, current_status="TAKEDOWN")
+    settings = MTGJSONSettings.from_source_settings(registry.lookup("mtgjson").settings)
+    http_client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    client = MTGJSONClient(settings, policy=SourcePolicy(registry), http_client=http_client)
+    try:
+        with pytest.raises(MTGJSONClientError) as error:
+            client.request_metadata(MTGJSONProduct.ALL_PRINTINGS, kind="archive")
+    finally:
+        client.close()
+        http_client.close()
+
+    assert error.value.code == "POLICY_CURRENT_USE_BLOCKED"
+    assert calls == 0
+
+
+@pytest.mark.parametrize(
+    "status",
+    [SourceApprovalStatus.APPROVED_LOCAL, SourceApprovalStatus.APPROVED_REDISTRIBUTION],
+)
+def test_direct_mtgjson_client_allows_both_approved_source_statuses(
+    status: SourceApprovalStatus,
+) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=b"fixture", request=request)
+
+    registry = _registry(status)
+    settings = MTGJSONSettings.from_source_settings(registry.lookup("mtgjson").settings)
+    http_client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    client = MTGJSONClient(settings, policy=SourcePolicy(registry), http_client=http_client)
+    try:
+        metadata = client.request_metadata(MTGJSONProduct.ALL_PRINTINGS, kind="archive")
+        response = client.fetch_archive(MTGJSONProduct.ALL_PRINTINGS)
+        response.close()
+    finally:
+        client.close()
+        http_client.close()
+
+    assert metadata["sanitized_endpoint"].endswith("/AllPrintings.json.zip")
+    assert calls == 1
+
+
+@pytest.mark.parametrize(
+    "status",
     [SourceApprovalStatus.APPROVED_LOCAL, SourceApprovalStatus.APPROVED_REDISTRIBUTION],
 )
 def test_settings_allow_only_configured_documented_products(status: SourceApprovalStatus) -> None:
@@ -367,6 +454,7 @@ def test_mtgjson_downloader_rejects_client_bound_to_another_endpoint() -> None:
     foreign_settings = MTGJSONSettings.from_source_settings(foreign_source)
     foreign_client = MTGJSONClient(
         foreign_settings,
+        policy=SourcePolicy(registry),
         http_client=httpx.Client(
             transport=httpx.MockTransport(lambda request: httpx.Response(500))
         ),
@@ -400,7 +488,11 @@ def test_mtgjson_client_rejects_disallowed_redirect_in_injected_response_history
             return response
 
     http_client = HistoryInjectingClient(follow_redirects=False)
-    client = MTGJSONClient(settings, http_client=http_client)
+    client = MTGJSONClient(
+        settings,
+        policy=SourcePolicy(_registry(SourceApprovalStatus.APPROVED_LOCAL)),
+        http_client=http_client,
+    )
     try:
         with pytest.raises(HttpTransportError) as error:
             client.fetch_archive(MTGJSONProduct.ALL_PRINTINGS)
@@ -436,7 +528,11 @@ def test_mtgjson_client_rejects_injected_response_from_unallowlisted_host() -> N
             )
 
     http_client = ReplacingClient(follow_redirects=True)
-    client = MTGJSONClient(settings, http_client=http_client)
+    client = MTGJSONClient(
+        settings,
+        policy=SourcePolicy(_registry(SourceApprovalStatus.APPROVED_LOCAL)),
+        http_client=http_client,
+    )
     try:
         with pytest.raises(MTGJSONClientError) as error:
             client.fetch_archive(MTGJSONProduct.ALL_PRINTINGS)
@@ -460,7 +556,11 @@ def test_shared_transport_rejects_an_injected_request_url_before_send() -> None:
             raise AssertionError("the policy must reject before send")
 
     http_client = ReplacingClient()
-    client = MTGJSONClient(settings, http_client=http_client)
+    client = MTGJSONClient(
+        settings,
+        policy=SourcePolicy(_registry(SourceApprovalStatus.APPROVED_LOCAL)),
+        http_client=http_client,
+    )
     try:
         with pytest.raises(HttpTransportError) as error:
             client.fetch_archive(MTGJSONProduct.ALL_PRINTINGS)

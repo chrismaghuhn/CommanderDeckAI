@@ -9,6 +9,8 @@ import httpx
 from commander_ai.adapters.http.redaction import sanitize_endpoint
 from commander_ai.adapters.http.redirect_policy import RedirectPolicy, RedirectPolicyError
 from commander_ai.adapters.http.transport import HttpTransport, HttpTransportError, SafeHttpResponse
+from commander_ai.application.source_policy import SourcePolicy, SourcePolicyError
+from commander_ai.config.current_use_policy import PolicyOperation
 
 from .settings import MTGJSONProduct, MTGJSONSettings
 
@@ -25,9 +27,14 @@ class MTGJSONClient:
     """Build only configured MTGJSON bulk and checksum requests."""
 
     def __init__(
-        self, settings: MTGJSONSettings, *, http_client: httpx.Client | None = None
+        self,
+        settings: MTGJSONSettings,
+        *,
+        policy: SourcePolicy,
+        http_client: httpx.Client | None = None,
     ) -> None:
         self._settings = settings
+        self._source_policy = policy
         self._policy = RedirectPolicy(settings.source.host_allowlist)
         self._transport = HttpTransport(
             allowed_hosts=set(settings.source.host_allowlist),
@@ -58,6 +65,7 @@ class MTGJSONClient:
         *,
         kind: Literal["archive", "checksum"],
     ) -> dict[str, object]:
+        self._require_source_sync()
         url = self._url(product, kind)
         metadata = self._transport.request_metadata(
             "GET",
@@ -91,6 +99,7 @@ class MTGJSONClient:
     def _fetch(
         self, product: MTGJSONProduct, *, kind: Literal["archive", "checksum"]
     ) -> SafeHttpResponse:
+        self._require_source_sync()
         try:
             response = self._transport.request(
                 "GET",
@@ -107,6 +116,20 @@ class MTGJSONClient:
             response.close()
             raise MTGJSONClientError("MTGJSON_RESPONSE_HOST_NOT_ALLOWLISTED") from None
         return response
+
+    def _require_source_sync(self) -> None:
+        try:
+            configuration = self._source_policy.adapter_configuration(
+                self._settings.source.source_id
+            )
+            if configuration.source != self._settings.source:
+                raise MTGJSONClientError("POLICY_CONFIGURATION_MISMATCH")
+            self._source_policy.require_operation(
+                self._settings.source.source_id,
+                PolicyOperation.SOURCE_SYNC,
+            )
+        except SourcePolicyError as error:
+            raise MTGJSONClientError(error.code) from None
 
 
 __all__ = ["MTGJSONClient", "MTGJSONClientError"]

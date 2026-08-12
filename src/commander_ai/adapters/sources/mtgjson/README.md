@@ -39,11 +39,14 @@ failed acquisition. The checksum sidecar is bounded and retained as its own
 raw object; its upstream digest is distinct from the locally computed digest
 of the exact compressed archive bytes.
 
-The downloader owns the validated endpoint and host allowlist. An injected
-client is accepted only when its immutable settings match those downloader
-settings, and archive plus checksum requests use that same policy. Every
-redirect response and every recorded response-history hop is checked before
-body persistence, including responses supplied by tests or low-level mocks.
+The client and downloader receive the same `SourcePolicy`; the client checks
+the current `SOURCE_SYNC` decision and registry-bound settings before metadata
+or body requests, so direct client use cannot bypass the source gate. The
+client owns the validated endpoint and host allowlist. An injected client is
+accepted only when its immutable settings match those downloader settings, and
+archive plus checksum requests use that same policy. Every redirect response
+and every recorded response-history hop is checked before body persistence,
+including responses supplied by tests or low-level mocks.
 
 Acquisition also requires complete reviewed registry metadata for terms,
 attribution, local raw storage, and raw/derived redistribution. Approval status

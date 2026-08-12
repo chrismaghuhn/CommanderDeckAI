@@ -8,6 +8,8 @@ from pydantic import ValidationError
 from commander_ai.adapters.http.redaction import sanitize_endpoint
 from commander_ai.adapters.http.redirect_policy import RedirectPolicy, RedirectPolicyError
 from commander_ai.adapters.http.transport import HttpTransport, HttpTransportError, SafeHttpResponse
+from commander_ai.application.source_policy import SourcePolicy, SourcePolicyError
+from commander_ai.config.current_use_policy import PolicyOperation
 
 from .errors import CommanderSpellbookClientError
 from .settings import CommanderSpellbookSettings, SpellbookContract
@@ -20,6 +22,7 @@ class CommanderSpellbookClient:
         self,
         settings: CommanderSpellbookSettings,
         *,
+        policy: SourcePolicy,
         http_client: httpx.Client | None = None,
     ) -> None:
         try:
@@ -27,6 +30,7 @@ class CommanderSpellbookClient:
         except (AttributeError, TypeError, ValueError, ValidationError):
             raise CommanderSpellbookClientError("SPELLBOOK_SETTINGS_INVALID") from None
         self._settings = validated_settings
+        self._source_policy = policy
         self._policy = RedirectPolicy(validated_settings.source.host_allowlist)
         self._transport = HttpTransport(
             allowed_hosts=set(validated_settings.source.host_allowlist),
@@ -55,6 +59,7 @@ class CommanderSpellbookClient:
     def request_metadata(
         self, contract: SpellbookContract | str, *, page: int
     ) -> dict[str, object]:
+        self._require_source_sync()
         self._validate_page(page)
         url = self._url(contract)
         metadata = self._transport.request_metadata(
@@ -68,6 +73,7 @@ class CommanderSpellbookClient:
         return metadata
 
     def fetch(self, contract: SpellbookContract | str, *, page: int) -> SafeHttpResponse:
+        self._require_source_sync()
         self._validate_page(page)
         url = self._url(contract)
         try:
@@ -112,6 +118,20 @@ class CommanderSpellbookClient:
             or page > self._settings.max_pages
         ):
             raise CommanderSpellbookClientError("SPELLBOOK_PAGE_INVALID")
+
+    def _require_source_sync(self) -> None:
+        try:
+            configuration = self._source_policy.adapter_configuration(
+                self._settings.source.source_id
+            )
+            if configuration.source != self._settings.source:
+                raise CommanderSpellbookClientError("POLICY_CONFIGURATION_MISMATCH")
+            self._source_policy.require_operation(
+                self._settings.source.source_id,
+                PolicyOperation.SOURCE_SYNC,
+            )
+        except SourcePolicyError as error:
+            raise CommanderSpellbookClientError(error.code) from None
 
 
 __all__ = ["CommanderSpellbookClient", "CommanderSpellbookClientError"]

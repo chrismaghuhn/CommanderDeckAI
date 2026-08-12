@@ -49,7 +49,7 @@ class CommanderSpellbookDownloader:
         self.settings = settings
         self.policy = policy
         self.store = store
-        candidate = client or CommanderSpellbookClient(settings)
+        candidate = client or CommanderSpellbookClient(settings, policy=policy)
         if (
             not isinstance(candidate, CommanderSpellbookClient)
             or candidate.settings != settings

@@ -123,10 +123,11 @@ def _adapter(
     settings = CommanderSpellbookSettings.from_source_settings(source)
     transport = httpx.MockTransport(handler)
     http_client = httpx.Client(transport=transport, follow_redirects=False)
-    client = CommanderSpellbookClient(settings, http_client=http_client)
+    policy = SourcePolicy(registry)
+    client = CommanderSpellbookClient(settings, policy=policy, http_client=http_client)
     adapter = CommanderSpellbookDownloader(
         settings=settings,
-        policy=SourcePolicy(registry),
+        policy=policy,
         store=RawSnapshotStore(tmp_path, max_object_bytes=source.max_download_bytes),
         client=client,
     )
@@ -205,7 +206,7 @@ def test_client_revalidates_constructed_settings_before_network_setup() -> None:
         adapter_version="commander-spellbook-v1",
     )
     with pytest.raises(CommanderSpellbookClientError) as error:
-        CommanderSpellbookClient(forged)
+        CommanderSpellbookClient(forged, policy=SourcePolicy(_registry()))
     assert error.value.code == "SPELLBOOK_SETTINGS_INVALID"
     with pytest.raises(ValueError, match="unknown Commander Spellbook filter"):
         CommanderSpellbookSettings(
@@ -487,6 +488,114 @@ def test_direct_client_calls_enforce_max_pages_before_transport(tmp_path: Path) 
     assert calls == 0
 
 
+@pytest.mark.parametrize(
+    "status",
+    [
+        SourceApprovalStatus.PROPOSED,
+        SourceApprovalStatus.REVIEWED,
+        SourceApprovalStatus.REJECTED,
+        SourceApprovalStatus.PAUSED,
+    ],
+)
+def test_direct_spellbook_client_blocks_non_allowlisted_source_before_any_request(
+    status: SourceApprovalStatus,
+) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=_page("cards", 1), request=request)
+
+    registry = _registry(status)
+    settings = CommanderSpellbookSettings.from_source_settings(
+        registry.lookup("commander_spellbook").settings
+    )
+    http_client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    client = CommanderSpellbookClient(
+        settings,
+        policy=SourcePolicy(registry),
+        http_client=http_client,
+    )
+    try:
+        with pytest.raises(CommanderSpellbookClientError) as error:
+            client.fetch("cards", page=1)
+    finally:
+        client.close()
+        http_client.close()
+
+    assert error.value.code == "POLICY_SOURCE_NOT_APPROVED"
+    assert calls == 0
+
+
+def test_direct_spellbook_client_blocks_current_use_takedown_before_any_request() -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=_page("cards", 1), request=request)
+
+    registry = _registry(
+        SourceApprovalStatus.APPROVED_LOCAL,
+        current_status="TAKEDOWN",
+    )
+    settings = CommanderSpellbookSettings.from_source_settings(
+        registry.lookup("commander_spellbook").settings
+    )
+    http_client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    client = CommanderSpellbookClient(
+        settings,
+        policy=SourcePolicy(registry),
+        http_client=http_client,
+    )
+    try:
+        with pytest.raises(CommanderSpellbookClientError) as error:
+            client.request_metadata("cards", page=1)
+    finally:
+        client.close()
+        http_client.close()
+
+    assert error.value.code == "POLICY_CURRENT_USE_BLOCKED"
+    assert calls == 0
+
+
+@pytest.mark.parametrize(
+    "status",
+    [SourceApprovalStatus.APPROVED_LOCAL, SourceApprovalStatus.APPROVED_REDISTRIBUTION],
+)
+def test_direct_spellbook_client_allows_both_approved_source_statuses(
+    status: SourceApprovalStatus,
+) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=_page("cards", 1), request=request)
+
+    registry = _registry(status)
+    settings = CommanderSpellbookSettings.from_source_settings(
+        registry.lookup("commander_spellbook").settings
+    )
+    http_client = httpx.Client(transport=httpx.MockTransport(handler), follow_redirects=False)
+    client = CommanderSpellbookClient(
+        settings,
+        policy=SourcePolicy(registry),
+        http_client=http_client,
+    )
+    try:
+        metadata = client.request_metadata("cards", page=1)
+        response = client.fetch("cards", page=1)
+        response.close()
+    finally:
+        client.close()
+        http_client.close()
+
+    assert metadata["sanitized_endpoint"].endswith("/api/cards/")
+    assert calls == 1
+
+
 def test_downloader_rejects_mismatched_injected_client_settings(tmp_path: Path) -> None:
     registry = _registry(max_pages=1)
     settings = CommanderSpellbookSettings.from_source_settings(
@@ -500,7 +609,11 @@ def test_downloader_rejects_mismatched_injected_client_settings(tmp_path: Path) 
         ),
         follow_redirects=False,
     )
-    client = CommanderSpellbookClient(mismatched_settings, http_client=http_client)
+    client = CommanderSpellbookClient(
+        mismatched_settings,
+        policy=SourcePolicy(registry),
+        http_client=http_client,
+    )
     try:
         with pytest.raises(CommanderSpellbookDownloadError) as error:
             CommanderSpellbookDownloader(
@@ -621,7 +734,11 @@ def test_client_rejects_disallowed_redirect_history() -> None:
             return response
 
     http_client = HistoryInjectingClient(follow_redirects=False)
-    client = CommanderSpellbookClient(settings, http_client=http_client)
+    client = CommanderSpellbookClient(
+        settings,
+        policy=SourcePolicy(_registry()),
+        http_client=http_client,
+    )
     try:
         with pytest.raises(HttpTransportError) as error:
             client.fetch("variants", page=1)
@@ -645,7 +762,11 @@ def test_client_rejects_response_path_different_from_source_owned_contract() -> 
             return httpx.Response(200, content=b"{}", request=foreign_request)
 
     http_client = ForeignEndpointClient(follow_redirects=False)
-    client = CommanderSpellbookClient(settings, http_client=http_client)
+    client = CommanderSpellbookClient(
+        settings,
+        policy=SourcePolicy(_registry()),
+        http_client=http_client,
+    )
     try:
         with pytest.raises(CommanderSpellbookClientError) as error:
             client.fetch("cards", page=1)

@@ -53,7 +53,7 @@ class MTGJSONDownloader:
         self.settings = settings
         self.policy = policy
         self.store = store
-        self.client = client or MTGJSONClient(settings, http_client=http_client)
+        self.client = client or MTGJSONClient(settings, policy=policy, http_client=http_client)
         if not self.client.matches_settings(settings):
             self.client.close()
             raise MTGJSONDownloadError("MTGJSON_CLIENT_CONFIGURATION_MISMATCH")

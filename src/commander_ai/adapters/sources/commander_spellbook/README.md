@@ -12,8 +12,10 @@ current-use approval, host allowlists, limits, and redistribution status:
 - `settings.py` binds the reviewed `https://backend.commanderspellbook.com/api/`
   path, `cards`/`variants` products, host, and source limits; unknown or
   conflicting settings are rejected.
-- `client.py` builds bounded GET requests through shared HTTP redirect, host,
-  retry, rate, timeout, and response-size policy.
+- `client.py` receives the same `SourcePolicy` as the downloader and checks the
+  current `SOURCE_SYNC` decision and registry-bound settings before metadata or
+  body requests. It builds bounded GET requests through shared HTTP redirect,
+  host, retry, rate, timeout, and response-size policy.
 - `downloader.py` persists immutable response bytes and never follows an
   upstream pagination URL directly. Every page must have the documented
   envelope and source-owned pagination links; malformed, truncated, or
