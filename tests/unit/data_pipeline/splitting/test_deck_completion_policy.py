@@ -139,6 +139,25 @@ def test_completion_policy_counts_quality_resolution_and_legality_exclusions() -
     }
 
 
+def test_completion_record_defaults_fail_closed_without_evaluations() -> None:
+    record = DeckCompletionRecord(
+        record_id="missing-evaluation",
+        occurrence=_occurrence("missing-evaluation", "s1", datetime(2024, 1, 1, tzinfo=UTC)),
+        observed_at=datetime(2024, 1, 1, tzinfo=UTC),
+        payload={},
+    )
+
+    assert record.legal_status == "unknown"
+    assert record.quality_status == "unknown"
+
+    result = build_deck_completion_splits(
+        (record,),
+        _policy(legal_decks_only=True, group_revisions=False, group_near_duplicates=False),
+    )
+    assert result.assignments == ()
+    assert result.exclusions[0].code == "legality.deck_not_eligible"
+
+
 def test_revision_group_promotes_all_source_revisions_forward() -> None:
     old = _occurrence("same-source-deck", "old", datetime(2024, 1, 1, tzinfo=UTC))
     new = _occurrence(

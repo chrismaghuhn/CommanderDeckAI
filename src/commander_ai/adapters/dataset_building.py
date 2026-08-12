@@ -23,6 +23,7 @@ from commander_ai.data_pipeline.datasets.dataset_builder import (
     build_dataset,
 )
 from commander_ai.data_pipeline.decks.canonical_decks import DeckOccurrence, DeckSourceReference
+from commander_ai.data_pipeline.events.pod_completeness import complete_pod_observation_keys
 from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
 from commander_ai.data_pipeline.normalization.evaluation_records import (
     index_deck_evaluations,
@@ -39,6 +40,7 @@ from commander_ai.data_pipeline.splitting.deck_completion_policy import DeckComp
 from commander_ai.data_pipeline.splitting.tournament_policy import TournamentRecord
 from commander_ai.domain.dataset_contracts import DatasetInputReference
 from commander_ai.domain.decks import CanonicalDeck
+from commander_ai.domain.evaluations import DeckLegalityEvaluation
 from commander_ai.domain.observations import EventDeckObservation
 from commander_ai.domain.provenance import ProvenanceReference
 from commander_ai.domain.serialization import canonical_json_bytes
@@ -69,6 +71,7 @@ class ConfiguredDatasetBuild:
         source_snapshot_bindings: set[tuple[str, str]] = set()
         historical_statuses: dict[str, SourceApprovalStatus] = {}
         input_created_at: list[datetime] = []
+        ruleset_versions: set[str] = set()
         selected_sources = settings.source_ids
         manifest_paths = _select_canonical_manifests(self._runtime.artifact_root, "all")
         for manifest_path in manifest_paths:
@@ -113,6 +116,7 @@ class ConfiguredDatasetBuild:
             rows = ParquetTableWriter(self._runtime.artifact_root).read_table(
                 canonical_artifact.path
             )
+            ruleset_versions.update(_ruleset_versions(rows))
             records.extend(
                 _dataset_records(
                     settings.dataset_kind,
@@ -123,6 +127,8 @@ class ConfiguredDatasetBuild:
             )
         if not input_manifests:
             raise ApplicationError("INTEGRITY_NORMALIZED_SNAPSHOT_NOT_FOUND")
+        if settings.inputs.legal_decks_only and not ruleset_versions:
+            raise ApplicationError("LEGAL_RULESET_BINDING_REQUIRED")
 
         configuration_snapshot = serialize_config(settings)
         configuration_path = f"configs/datasets/{settings.dataset_id}.json"
@@ -172,6 +178,7 @@ class ConfiguredDatasetBuild:
             schema_versions=(dataset_schema_version,),
             transform_versions=("dataset-transform-v1",),
             policy_versions=("current-use-v1", settings.split_policy.version),
+            ruleset_snapshot_ids=tuple(sorted(ruleset_versions)),
             artifacts=operation.artifacts,
             determinism=operation.determinism,
             created_at=created_at,
@@ -189,6 +196,7 @@ class ConfiguredDatasetBuild:
             source_snapshot_ids=tuple(sorted(set(source_snapshot_ids))),
             source_snapshot_bindings=tuple(sorted(source_snapshot_bindings)),
             historical_approval_statuses=tuple(sorted(historical_statuses.items())),
+            ruleset_versions=tuple(sorted(ruleset_versions)),
             schema_versions=(dataset_schema_version,),
             transform_versions=("dataset-transform-v1",),
             policy_versions=("current-use-v1",),
@@ -223,6 +231,7 @@ class ConfiguredDatasetBuild:
             schema_versions=(settings.schema_version, dataset_schema_version),
             transform_versions=("dataset-transform-v1",),
             policy_versions=("current-use-v1", settings.split_policy.version),
+            ruleset_snapshot_ids=tuple(sorted(ruleset_versions)),
             artifacts=(
                 *operation.artifacts,
                 *(
@@ -286,6 +295,7 @@ def _dataset_records(
 ) -> tuple[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord, ...]:
     canonical_rows = tuple(CanonicalRecord.model_validate(row) for row in rows)
     evaluations = index_deck_evaluations(canonical_rows)
+    complete_pod_keys = complete_pod_observation_keys(canonical_rows)
     records: list[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord] = []
     for canonical in canonical_rows:
         if dataset_kind in {"deck_completion", "card_cooccurrence"}:
@@ -328,7 +338,8 @@ def _dataset_records(
                     observed_at=observation.observed_at,
                     canonical_deck_id=observation.canonical_deck_id,
                     payload=canonical.payload,
-                    complete_event=True,
+                    complete_event=(observation.event_id, observation.canonical_deck_id)
+                    in complete_pod_keys,
                     source_id=source_id,
                     source_snapshot_id=source_snapshot_id,
                 )
@@ -348,6 +359,17 @@ def _dataset_records(
         else:
             raise ApplicationError("CONFIG_DATASET_KIND_INVALID")
     return tuple(records)
+
+
+def _ruleset_versions(rows: list[dict[str, object]]) -> frozenset[str]:
+    versions: set[str] = set()
+    for row in rows:
+        if row.get("record_type") != "deck_legality_evaluation":
+            continue
+        evaluation = DeckLegalityEvaluation.model_validate(row.get("payload"))
+        if evaluation.ruleset_version.casefold() != "unknown":
+            versions.add(evaluation.ruleset_version)
+    return frozenset(versions)
 
 
 def _raw_reference(canonical: CanonicalRecord) -> ProvenanceReference:

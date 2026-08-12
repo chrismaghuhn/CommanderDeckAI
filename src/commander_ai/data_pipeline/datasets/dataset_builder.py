@@ -88,6 +88,14 @@ class DatasetBuildResult:
     split_result: DeckCompletionSplitResult | TournamentSplitResult | tuple[SplitAssignment, ...]
 
 
+class DatasetBuildError(ValueError):
+    """Stable data-pipeline failure that can be promoted to an application code."""
+
+    def __init__(self, code: str) -> None:
+        self.code = code
+        super().__init__(code)
+
+
 def build_dataset(
     request: DatasetBuildRequest,
     records: Sequence[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord],
@@ -96,6 +104,7 @@ def build_dataset(
 
     if request.producing_run is None:
         raise ValueError("dataset build requires a producing run")
+    _validate_ruleset_binding(request)
     kind = request.settings.dataset_kind
     historical_statuses = dict(request.historical_approval_statuses)
     current_use_decisions = validate_current_use_decisions(
@@ -335,9 +344,18 @@ def _remove_unpublished_output(output_root: Path, relative_path: str) -> None:
         path.unlink()
 
 
+def _validate_ruleset_binding(request: DatasetBuildRequest) -> None:
+    versions = tuple(request.ruleset_versions)
+    if any(not version.strip() or version.strip().casefold() == "unknown" for version in versions):
+        raise DatasetBuildError("LEGAL_RULESET_BINDING_INVALID")
+    if request.settings.inputs.legal_decks_only and not versions:
+        raise DatasetBuildError("LEGAL_RULESET_BINDING_REQUIRED")
+
+
 __all__ = [
     "DATASET_EXCLUSION_POLICY_VERSION",
     "DATASET_TRANSFORM_VERSION",
+    "DatasetBuildError",
     "DatasetBuildRequest",
     "DatasetBuildResult",
     "DatasetProjectionRecord",

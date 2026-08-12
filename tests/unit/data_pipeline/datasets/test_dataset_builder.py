@@ -197,6 +197,7 @@ def _request(settings: DatasetSettings, root: Path) -> DatasetBuildRequest:
         dependency_lock_hash="b" * 64,
         source_snapshot_ids=("snapshot-1",),
         source_snapshot_bindings=(("fixture", "snapshot-1"),),
+        ruleset_versions=("commander-2026-02-09",),
         card_snapshot_ids=("cards-fixture-v1",),
         schema_versions=("canonical-deck.v1",),
         current_use_decisions=(decision,),
@@ -367,6 +368,7 @@ def test_dataset_build_is_reproducible_and_manifest_binds_inputs_and_policy(tmp_
         mode="json"
     )
     assert first.manifest.counts["eligible_records"] == 1
+    assert first.manifest.ruleset_versions == ("commander-2026-02-09",)
 
     first_table = tmp_path / "first" / first.output_artifacts[0].path
     second_table = tmp_path / "second" / second.output_artifacts[0].path
@@ -385,6 +387,19 @@ def test_dataset_build_is_reproducible_and_manifest_binds_inputs_and_policy(tmp_
     assert first.manifest.manifest_sha256 == detached_manifest_sha256(
         first.manifest.model_dump(mode="json", exclude_none=True)
     )
+
+
+def test_legal_only_build_requires_an_authoritative_ruleset_binding(tmp_path: Path) -> None:
+    request = _request(_settings(), tmp_path)
+
+    with pytest.raises(ValueError, match="LEGAL_RULESET_BINDING_REQUIRED"):
+        build_dataset(replace(request, ruleset_versions=()), [_record()])
+
+    with pytest.raises(ValueError, match="LEGAL_RULESET_BINDING_INVALID"):
+        build_dataset(replace(request, ruleset_versions=("unknown",)), [_record()])
+
+    with pytest.raises(ValueError, match="LEGAL_RULESET_BINDING_INVALID"):
+        build_dataset(replace(request, ruleset_versions=(" unknown ",)), [_record()])
 
 
 def test_dataset_build_rejects_non_manifest_normalized_input(tmp_path: Path) -> None:
@@ -820,6 +835,8 @@ def test_card_cooccurrence_projection_emits_commander_and_card_relations(tmp_pat
                 occurrence=_occurrence(),
                 observed_at=datetime(2024, 1, 1, tzinfo=UTC),
                 payload={},
+                legal_status="legal",
+                quality_status="accepted",
             )
         ],
     )

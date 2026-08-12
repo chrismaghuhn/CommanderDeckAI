@@ -27,7 +27,7 @@ class TournamentRecord:
     observed_at: datetime
     canonical_deck_id: str | None
     payload: Mapping[str, object]
-    complete_event: bool = True
+    complete_event: bool = False
     source_id: str | None = None
     source_snapshot_id: str | None = None
 

@@ -43,8 +43,8 @@ class DeckCompletionRecord:
     payload: Mapping[str, object]
     complete_decklist: bool = True
     resolution_complete: bool = True
-    legal_status: str = "legal"
-    quality_status: str = "accepted"
+    legal_status: str = "unknown"
+    quality_status: str = "unknown"
     mode: str | None = None
 
     def __post_init__(self) -> None:
