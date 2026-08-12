@@ -102,6 +102,7 @@ def test_parser_preserves_event_deck_standing_round_table_and_all_players(tmp_pa
     table = next(item for item in records if item.record_type == "table")
     assert table.dto.winner_id == "fixture-player-1"
     assert len(table.source_values["players"]) == 4
+    assert table.source_values["players"][0]["player_id"] == "fixture-player-1"
     assert sum(item.record_type == "table_player" for item in records) == 4
     assert not any(item.record_type in {"staff", "attendee"} for item in records)
     assert all("canonical_deck_id" not in item.model_dump(mode="json") for item in records)
@@ -109,6 +110,49 @@ def test_parser_preserves_event_deck_standing_round_table_and_all_players(tmp_pa
         "not-for-curated@example.invalid" not in json.dumps(item.model_dump(mode="json"))
         for item in records
     )
+
+
+def test_parser_preserves_opaque_id_and_name_for_later_participant_resolution(
+    tmp_path: Path,
+) -> None:
+    payload = [
+        {
+            "TID": "fixture-event-named",
+            "format": "EDH",
+            "rounds": [
+                {
+                    "round": 1,
+                    "tables": [
+                        {
+                            "tableId": "fixture-table-named",
+                            "players": [
+                                {
+                                    "player_id": "opaque-player-1",
+                                    "name": "Player Name",
+                                    "handle": "player-handle",
+                                    "seat": 1,
+                                    "result": "winner",
+                                }
+                            ],
+                            "status": "complete",
+                        }
+                    ],
+                }
+            ],
+        }
+    ]
+    verified = _verified_snapshot(tmp_path, json.dumps(payload).encode("utf-8"))
+
+    table = next(
+        item
+        for item in TopDeckParser(_settings()).parse_object(verified)
+        if item.record_type == "table"
+    )
+
+    player = table.source_values["players"][0]
+    assert player["player_id"] == "opaque-player-1"
+    assert player["name"] == "Player Name"
+    assert player["handle"] == "player-handle"
 
 
 def test_staging_keeps_source_tables_and_audit_findings_without_canonical_observations(

@@ -72,6 +72,28 @@ def test_canonical_metrics_join_event_outcomes_to_structural_decks() -> None:
     assert pod_counts == (0, 0)
 
 
+def test_canonical_metrics_counts_repeated_structural_outcome_once() -> None:
+    first_deck = _canonical_record("canonical_deck", "canonical-deck.v1.json", "deck-z")
+    first_deck["source_record_id"] = "source-deck-z"
+    second_deck = _canonical_record("canonical_deck", "canonical-deck.v1.json", "deck-a")
+    second_deck["source_record_id"] = "source-deck-a"
+    first_observation = _canonical_record(
+        "event_deck_observation", "event-deck-observation.v1.json", "event-z"
+    )
+    second_observation = _canonical_record(
+        "event_deck_observation", "event-deck-observation.v1.json", "event-a"
+    )
+
+    decks, _, _, _ = _canonical_metrics(
+        [first_deck, second_deck, first_observation, second_observation],
+        [],
+        source_id="fixture",
+    )
+
+    assert [item.deck_id for item in decks if item.usable_outcome] == ["source-deck-a"]
+    assert sum(item.usable_outcome for item in decks) == 1
+
+
 def test_canonical_metrics_counts_complete_pods_and_full_pod_decks() -> None:
     deck_id = "a15de215dbd5b7f2295fb2d1836519dd0c4b27ec7e40cf140cbd205641f44625"
     rows = [

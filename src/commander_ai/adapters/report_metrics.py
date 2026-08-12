@@ -11,6 +11,7 @@ from commander_ai.data_pipeline.reports.source_metrics import DeckMetricRecord
 from commander_ai.domain.cards import CardResolution
 from commander_ai.domain.decks import CanonicalDeck
 from commander_ai.domain.observations import EventDeckObservation, PodEntry
+from commander_ai.domain.serialization import canonical_json_bytes
 
 
 def canonical_metrics(
@@ -24,7 +25,7 @@ def canonical_metrics(
     tuple[int, int],
     tuple[int, int],
 ]:
-    """Calculate deterministic deck, event, and complete-pod measurements."""
+    """Calculate deterministic measurements with one outcome flag per deck structure."""
 
     records = tuple(CanonicalRecord.model_validate(row) for row in canonical_rows)
     evaluations = index_deck_evaluations(records)
@@ -43,16 +44,25 @@ def canonical_metrics(
         elif record.record_type == "pod_entry":
             pod_ids.add(PodEntry.model_validate(record.payload).pod_id)
 
+    deck_inputs = tuple(
+        (record, CanonicalDeck.model_validate(record.payload))
+        for record in records
+        if record.record_type == "canonical_deck"
+    )
+    claimed_outcome_decks: set[str] = set()
     decks: list[DeckMetricRecord] = []
-    for record in records:
-        if record.record_type != "canonical_deck":
-            continue
-        deck = CanonicalDeck.model_validate(record.payload)
+    for record, deck in sorted(deck_inputs, key=_deck_sort_key):
         evaluation_key = (record.source_record_id, deck.canonical_deck_id)
         legality = evaluations.legality.get(evaluation_key)
         quality = evaluations.quality.get(evaluation_key)
         card_ids = [entry.oracle_id for entry in deck.command_zone]
         card_ids.extend(card.oracle_id for zone in deck.card_zones for card in zone.cards)
+        usable_outcome = (
+            deck.canonical_deck_id in outcome_decks
+            and deck.canonical_deck_id not in claimed_outcome_decks
+        )
+        if usable_outcome:
+            claimed_outcome_decks.add(deck.canonical_deck_id)
         decks.append(
             DeckMetricRecord(
                 deck_id=record.source_record_id,
@@ -66,7 +76,11 @@ def canonical_metrics(
                 and "quality.card_resolution_incomplete" not in quality.finding_codes,
                 legal_status="unknown" if legality is None else legality.legal_status,
                 quality_status="unknown" if quality is None else quality.quality_status,
-                usable_outcome=deck.canonical_deck_id in outcome_decks,
+                # This flag is a count-bearing representative marker: repeated source
+                # deck rows for one structural deck remain visible, but contribute one
+                # usable outcome to the report. The sorted input order makes the choice
+                # reproducible across rebuilds.
+                usable_outcome=usable_outcome,
                 full_pod=deck.canonical_deck_id in full_pod_decks,
             )
         )
@@ -76,7 +90,7 @@ def canonical_metrics(
     )
     total = sum(resolution_counts.values())
     return (
-        tuple(sorted(decks, key=lambda item: item.deck_id)),
+        tuple(sorted(decks, key=lambda item: (item.deck_id, not item.usable_outcome))),
         (
             total,
             resolution_counts.get("resolved", 0),
@@ -85,6 +99,21 @@ def canonical_metrics(
         ),
         (len(event_ids), observation_count),
         (len(pod_ids), len(pod_index.complete_pod_ids)),
+    )
+
+
+def _deck_sort_key(
+    item: tuple[CanonicalRecord, CanonicalDeck],
+) -> tuple[str, str, str, str, bytes]:
+    """Order duplicate source deck observations before assigning count flags."""
+
+    record, _ = item
+    return (
+        record.source_record_id,
+        record.source_snapshot_id,
+        record.raw_locator.raw_object_id,
+        record.record_id,
+        canonical_json_bytes(record.model_dump(mode="json")),
     )
 
 

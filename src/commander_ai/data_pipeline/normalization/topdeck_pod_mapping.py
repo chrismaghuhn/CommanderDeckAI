@@ -116,6 +116,7 @@ def _member(
     evidence: SourceEvidence,
 ) -> PodMemberInput:
     player_id = _player_id(values)
+    player_name = _player_name(values)
     raw_result = _text(values, "result", "outcome")
     result, mapped_placement, ambiguous = _result(
         raw_result,
@@ -128,8 +129,12 @@ def _member(
     placement = _positive_int(values, "placement", "place", "rank") or mapped_placement
     points = _finite_float(values.get("points"))
     participant = (
-        ParticipantInput(evidence=evidence, source_opaque_id=player_id)
-        if player_id is not None
+        ParticipantInput(
+            evidence=evidence,
+            source_opaque_id=player_id,
+            display_name=player_name,
+        )
+        if player_id is not None or player_name is not None
         else None
     )
     return PodMemberInput(
@@ -192,6 +197,23 @@ def _player_id(values: Mapping[str, object]) -> str | None:
         return direct
     nested = values.get("player")
     return _text(_mapping(nested), "player_id", "playerId", "id")
+
+
+def _player_name(values: Mapping[str, object]) -> str | None:
+    direct = _text(values, "name", "display_name", "displayName", "handle", "username")
+    if direct is not None:
+        return direct
+    nested = values.get("player")
+    if isinstance(nested, str):
+        return nested.strip() or None
+    return _text(
+        _mapping(nested),
+        "name",
+        "display_name",
+        "displayName",
+        "handle",
+        "username",
+    )
 
 
 def _canonical_deck_id(values: Mapping[str, object]) -> str | None:
