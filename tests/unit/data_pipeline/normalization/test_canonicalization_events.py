@@ -131,6 +131,7 @@ def test_event_decklist_resolves_to_canonical_deck_and_observation() -> None:
             "event_id": "event-1",
             "player_id": "player-1",
             "deckObj": {
+                "deck_id": "event-deck-1",
                 "commander": ["Fixture Commander"],
                 "cards": [{"name": "Fixture Card A", "quantity": 1}],
             },
@@ -154,6 +155,7 @@ def test_event_decklist_resolves_to_canonical_deck_and_observation() -> None:
     observation = next(
         item for item in result.records if item.record_type == "event_deck_observation"
     )
+    assert deck.source_record_id == "event-deck-1"
     assert observation.payload["canonical_deck_id"] == deck.payload["canonical_deck_id"]
     assert len(result.resolutions) == 2
     assert len(result.resolution_attempts) == 2

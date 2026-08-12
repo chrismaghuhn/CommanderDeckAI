@@ -109,8 +109,9 @@ def inspect_dataset(root: Path | str, dataset_id: str) -> DatasetInspection:
     )
     if expected_content_digest != manifest.dataset_content_sha256:
         raise ValueError("dataset content digest mismatch")
-    if manifest.producing_run_id is not None:
-        _verify_producing_run(artifact_root, manifest_file, manifest)
+    if manifest.producing_run_id is None:
+        raise ValueError("dataset producing run is missing")
+    _verify_producing_run(artifact_root, manifest_file, manifest)
     return DatasetInspection(
         manifest=manifest,
         manifest_artifact=JsonArtifact(
@@ -133,11 +134,19 @@ def _dataset_row_schema(manifest: DatasetManifest) -> str:
         return {
             "deck_completion": "deck-corpus.v1",
             "tournament_outcomes": "tournament-corpus.v1",
-            "card_cooccurrence": "card-cooccurrence.v1",
+            "card_cooccurrence": _card_cooccurrence_row_schema(manifest),
             "combo": "combo-corpus.v1",
         }[manifest.dataset_kind]
     except KeyError as error:
         raise ValueError("dataset kind has no typed curated row contract") from error
+
+
+def _card_cooccurrence_row_schema(manifest: DatasetManifest) -> str:
+    """Select the structural-audit schema while retaining read support for v1."""
+
+    if "card-cooccurrence.v2" in manifest.schema_versions:
+        return "card-cooccurrence.v2"
+    return "card-cooccurrence.v1"
 
 
 def _verify_output_artifact(root: Path, dataset_id: str, output: DatasetOutputReference) -> Path:

@@ -384,7 +384,7 @@ def _dataset_schema_version(dataset_kind: str) -> str:
     try:
         return {
             "deck_completion": "deck-corpus.v1",
-            "card_cooccurrence": "card-cooccurrence.v1",
+            "card_cooccurrence": "card-cooccurrence.v2",
             "tournament_outcomes": "tournament-corpus.v1",
             "combo": "combo-corpus.v1",
         }[dataset_kind]

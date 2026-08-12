@@ -142,7 +142,7 @@ def build_dataset(
         else:
             rows = cooccurrence_rows(request.settings.dataset_id, split_result)
             table_name = "card_cooccurrence"
-            row_schema = "card-cooccurrence.v1"
+            row_schema = "card-cooccurrence.v2"
         exclusions = _completion_exclusions(split_result, filter_exclusions)
         counts = _split_counts(split_result.assignments, _exclusion_count(exclusions))
     elif kind == "tournament_outcomes":

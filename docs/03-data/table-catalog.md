@@ -82,9 +82,11 @@ semantics; no event or combo result is inferred from a different source snapshot
 ## Task-specific curated corpora
 
 The dataset builder writes separate curated projections with versioned row
-contracts: `deck-corpus.v1` for deck completion, `card-cooccurrence.v1` for
+contracts: `deck-corpus.v1` for deck completion, `card-cooccurrence.v2` for
 commander/card and card/card relations, `tournament-corpus.v1` for event-grouped
-outcomes, and `combo-corpus.v1` for combo projections. Their JSON Schemas and
-small examples are tracked under `schemas/` and `examples/`; the Parquet files
-and dataset manifests are the authoritative artifacts, while DuckDB remains
-rebuildable local infrastructure.
+outcomes, and `combo-corpus.v1` for combo projections. `card-cooccurrence.v1`
+remains a readable legacy contract; v2 persists source-deck identity and deck
+zones so leakage inspection can reconstruct structural groups independently of
+row labels. Their JSON Schemas and small examples are tracked under `schemas/`
+and `examples/`; the Parquet files and dataset manifests are the authoritative
+artifacts, while DuckDB remains rebuildable local infrastructure.

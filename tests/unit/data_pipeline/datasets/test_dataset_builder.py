@@ -41,7 +41,7 @@ from commander_ai.data_pipeline.provenance.run_manifests import (
 )
 from commander_ai.domain.dataset_contracts import DatasetInputReference
 from commander_ai.domain.dataset_row_contracts import (
-    CardCooccurrenceRow,
+    CardCooccurrenceV2Row,
     ComboCorpusRow,
     DeckCorpusRow,
     TournamentCorpusRow,
@@ -660,6 +660,18 @@ def test_configured_leakage_report_is_published_and_verified(tmp_path: Path) -> 
     assert inspect_dataset(tmp_path, result.manifest.dataset_id).manifest.leakage_report is not None
 
 
+def test_dataset_inspection_requires_a_bound_producing_run(tmp_path: Path) -> None:
+    result = _build(tmp_path)
+    manifest_path = tmp_path / result.manifest_artifact.path
+    payload = json.loads(manifest_path.read_bytes())
+    payload.pop("producing_run_id")
+    payload["manifest_sha256"] = detached_manifest_sha256(payload)
+    manifest_path.write_bytes(canonical_json_bytes(payload))
+
+    with pytest.raises(ValueError, match="producing run is missing"):
+        inspect_dataset(tmp_path, result.manifest.dataset_id)
+
+
 def test_dataset_inspection_rejects_cross_split_group_even_after_rehashing(
     tmp_path: Path,
 ) -> None:
@@ -1025,13 +1037,105 @@ def test_card_cooccurrence_projection_emits_commander_and_card_relations(tmp_pat
     validate_parquet_table_rows(
         tmp_path / result.output_artifacts[0].path,
         layer="curated",
-        row_contract=CardCooccurrenceRow,
+        row_contract=CardCooccurrenceV2Row,
     )
-    _assert_rows_match_schema(tmp_path, result.output_artifacts[0].path, "card-cooccurrence.v1")
+    _assert_rows_match_schema(tmp_path, result.output_artifacts[0].path, "card-cooccurrence.v2")
     relations = {row["values"]["relation_type"] for row in rows}
     assert relations == {"commander_card", "card_card"}
     assert len(rows) == 3
     assert result.manifest.counts["output_rows"] == 3
+    assert {
+        "source_deck_id",
+        "source_snapshot_id",
+        "command_zone",
+        "card_zones",
+    } <= rows[0]["values"].keys()
+
+
+def test_card_cooccurrence_inspection_reconstructs_structure_not_labels(tmp_path: Path) -> None:
+    from commander_ai.data_pipeline.splitting.deck_completion_policy import DeckCompletionRecord
+
+    settings = _settings(dataset_id="fixture-cooccurrence-audit", dataset_kind="card_cooccurrence")
+    request = _request(settings, tmp_path)
+    result = build_dataset(
+        request,
+        [
+            DeckCompletionRecord(
+                record_id="deck-1",
+                occurrence=_occurrence(),
+                observed_at=datetime(2024, 1, 1, tzinfo=UTC),
+                payload={},
+                legal_status="legal",
+                quality_status="accepted",
+                legality_evaluation_record_id="legality-deck-1",
+                quality_evaluation_record_id="quality-deck-1",
+            )
+        ],
+    )
+    _publish_final_run(request, result)
+    rows = ParquetTableWriter(tmp_path).read_table(result.output_artifacts[0].path)
+    first = dict(rows[0])
+    second = dict(rows[0])
+    first_values = dict(first["values"])
+    second_values = dict(second["values"])
+    first["curated_id"] = "fixture-cooccurrence-audit:train"
+    second["curated_id"] = "fixture-cooccurrence-audit:test"
+    first_values.update(
+        record_id="cooccurrence-train",
+        split="train",
+        canonical_deck_id="tampered-train",
+        group_ids=["tampered-train"],
+    )
+    second_values.update(
+        record_id="cooccurrence-test",
+        split="test",
+        canonical_deck_id="tampered-test",
+        group_ids=["tampered-test"],
+    )
+    first["values"] = first_values
+    second["values"] = second_values
+    tampered_rows = [
+        CardCooccurrenceV2Row.model_validate(first),
+        CardCooccurrenceV2Row.model_validate(second),
+    ]
+    artifact = ParquetTableWriter(tmp_path).write_table(
+        "card_cooccurrence",
+        tampered_rows,
+        relative_path="datasets/fixture-cooccurrence-audit/tampered.parquet",
+        schema_version="card-cooccurrence.v2",
+        layer="curated",
+        row_contract=CardCooccurrenceV2Row,
+    )
+    manifest_path = tmp_path / result.manifest_artifact.path
+    payload = json.loads(manifest_path.read_bytes())
+    payload["outputs"] = [
+        {
+            "name": "card_cooccurrence",
+            "path": artifact.path,
+            "sha256": artifact.sha256,
+            "rows": artifact.rows,
+            "bytes": artifact.bytes,
+        }
+    ]
+    payload["counts"].update(
+        train=1,
+        validation=0,
+        test=1,
+        eligible_records=2,
+        input_records=2,
+        output_rows=2,
+    )
+    payload["dataset_content_sha256"] = compute_dataset_content_sha256(
+        dataset_id=result.manifest.dataset_id,
+        dataset_kind=result.manifest.dataset_kind,
+        table_name="card_cooccurrence",
+        rows=[row.model_dump(mode="json") for row in tampered_rows],
+    )
+    payload["manifest_sha256"] = detached_manifest_sha256(payload)
+    manifest_path.write_bytes(canonical_json_bytes(payload))
+
+    with pytest.raises(ValueError, match="cross-split leakage"):
+        inspect_dataset(tmp_path, result.manifest.dataset_id)
 
 
 def test_tournament_and_combo_builders_publish_separate_task_artifacts(tmp_path: Path) -> None:

@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from commander_ai.domain.dataset_row_contracts import (
     CardCooccurrenceRow,
+    CardCooccurrenceV2Row,
     ComboCorpusRow,
     DeckCorpusRow,
     TournamentCorpusRow,
@@ -20,6 +21,7 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 CONTRACTS = {
     "deck-corpus.v1": DeckCorpusRow,
     "card-cooccurrence.v1": CardCooccurrenceRow,
+    "card-cooccurrence.v2": CardCooccurrenceV2Row,
     "tournament-corpus.v1": TournamentCorpusRow,
     "combo-corpus.v1": ComboCorpusRow,
 }

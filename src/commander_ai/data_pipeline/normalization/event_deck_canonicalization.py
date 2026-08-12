@@ -183,7 +183,7 @@ def canonicalize_event_deck(
         )
     canonical = canonical_record_from_domain(
         deck,
-        source_record_id=record.staging_record_id,
+        source_record_id=source.source_deck_id,
         raw_locator=record.raw_locator,
         provenance=provenance_for(record, source_manifest, "event-deck-mapper-v1"),
         observed_at=observed_at,

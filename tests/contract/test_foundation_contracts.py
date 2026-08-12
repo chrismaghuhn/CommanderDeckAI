@@ -48,6 +48,7 @@ NEW_CONTRACT_STEMS = (
     "canonical-snapshot-manifest.v1",
     "deck-corpus.v1",
     "card-cooccurrence.v1",
+    "card-cooccurrence.v2",
     "tournament-corpus.v1",
     "combo-corpus.v1",
 )

@@ -131,11 +131,14 @@ dataset build; no competing data-run contract is used.
 Task-specific Parquet rows use their own versioned contracts and JSON Schemas;
 the generic `CuratedRow` envelope is not the semantic authority for these
 outputs. The current projections are `deck-corpus.v1`,
-`card-cooccurrence.v1`, `tournament-corpus.v1`, and `combo-corpus.v1` under
-`schemas/`, with small matching examples under `examples/`. The dataset builder
-validates each emitted row through its matching domain contract before writing
-Parquet, and the dataset manifest binds the resulting row schema and artifact
-hash.
+`card-cooccurrence.v2`, `tournament-corpus.v1`, and `combo-corpus.v1` under
+`schemas/`, with small matching examples under `examples/`. The legacy
+`card-cooccurrence.v1` contract remains immutable and readable, but it does not
+carry enough deck structure for independent leakage reconstruction. v2 carries
+the source-deck identity, source snapshot, command zone, and card zones needed
+for that audit. The dataset builder validates each emitted row through its
+matching domain contract before writing Parquet, and the dataset manifest binds
+the resulting row schema and artifact hash.
 
 `cda data report <source>` publishes the existing source-quality report. For
 `cda data report all`, the same measured `SourceMetricsInput` values also feed

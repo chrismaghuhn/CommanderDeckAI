@@ -18,8 +18,8 @@ from commander_ai.data_pipeline.splitting.group_promotion import (
 )
 from commander_ai.data_pipeline.splitting.tournament_policy import TournamentSplitResult
 from commander_ai.domain.dataset_row_contracts import (
-    CardCooccurrenceRow,
-    CardCooccurrenceValues,
+    CardCooccurrenceV2Row,
+    CardCooccurrenceV2Values,
     ComboCorpusRow,
     ComboCorpusValues,
     DeckCorpusRow,
@@ -140,11 +140,11 @@ def completion_rows(
 def cooccurrence_rows(
     dataset_id: str,
     result: DeckCompletionSplitResult,
-) -> tuple[CardCooccurrenceRow, ...]:
+) -> tuple[CardCooccurrenceV2Row, ...]:
     """Project each eligible deck into commander-card and card-card relations."""
 
     records = {record.record_id: record for record in result.eligible_records}
-    rows: list[CardCooccurrenceRow] = []
+    rows: list[CardCooccurrenceV2Row] = []
     for assignment in result.assignments:
         record = records[assignment.record_id]
         deck = record.occurrence.deck
@@ -153,21 +153,25 @@ def cooccurrence_rows(
             sorted({entry.oracle_id.lower() for zone in deck.card_zones for entry in zone.cards})
         )
         base_values = {
-            "schema_version": "card-cooccurrence.v1",
+            "schema_version": "card-cooccurrence.v2",
             "record_id": record.record_id,
             "split": assignment.split,
             "canonical_deck_id": record.canonical_deck_id,
             "source_id": record.occurrence.source.source_id,
+            "source_deck_id": record.occurrence.source.source_deck_id,
+            "source_snapshot_id": record.occurrence.source.source_snapshot_id,
             "observed_at": record.observed_at.isoformat(),
             "group_ids": list(assignment.group_ids),
+            "command_zone": [entry.model_dump(mode="json") for entry in deck.command_zone],
+            "card_zones": [zone.model_dump(mode="json") for zone in deck.card_zones],
         }
         for commander_id, card_id in (
             (commander_id, card_id) for commander_id in commanders for card_id in cards
         ):
             rows.append(
-                CardCooccurrenceRow(
+                CardCooccurrenceV2Row(
                     curated_id=f"{dataset_id}:{record.record_id}:commander_card:{commander_id}:{card_id}",
-                    values=CardCooccurrenceValues.model_validate(
+                    values=CardCooccurrenceV2Values.model_validate(
                         {
                             **base_values,
                             "relation_type": "commander_card",
@@ -179,9 +183,9 @@ def cooccurrence_rows(
             )
         for left_id, right_id in combinations(cards, 2):
             rows.append(
-                CardCooccurrenceRow(
+                CardCooccurrenceV2Row(
                     curated_id=f"{dataset_id}:{record.record_id}:card_card:{left_id}:{right_id}",
-                    values=CardCooccurrenceValues.model_validate(
+                    values=CardCooccurrenceV2Values.model_validate(
                         {
                             **base_values,
                             "relation_type": "card_card",

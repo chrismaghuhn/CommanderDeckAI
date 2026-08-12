@@ -7,6 +7,7 @@ from collections.abc import Mapping, Sequence
 from hashlib import sha256
 from itertools import combinations
 
+from commander_ai.data_pipeline.decks.fingerprints import structural_fingerprint
 from commander_ai.data_pipeline.deduplication.revisions import REVISION_GROUP_VERSION
 from commander_ai.domain.dataset_contracts import DatasetManifest
 from commander_ai.domain.serialization import canonical_json_bytes
@@ -99,7 +100,11 @@ def _add_derived_group_memberships(
     settings = deduplication if isinstance(deduplication, Mapping) else {}
     if settings.get("exact_fingerprint", True) is True:
         for values in rows:
-            _add_value_group(memberships, values, f"exact:{values.get('canonical_deck_id')}")
+            fingerprint = _structural_fingerprint(values)
+            if fingerprint is None:
+                _require_structure(manifest, "exact fingerprint")
+                continue
+            _add_value_group(memberships, values, f"exact:{fingerprint}")
     if settings.get("group_revisions", True) is True:
         for values in rows:
             source_id = values.get("source_id")
@@ -122,6 +127,8 @@ def _add_derived_group_memberships(
                     )
                 ).hexdigest()[:32]
                 memberships.setdefault(f"revision:revision-{digest}", set()).add(split)
+            elif manifest.dataset_kind == "card_cooccurrence":
+                _require_structure(manifest, "source revision grouping")
     if manifest.near_duplicate_algorithm is not None:
         _add_near_duplicate_groups(memberships, manifest, rows)
 
@@ -142,9 +149,10 @@ def _add_near_duplicate_groups(
     decks: dict[str, Counter[tuple[str, str]]] = {}
     row_deck_ids: list[tuple[str, str]] = []
     for values in rows:
-        deck_id = values.get("canonical_deck_id")
+        deck_id = _structural_fingerprint(values)
         signature = _deck_signature(values)
         if not isinstance(deck_id, str) or not deck_id or signature is None:
+            _require_structure(manifest, "near-duplicate grouping")
             continue
         decks.setdefault(deck_id, signature)
         row_deck_ids.append((deck_id, str(values.get("split", ""))))
@@ -190,6 +198,22 @@ def _deck_signature(values: Mapping[str, object]) -> Counter[tuple[str, str]] | 
         if not _add_zone_cards(counts, zone["zone"], zone.get("cards")):
             return None
     return counts
+
+
+def _structural_fingerprint(values: Mapping[str, object]) -> str | None:
+    command_zone = values.get("command_zone")
+    card_zones = values.get("card_zones")
+    if not isinstance(command_zone, (list, tuple)) or not isinstance(card_zones, (list, tuple)):
+        return None
+    try:
+        return structural_fingerprint(command_zone, card_zones)
+    except (TypeError, ValueError):
+        return None
+
+
+def _require_structure(manifest: DatasetManifest, policy: str) -> None:
+    if manifest.dataset_kind == "card_cooccurrence":
+        raise ValueError(f"card co-occurrence rows lack structure for {policy} audit")
 
 
 def _add_zone_cards(counts: Counter[tuple[str, str]], zone: str, raw_cards: object) -> bool:

@@ -185,6 +185,35 @@ class CardCooccurrenceRow(DatasetRow):
     values: CardCooccurrenceValues
 
 
+class CardCooccurrenceV2Values(DomainModel):
+    """Co-occurrence row with the structure needed to audit split leakage."""
+
+    schema_version: Literal["card-cooccurrence.v2"] = "card-cooccurrence.v2"
+    record_id: NonEmptyString
+    split: Literal["train", "validation", "test"]
+    canonical_deck_id: NonEmptyString
+    source_id: NonEmptyString
+    source_deck_id: NonEmptyString
+    source_snapshot_id: NonEmptyString
+    observed_at: AwareDatetime
+    group_ids: UniqueNonEmptyStrings = Field(default_factory=tuple)
+    command_zone: UniqueTuple[CommandZoneEntry] = Field(min_length=1)
+    card_zones: UniqueTuple[CardZone] = Field(min_length=1)
+    relation_type: Literal["commander_card", "card_card"]
+    left_id: UUIDString
+    right_id: UUIDString
+
+    @model_validator(mode="after")
+    def reject_self_relation(self) -> CardCooccurrenceV2Values:
+        if self.relation_type == "card_card" and self.left_id == self.right_id:
+            raise ValueError("card-card relations must contain two distinct cards")
+        return self
+
+
+class CardCooccurrenceV2Row(DatasetRow):
+    values: CardCooccurrenceV2Values
+
+
 class TournamentCorpusValues(DomainModel):
     schema_version: Literal["tournament-corpus.v1"] = "tournament-corpus.v1"
     record_id: NonEmptyString
@@ -216,6 +245,7 @@ class ComboCorpusRow(DatasetRow):
 _ROW_CONTRACTS: dict[str, type[DatasetRow]] = {
     "deck-corpus.v1": DeckCorpusRow,
     "card-cooccurrence.v1": CardCooccurrenceRow,
+    "card-cooccurrence.v2": CardCooccurrenceV2Row,
     "tournament-corpus.v1": TournamentCorpusRow,
     "combo-corpus.v1": ComboCorpusRow,
 }
@@ -234,6 +264,8 @@ def row_contract_for_schema(schema_version: str) -> type[DatasetRow]:
 __all__ = [
     "TASK_DATASET_ROW_CONTRACTS",
     "CardCooccurrenceRow",
+    "CardCooccurrenceV2Row",
+    "CardCooccurrenceV2Values",
     "CardCooccurrenceValues",
     "ComboCorpusRow",
     "ComboCorpusValues",
