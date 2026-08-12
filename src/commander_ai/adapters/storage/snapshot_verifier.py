@@ -20,8 +20,9 @@ from commander_ai.domain.provenance import SourceSnapshotManifest
 from .canonical_json import canonical_json_bytes
 from .digests import detached_manifest_sha256, snapshot_content_sha256
 from .manifest_policy import manifest_semantic_code
-from .path_policy import resolve_under_root, validate_portable_relative_path
+from .path_policy import resolve_under_root
 from .raw_snapshot_object_policy import checksum_integrity_code
+from .snapshot_identity import is_safe_snapshot_component
 
 
 class SnapshotIntegrityError(RawSnapshotVerificationError):
@@ -289,13 +290,7 @@ def _contains_symlink(path: Path, root: Path) -> bool:
 
 
 def _safe_component(value: str) -> bool:
-    if not isinstance(value, str) or not value or "/" in value or "\\" in value:
-        return False
-    try:
-        validate_portable_relative_path(f"component/{value}")
-    except ValueError:
-        return False
-    return not value.startswith(".")
+    return is_safe_snapshot_component(value)
 
 
 def _sha256_file(path: Path) -> str:

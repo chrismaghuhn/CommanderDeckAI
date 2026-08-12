@@ -51,6 +51,15 @@ def test_writer_rejects_hidden_snapshot_id_like_verifier(tmp_path: Path) -> None
     assert error.value.code == "ACQ_SNAPSHOT_ID_INVALID"
 
 
+def test_writer_rejects_explicit_empty_snapshot_id_instead_of_generating_one(
+    tmp_path: Path,
+) -> None:
+    with pytest.raises(raw_snapshots.RawSnapshotError) as error:
+        _start(tmp_path, snapshot_id="")
+
+    assert error.value.code == "ACQ_SNAPSHOT_ID_INVALID"
+
+
 def test_streaming_object_uses_same_filesystem_temp_and_preserves_raw_bytes(
     tmp_path: Path,
 ) -> None:

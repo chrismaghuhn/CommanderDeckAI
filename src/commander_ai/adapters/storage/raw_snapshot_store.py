@@ -17,6 +17,7 @@ from .path_policy import (
     validate_portable_relative_path,
 )
 from .raw_snapshot_errors import RawSnapshotError
+from .snapshot_identity import validate_snapshot_component
 
 if TYPE_CHECKING:
     from .raw_snapshots import RawSnapshotWriter
@@ -54,7 +55,11 @@ class RawSnapshotStore:
 
         source_id = self._component(source_id, "ACQ_SOURCE_ID_INVALID")
         adapter_version = self._nonempty(adapter_version, "ACQ_ADAPTER_VERSION_INVALID")
-        selected_id = snapshot_id or self._generated_snapshot_id(source_id, adapter_version)
+        selected_id = (
+            self._generated_snapshot_id(source_id, adapter_version)
+            if snapshot_id is None
+            else snapshot_id
+        )
         selected_id = self._component(selected_id, "ACQ_SNAPSHOT_ID_INVALID")
         object_limit = self.max_object_bytes if max_object_bytes is None else max_object_bytes
         if not isinstance(object_limit, int) or isinstance(object_limit, bool) or object_limit < 1:
@@ -123,19 +128,10 @@ class RawSnapshotStore:
 
     @staticmethod
     def _component(value: str, code: str) -> str:
-        if (
-            not isinstance(value, str)
-            or not value
-            or value.startswith(".")
-            or "/" in value
-            or "\\" in value
-        ):
-            raise RawSnapshotError(code)
         try:
-            validate_portable_relative_path(f"component/{value}")
+            return validate_snapshot_component(value)
         except ValueError as error:
             raise RawSnapshotError(code) from error
-        return value
 
     @staticmethod
     def _nonempty(value: str, code: str) -> str:

@@ -4,10 +4,13 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from .storage.snapshot_identity import validate_snapshot_component
+
 
 def find_source_for_snapshot(data_root: Path, snapshot_id: str) -> str:
     """Return the unique source directory containing a snapshot manifest."""
 
+    validate_snapshot_component(snapshot_id)
     raw_root = data_root / "raw"
     matches = (
         [
