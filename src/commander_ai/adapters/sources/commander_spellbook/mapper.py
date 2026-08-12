@@ -38,9 +38,10 @@ from .json_support import (
     DuplicateJSONKey,
     contains_malformed_value,
     decode_json,
+    valid_bulk_envelope,
     valid_pagination_envelope,
 )
-from .settings import documented_endpoint, raw_object_identity
+from .settings import documented_bulk_endpoint, documented_endpoint, raw_object_identity
 
 
 class CommanderSpellbookStagingMapper:
@@ -132,17 +133,19 @@ class CommanderSpellbookStagingMapper:
                 )
             )
             parameters = {} if request is None else request.sanitized_parameters
+            is_bulk = page is None
+            expected_endpoint = (
+                documented_bulk_endpoint() if is_bulk else documented_endpoint(contract)
+            )
+            expected_parameters = {} if is_bulk else {"page": page}
             if (
                 reference is None
                 or reference.source_object_id != contract
                 or request is None
                 or request.sanitized_method != "GET"
                 or request.format != "json"
-                or request.sanitized_endpoint != documented_endpoint(contract)
-                or set(parameters) != {"page"}
-                or not isinstance(parameters.get("page"), int)
-                or isinstance(parameters.get("page"), bool)
-                or parameters.get("page") != page
+                or request.sanitized_endpoint != expected_endpoint
+                or parameters != expected_parameters
             ):
                 raise ValueError("Commander Spellbook record request/product evidence disagrees")
             validate_raw_locator_against_snapshot(
@@ -172,6 +175,8 @@ class CommanderSpellbookStagingMapper:
             raise ValueError("Commander Spellbook records require JSON pointer locators")
         raw_path = verified_snapshot.object_paths[record.raw_locator.raw_object_id]
         reference = verified_snapshot.object_index[record.raw_locator.raw_object_id]
+        _, page = raw_object_identity(record.raw_locator.raw_object_id)
+        is_bulk = page is None
         try:
             raw_bytes = raw_path.read_bytes()
         except OSError:
@@ -181,11 +186,14 @@ class CommanderSpellbookStagingMapper:
         except HttpContentCodingError as error:
             raise ValueError(error.code) from None
         if not location.pointer:
-            expected_codes, expected_values = _root_record_expectation(decoded_bytes)
+            expected_codes, expected_values = _root_record_expectation(
+                decoded_bytes, is_bulk=is_bulk
+            )
             _assert_record_semantics(record, expected_codes, expected_values)
             return
         parts = location.pointer.split("/")
-        if len(parts) != 3 or parts[1] != "results" or not parts[2].isdigit():
+        collection = "variants" if is_bulk else "results"
+        if len(parts) != 3 or parts[1] != collection or not parts[2].isdigit():
             raise ValueError("Commander Spellbook record locator must identify a result")
         index_text = parts[2]
         if index_text != "0" and index_text.startswith("0"):
@@ -195,9 +203,10 @@ class CommanderSpellbookStagingMapper:
             payload = decode_json(decoded_bytes)
         except (DuplicateJSONKey, UnicodeDecodeError, ValueError):
             raise ValueError("Commander Spellbook record source cannot be decoded") from None
-        if not isinstance(payload, Mapping) or not isinstance(payload.get("results"), list):
-            raise ValueError("Commander Spellbook record source has no results array")
-        results = cast(list[object], payload["results"])
+        collection_values = None if not isinstance(payload, Mapping) else payload.get(collection)
+        if not isinstance(collection_values, list):
+            raise ValueError(f"Commander Spellbook record source has no {collection} array")
+        results = cast(list[object], collection_values)
         if index >= len(results):
             raise ValueError("Commander Spellbook record locator is outside results")
         target = results[index]
@@ -253,15 +262,21 @@ class CommanderSpellbookStagingMapper:
         return "STRUCTURAL_INVALID"
 
 
-def _root_record_expectation(raw_bytes: bytes) -> tuple[tuple[str, ...], object]:
+def _root_record_expectation(raw_bytes: bytes, *, is_bulk: bool) -> tuple[tuple[str, ...], object]:
     try:
         payload = decode_json(raw_bytes)
     except DuplicateJSONKey:
         return ("parse.duplicate_json_key",), json_safe_source_value(raw_bytes)
     except (UnicodeDecodeError, json.JSONDecodeError, ValueError):
         return ("parse.invalid_json",), json_safe_source_value(raw_bytes)
-    if not valid_pagination_envelope(payload):
-        return ("parse.invalid_response_envelope",), json_safe_source_value(payload)
+    if is_bulk:
+        valid = valid_bulk_envelope(payload)
+        code = "parse.invalid_bulk_envelope"
+    else:
+        valid = valid_pagination_envelope(payload)
+        code = "parse.invalid_response_envelope"
+    if not valid:
+        return (code,), json_safe_source_value(payload)
     raise ValueError("Commander Spellbook record locator must identify a result")
 
 

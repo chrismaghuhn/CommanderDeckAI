@@ -1,10 +1,16 @@
 # Task 7 Commander Spellbook Review Fix Implementation Plan
 
+> **Acquisition-policy amendment (2026-08-12):** periodic/full Data Foundation
+> sync uses the documented `variants.json` bulk product and persists one exact
+> raw response through the shared snapshot store. The REST pagination work in
+> this historical plan applies only to bounded sparse interactive reads and is
+> not a bulk-export path.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the Task-7 Commander Spellbook P1 review findings and bounded P2 findings in one focused offline-tested commit.
 
-**Architecture:** Keep raw acquisition, verifier-issued snapshot evidence, source-shaped DTO parsing, and Task-5 staging as separate boundaries. Add source-owned contract validation in settings, page validation in the downloader, identity validation in the parser, and evidence validation in the mapper without introducing canonical or later-milestone behavior.
+**Architecture:** Keep raw acquisition, verifier-issued snapshot evidence, source-shaped DTO parsing, and Task-5 staging as separate boundaries. Add source-owned contract validation in settings, bounded sparse-page validation in the client, identity validation in the parser, and evidence validation in the mapper without introducing canonical or later-milestone behavior.
 
 **Tech Stack:** Python 3.12, Pydantic 2 strict scalars, httpx, pytest, existing raw snapshot store/verifier, Ruff, mypy, and repository offline validation scripts.
 
@@ -53,18 +59,18 @@ Run:
 uv run pytest tests/unit/adapters/sources/commander_spellbook tests/contract/test_commander_spellbook_adapter.py -q
 ```
 
-### Task 3: Implement fail-closed pagination and direct page limits
+### Task 3: Implement bulk acquisition and bounded sparse REST reads
 
 **Files:**
 - Modify: `src/commander_ai/adapters/sources/commander_spellbook/downloader.py`
 - Modify: `src/commander_ai/adapters/sources/commander_spellbook/client.py`
 - Modify: `src/commander_ai/adapters/sources/commander_spellbook/settings.py`
 
-- [x] Validate each persisted page as a documented JSON envelope before deciding whether it has another page; raise stable pagination errors for read, decoding, shape, and link failures.
-- [x] Validate next links against the exact configured contract endpoint and a single positive page query without following the link.
-- [x] Preserve the existing `_fail_if_open` path so every pagination error writes `FAILED`/non-consumable state and prevents finalization.
-- [x] Enforce `settings.max_pages` in both public client methods before transport calls.
-- [x] Run the pagination and client regression tests green before moving on.
+- [x] Acquire periodic/full data from the documented `variants.json` bulk endpoint through one shared raw-snapshot write and commit path.
+- [x] Preserve exact bulk response bytes and defer parsing until a complete, integrity-verified snapshot is available.
+- [x] Keep REST `cards`/`variants` reads for sparse interactive use and reject pages above the configured three-page limit before transport.
+- [x] Keep sparse REST envelope/link validation in parser/staging paths without allowing the periodic downloader to enumerate REST pages.
+- [x] Run the bulk, sparse-client, and parser/staging regression tests green before moving on.
 
 ### Task 4: Implement evidence-bound parser and staging entry points
 

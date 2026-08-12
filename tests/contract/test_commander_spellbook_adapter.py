@@ -7,6 +7,7 @@ from commander_ai.adapters.sources.commander_spellbook.settings import (
     CommanderSpellbookSettings,
 )
 from commander_ai.config.source_settings import SourceSettings
+from commander_ai.config.yaml_loader import load_source_settings
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 ADAPTER_ROOT = (
@@ -52,10 +53,21 @@ def test_settings_contract_is_strict_and_source_specific() -> None:
     source = SourceSettings(
         source_id="commander_spellbook",
         approval_status="APPROVED_LOCAL",
-        endpoints=("https://backend.commanderspellbook.com",),
-        host_allowlist=("backend.commanderspellbook.com",),
+        access_method="bulk_json_with_sparse_rest",
+        endpoints=(
+            "https://backend.commanderspellbook.com",
+            "https://json.commanderspellbook.com",
+        ),
+        host_allowlist=("backend.commanderspellbook.com", "json.commanderspellbook.com"),
+        max_pages=3,
+        files=("variants.json",),
+        bulk_type="json",
         review_path="docs/03-data/source-reviews/commander-spellbook.md",
-        filters={"documented_read_contracts": ["cards", "variants"]},
+        filters={
+            "documented_read_contracts": ["cards", "variants"],
+            "bulk_file": "variants.json",
+            "sparse_rest_page_limit": 3,
+        },
         features={"combos": True, "variants": True},
         attribution_required=True,
         raw_storage="allowed_local",
@@ -65,3 +77,23 @@ def test_settings_contract_is_strict_and_source_specific() -> None:
     assert settings.source.source_id == "commander_spellbook"
     assert settings.contracts == ("cards", "variants")
     assert settings.model_config["extra"] == "forbid"
+
+
+def test_checked_in_config_selects_bulk_sync_and_sparse_rest_policy() -> None:
+    source = load_source_settings(PROJECT_ROOT / "configs" / "sources" / "commander_spellbook.yaml")
+
+    assert source.access_method == "bulk_json_with_sparse_rest"
+    assert source.endpoints == (
+        "https://backend.commanderspellbook.com",
+        "https://json.commanderspellbook.com",
+    )
+    assert source.host_allowlist == (
+        "backend.commanderspellbook.com",
+        "json.commanderspellbook.com",
+    )
+    assert source.rate_limit_per_minute == 30
+    assert source.max_pages == 3
+    assert source.bulk_type == "json"
+    assert source.files == ("variants.json",)
+    assert source.filters["bulk_file"] == "variants.json"
+    assert source.filters["sparse_rest_page_limit"] == 3

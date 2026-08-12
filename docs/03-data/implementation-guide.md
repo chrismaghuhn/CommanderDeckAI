@@ -216,7 +216,7 @@ violations must be identified separately from new changes.
 | Source | Status | Project use |
 | --- | --- | --- |
 | MTGJSON | READY for approved local sync | cards, printings, products, provenance |
-| Commander Spellbook | READY for approved local sync | documented combo/card read contracts |
+| Commander Spellbook | READY for approved local sync | documented bulk variants JSON for periodic sync; REST only for sparse reads |
 | TopDeck.gg | PARTIAL / BLOCKED | client and staging contracts; approval/key gate remains |
 | Spicerack | PARTIAL / BLOCKED | client and staging contracts; approval/key gate remains |
 | Archidekt | RESEARCH ONLY | no automatic acquisition |

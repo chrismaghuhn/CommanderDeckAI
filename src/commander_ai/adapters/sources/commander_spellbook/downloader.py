@@ -2,15 +2,8 @@
 
 from __future__ import annotations
 
-import json
-from collections.abc import Mapping
 from dataclasses import dataclass
-from pathlib import Path
 
-from commander_ai.adapters.http.content_coding import (
-    HttpContentCodingError,
-    decode_entity_body,
-)
 from commander_ai.adapters.http.transport import HttpTransportError
 from commander_ai.adapters.storage.raw_snapshot_errors import RawSnapshotError
 from commander_ai.adapters.storage.raw_snapshot_store import RawSnapshotStore
@@ -24,8 +17,10 @@ from .errors import (
     CommanderSpellbookClientError,
     CommanderSpellbookDownloadError,
 )
-from .json_support import DuplicateJSONKey, decode_pagination_json
-from .settings import CommanderSpellbookSettings, SpellbookContract
+from .settings import (
+    DOCUMENTED_BULK_OBJECT_ID,
+    CommanderSpellbookSettings,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -36,7 +31,7 @@ class CommanderSpellbookDownloadResult:
 
 
 class CommanderSpellbookDownloader:
-    """Acquire configured API pages serially with shared policy and storage gates."""
+    """Acquire the documented bulk JSON with shared policy and storage gates."""
 
     def __init__(
         self,
@@ -79,13 +74,29 @@ class CommanderSpellbookDownloader:
             attribution_required=configuration.attribution_required,
             redistribution_status=configuration.redistribution_status,
             terms_reference=configuration.terms_reference,
-            pagination_state={"contracts": list(self.settings.contracts)},
+            pagination_state={"mode": "bulk_json", "product": self.settings.bulk_product},
             max_object_bytes=self.settings.max_response_bytes,
         )
-        object_ids: list[str] = []
         try:
-            for contract in self.settings.contracts:
-                self._download_contract(writer, contract, object_ids)
+            request_id = "commander-spellbook-bulk-variants"
+            writer.add_request(
+                {
+                    "request_id": request_id,
+                    **self.client.request_bulk_metadata(),
+                }
+            )
+            response = self.client.fetch_bulk()
+            try:
+                writer.write_object(
+                    raw_object_id=DOCUMENTED_BULK_OBJECT_ID,
+                    request_id=request_id,
+                    chunks=response.iter_raw(),
+                    content_type=response.metadata.content_type,
+                    content_encoding=response.metadata.content_encoding,
+                    source_object_id="variants",
+                )
+            finally:
+                response.close()
             commit = writer.finalize()
         except (
             CommanderSpellbookClientError,
@@ -101,122 +112,13 @@ class CommanderSpellbookDownloader:
         return CommanderSpellbookDownloadResult(
             snapshot_commit=commit,
             manifest=writer.manifest,
-            raw_object_ids=tuple(object_ids),
+            raw_object_ids=(DOCUMENTED_BULK_OBJECT_ID,),
         )
 
     def acquire(self, *, snapshot_id: str | None = None) -> CommanderSpellbookDownloadResult:
         """Alias using the source-review term for a raw acquisition operation."""
 
         return self.download(snapshot_id=snapshot_id)
-
-    def _download_contract(
-        self,
-        writer: RawSnapshotWriter,
-        contract: SpellbookContract,
-        object_ids: list[str],
-    ) -> None:
-        for page in range(1, self.settings.max_pages + 1):
-            request_id = f"commander-spellbook-{contract}-page-{page}"
-            raw_object_id = f"{contract}-page-{page}.json"
-            writer.add_request(
-                {
-                    "request_id": request_id,
-                    **self.client.request_metadata(contract, page=page),
-                }
-            )
-            response = self.client.fetch(contract, page=page)
-            try:
-                object_writer = writer.open_object(
-                    raw_object_id=raw_object_id,
-                    request_id=request_id,
-                    content_type=response.metadata.content_type,
-                    content_encoding=response.metadata.content_encoding,
-                    source_object_id=contract,
-                )
-            except BaseException:
-                response.close()
-                raise
-            try:
-                for chunk in response.iter_raw():
-                    object_writer.write(chunk)
-                reference = object_writer.finalize()
-                object_ids.append(reference.raw_object_id)
-                if not self._has_next_page(
-                    writer.snapshot_dir.joinpath(*reference.path.split("/")),
-                    contract,
-                    page=page,
-                    content_encoding=reference.content_encoding,
-                ):
-                    return
-            except (
-                CommanderSpellbookDownloadError,
-                HttpTransportError,
-                RawSnapshotError,
-                OSError,
-                ValueError,
-            ):
-                object_writer.abort()
-                raise
-            except Exception:
-                object_writer.abort()
-                raise CommanderSpellbookDownloadError("SPELLBOOK_DOWNLOAD_FAILED") from None
-            finally:
-                response.close()
-        raise CommanderSpellbookDownloadError("SPELLBOOK_PAGE_LIMIT_EXCEEDED")
-
-    def _has_next_page(
-        self,
-        path: Path,
-        contract: SpellbookContract,
-        *,
-        page: int,
-        content_encoding: str | None = None,
-    ) -> bool:
-        """Inspect only persisted bytes to control pagination; never follow a source URL."""
-
-        try:
-            raw_bytes = path.read_bytes()
-        except OSError:
-            raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_READ_FAILED") from None
-        try:
-            payload = decode_pagination_json(
-                decode_entity_body(
-                    raw_bytes,
-                    content_encoding,
-                    max_decoded_bytes=self.settings.max_response_bytes,
-                )
-            )
-        except HttpContentCodingError as error:
-            raise CommanderSpellbookDownloadError(error.code) from None
-        except (DuplicateJSONKey, UnicodeDecodeError, json.JSONDecodeError, ValueError):
-            raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_JSON") from None
-        if not isinstance(payload, Mapping) or not {
-            "count",
-            "next",
-            "previous",
-            "results",
-        }.issubset(payload):
-            raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_SHAPE")
-        count = payload["count"]
-        if not isinstance(count, int) or isinstance(count, bool) or count < 0:
-            raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_SHAPE")
-        if not isinstance(payload["results"], list):
-            raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_SHAPE")
-        next_link = payload["next"]
-        previous_link = payload["previous"]
-        try:
-            next_page = (
-                None
-                if next_link is None
-                else self.settings.validate_pagination_link(contract, next_link)
-            )
-            if previous_link is not None:
-                self.settings.validate_pagination_link(contract, previous_link)
-        except ValueError:
-            raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_INVALID_LINK") from None
-        if next_page is not None and next_page != page + 1:
-            raise CommanderSpellbookDownloadError("SPELLBOOK_PAGINATION_SEQUENCE_MISMATCH")
-        return next_page is not None
 
     @staticmethod
     def _fail_if_open(writer: RawSnapshotWriter) -> None:

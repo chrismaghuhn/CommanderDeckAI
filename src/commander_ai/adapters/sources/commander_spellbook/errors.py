@@ -23,6 +23,10 @@ class CommanderSpellbookDownloadError(CommanderSpellbookError):
     """Raw acquisition could not reach a complete snapshot."""
 
 
+class CommanderSpellbookParseError(CommanderSpellbookError):
+    """Parsing or verifier-bound raw evidence failed closed."""
+
+
 class CommanderSpellbookStagingError(TypeError):
     """Staging was called without verifier-bound parser evidence."""
 
@@ -36,5 +40,6 @@ __all__ = [
     "CommanderSpellbookConfigurationError",
     "CommanderSpellbookDownloadError",
     "CommanderSpellbookError",
+    "CommanderSpellbookParseError",
     "CommanderSpellbookStagingError",
 ]

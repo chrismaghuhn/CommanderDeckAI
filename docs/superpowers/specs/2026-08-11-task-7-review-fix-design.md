@@ -10,8 +10,8 @@ staging boundary.
 
 The fix covers:
 
-- fail-closed validation of every persisted pagination page, including JSON,
-  envelope, next-link, and persisted-byte read failures;
+- fail-closed validation of the documented bulk JSON envelope after exact raw
+  snapshot finalization;
 - verifier-issued raw-snapshot/object evidence for all public parser and
   staging entry points;
 - binding of Spellbook source identity, documented endpoint/request lineage,
@@ -19,25 +19,31 @@ The fix covers:
 - strict scalar validation for documented DTO fields, with malformed records
   retained as source values plus parse findings;
 - source-owned endpoint/path/contract settings and runtime client binding;
-- direct-client enforcement of the configured page limit;
+- direct-client enforcement of a three-page maximum for sparse REST reads;
 - small local JSON fixtures and focused regression tests.
 
 The fix does not change v1 schemas, canonical card/combo entities, graphs,
-CLI behavior, ML/optimization, live acquisition policy, or Task-1 parity.
+CLI behavior, ML/optimization, or Task-1 parity.
 
 ## Decisions
 
-### Pagination
+### Acquisition policy
 
-The downloader continues to increment page numbers instead of following an
-upstream URL directly. Before deciding that a contract is complete, it reads
-the just-persisted object and requires a JSON object with the documented
-`count`, `next`, `previous`, and `results` fields. `next` is either `null` or
-an absolute URL whose scheme, host, path, and single positive `page` query
-parameter match the configured documented contract endpoint. Any malformed
-JSON, shape, link, or local read fails the writer and leaves the manifest
-`FAILED`; a non-null valid `next` at the page bound also fails rather than
-finalizing.
+Periodic/full Data Foundation acquisition uses the documented bulk JSON
+product at `https://json.commanderspellbook.com/variants.json`. The downloader
+makes one request, persists the exact response entity through the shared raw
+snapshot store, and finalizes the snapshot before any parsing or staging.
+
+The REST `cards` and `variants` contracts remain available for sparse,
+interactive reads only. The client rejects pages above three before transport,
+so a periodic operation cannot silently become a many-page REST exporter.
+
+### Sparse REST response validation
+
+Sparse REST response parsing still requires a JSON object with the documented
+`count`, `next`, `previous`, and `results` fields. Any malformed JSON, shape,
+link, or local read fails the derived parse/staging operation rather than
+silently ending a sparse read.
 
 The client validates `1 <= page <= settings.max_pages` in both `fetch` and
 `request_metadata`, so direct calls cannot bypass the acquisition bound.
@@ -72,8 +78,9 @@ parse finding and retain the original source value for audit/staging.
 
 ## Error behavior
 
-- Pagination failures use stable `SPELLBOOK_PAGINATION_*` download codes and
-  call the existing writer failure path.
+- Sparse REST page-limit failures use stable `SPELLBOOK_PAGE_INVALID` client
+  errors before any request. Bulk download failures call the existing writer
+  failure path and leave no consumable complete snapshot.
 - Evidence failures use stable `INTEGRITY_*` or
   `SPELLBOOK_EVIDENCE_*` parser codes without persisting caller provenance.
 - Settings/client mismatches fail before source requests and do not weaken the
@@ -82,9 +89,10 @@ parse finding and retain the original source value for audit/staging.
 
 ## Verification
 
-Focused tests cover malformed page variants, page bounds, endpoint/settings and
-injected-client binding, verified-object byte/payload mismatch, product and
-request lineage, mapper evidence requirements, strict scalar failures, exact
-locators, and the four small fixture files. Offline repository gates cover the
-full pytest suite, Ruff format/check, mypy, architecture/file-size checks,
-schema/example validation, fixture consistency, and `git diff --check`.
+Focused tests cover exact bulk bytes, compressed bulk entities, bulk envelope
+locators, sparse page bounds, endpoint/settings and injected-client binding,
+verified-object byte/payload mismatch, product and request lineage, mapper
+evidence requirements, strict scalar failures, exact locators, and the four
+small fixture files. Offline repository gates cover the full pytest suite,
+Ruff format/check, mypy, architecture/file-size checks, schema/example
+validation, fixture consistency, and `git diff --check`.

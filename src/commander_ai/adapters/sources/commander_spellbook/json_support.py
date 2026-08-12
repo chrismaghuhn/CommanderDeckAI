@@ -64,6 +64,22 @@ def valid_pagination_envelope(payload: object) -> bool:
     )
 
 
+def valid_bulk_envelope(payload: object) -> bool:
+    """Return whether the documented ``variants.json`` envelope is shaped safely."""
+
+    if not isinstance(payload, Mapping) or not {"timestamp", "version", "variants"}.issubset(
+        payload
+    ):
+        return False
+    return (
+        isinstance(payload["timestamp"], str)
+        and isinstance(payload["version"], str)
+        and bool(payload["timestamp"])
+        and bool(payload["version"])
+        and isinstance(payload["variants"], list)
+    )
+
+
 def _pairs_without_duplicates(pairs: list[tuple[str, object]]) -> dict[str, object]:
     result: dict[str, object] = {}
     for key, value in pairs:

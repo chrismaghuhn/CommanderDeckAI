@@ -1,22 +1,27 @@
 source_id: commander_spellbook
 approval_status: APPROVED_LOCAL
-access_method: rest_api_or_approved_export
+access_method: bulk_json_with_sparse_rest
 review_path: docs/03-data/source-reviews/commander-spellbook.md
 endpoints:
   - https://backend.commanderspellbook.com
-host_allowlist: [backend.commanderspellbook.com]
+  - https://json.commanderspellbook.com
+host_allowlist: [backend.commanderspellbook.com, json.commanderspellbook.com]
 timeout_seconds: 30
 max_retries: 2
 rate_limit_per_minute: 30
 respect_retry_after: true
-max_pages: 100
-max_download_bytes: 200000000
+max_pages: 3
+max_download_bytes: 1000000000
+bulk_type: json
+files: [variants.json]
 sync_policy: explicit
 attribution_required: true
 raw_storage: allowed_local
 redistribution: license_and_content_review
 filters:
   documented_read_contracts: [cards, variants]
+  bulk_file: variants.json
+  sparse_rest_page_limit: 3
 features:
   combos: true
   variants: true

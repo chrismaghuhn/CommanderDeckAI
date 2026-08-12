@@ -32,27 +32,41 @@ from commander_ai.config.source_registry import (
 from commander_ai.config.source_settings import SourceApprovalStatus, SourceSettings
 
 EFFECTIVE_AT = datetime(2026, 8, 10, tzinfo=UTC)
-FIXTURE_ROOT = Path(__file__).resolve().parents[4] / "fixtures" / "commander_spellbook"
 
 
 def _registry(
     status: SourceApprovalStatus = SourceApprovalStatus.APPROVED_LOCAL,
     *,
     current_status: str = "ALLOWED",
-    max_pages: int = 100,
+    max_pages: int = 3,
     max_retries: int = 1,
     max_download_bytes: int = 1_000_000,
     filters: dict[str, object] | None = None,
-    endpoints: tuple[str, ...] = ("https://backend.commanderspellbook.com",),
-    host_allowlist: tuple[str, ...] = ("backend.commanderspellbook.com",),
+    endpoints: tuple[str, ...] = (
+        "https://backend.commanderspellbook.com",
+        "https://json.commanderspellbook.com",
+    ),
+    host_allowlist: tuple[str, ...] = (
+        "backend.commanderspellbook.com",
+        "json.commanderspellbook.com",
+    ),
+    bulk: bool = True,
 ) -> SourceRegistry:
     redistribution = (
         "approved" if status is SourceApprovalStatus.APPROVED_REDISTRIBUTION else "review_required"
     )
+    configured_filters = (
+        filters
+        if filters is not None
+        else {
+            "documented_read_contracts": ["cards", "variants"],
+            **({"bulk_file": "variants.json", "sparse_rest_page_limit": max_pages} if bulk else {}),
+        }
+    )
     settings = SourceSettings(
         source_id="commander_spellbook",
         approval_status=status,
-        access_method="rest_api_or_approved_export",
+        access_method="bulk_json_with_sparse_rest",
         review_path="docs/03-data/source-reviews/commander-spellbook.md",
         endpoints=endpoints,
         host_allowlist=host_allowlist,
@@ -64,7 +78,9 @@ def _registry(
         attribution_required=True,
         raw_storage="allowed_local",
         redistribution=redistribution,
-        filters=filters or {"documented_read_contracts": ["cards", "variants"]},
+        files=("variants.json",) if bulk else (),
+        bulk_type="json" if bulk else None,
+        filters=configured_filters,
         features={"combos": True, "variants": True},
     )
     historical = HistoricalApprovalMetadata(
@@ -106,10 +122,11 @@ def _adapter(
     *,
     status: SourceApprovalStatus = SourceApprovalStatus.APPROVED_LOCAL,
     current_status: str = "ALLOWED",
-    max_pages: int = 100,
+    max_pages: int = 3,
     max_retries: int = 1,
     max_download_bytes: int = 1_000_000,
     filters: dict[str, object] | None = None,
+    bulk: bool = True,
 ):
     registry = _registry(
         status,
@@ -118,6 +135,7 @@ def _adapter(
         max_retries=max_retries,
         max_download_bytes=max_download_bytes,
         filters=filters,
+        bulk=bulk,
     )
     source = registry.lookup("commander_spellbook").settings
     settings = CommanderSpellbookSettings.from_source_settings(source)
@@ -154,10 +172,6 @@ def _page(contract: str, page: int, *, next_page: str | None = None) -> bytes:
     ).encode("utf-8")
 
 
-def _fixture(name: str) -> bytes:
-    return (FIXTURE_ROOT / name).read_bytes()
-
-
 def test_settings_admit_only_documented_contracts_and_build_allowlisted_api_urls() -> None:
     source = _registry().lookup("commander_spellbook").settings
     settings = CommanderSpellbookSettings.from_source_settings(source)
@@ -165,8 +179,9 @@ def test_settings_admit_only_documented_contracts_and_build_allowlisted_api_urls
     assert settings.contracts == ("cards", "variants")
     assert settings.endpoint("cards") == "https://backend.commanderspellbook.com/api/cards/"
     assert settings.endpoint("variants") == "https://backend.commanderspellbook.com/api/variants/"
-    assert settings.source.max_pages == 100
+    assert settings.source.max_pages == 3
     assert settings.source.max_download_bytes == 1_000_000
+    assert settings.bulk_endpoint() == "https://json.commanderspellbook.com/variants.json"
 
     deterministic_settings = CommanderSpellbookSettings(
         source=source,
@@ -223,26 +238,94 @@ def test_client_revalidates_constructed_settings_before_network_setup() -> None:
             source=source.model_copy(update={"api_key_env": "SPELLBOOK_API_KEY"}),
             contracts=("cards", "variants"),
         )
-    with pytest.raises(ValueError, match="bulk files"):
+    with pytest.raises(ValueError, match="documented variants bulk file"):
         CommanderSpellbookSettings(
             source=source.model_copy(update={"files": ("cards.json",)}),
             contracts=("cards", "variants"),
         )
 
 
-def test_downloader_persists_exact_raw_pages_with_policy_lineage_and_no_live_network(
+def test_periodic_sync_uses_the_documented_bulk_json_and_never_paginates_rest(
+    tmp_path: Path,
+) -> None:
+    calls: list[httpx.Request] = []
+    bulk_body = json.dumps(
+        {
+            "timestamp": "2026-08-12T09:36:18.203067+00:00",
+            "version": "6.1.1",
+            "variants": [
+                {
+                    "id": "fixture-variant",
+                    "uses": [],
+                    "requires": [],
+                    "produces": [],
+                    "status": "OK",
+                }
+            ],
+        },
+        separators=(",", ":"),
+    ).encode("utf-8")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls.append(request)
+        assert str(request.url) == "https://json.commanderspellbook.com/variants.json"
+        assert request.url.params == httpx.QueryParams()
+        assert request.headers["user-agent"].startswith("CommanderDeckAI/")
+        return httpx.Response(
+            200,
+            headers={"content-type": "application/json", "content-length": str(len(bulk_body))},
+            stream=httpx.ByteStream(bulk_body),
+            request=request,
+        )
+
+    adapter, http_client, _ = _adapter(tmp_path, handler, bulk=True)
+    try:
+        result = adapter.download(snapshot_id="spellbook-bulk")
+    finally:
+        http_client.close()
+
+    manifest = RawSnapshotStore(tmp_path).load_manifest("commander_spellbook", "spellbook-bulk")
+    assert manifest.status == "COMPLETE"
+    assert result.raw_object_ids == ("variants-bulk.json",)
+    assert len(calls) == 1
+    raw_path = (
+        tmp_path / "raw" / "commander_spellbook" / "spellbook-bulk" / "objects/variants-bulk.json"
+    )
+    assert raw_path.read_bytes() == bulk_body
+
+
+def test_rest_client_is_hard_bounded_to_sparse_pages(tmp_path: Path) -> None:
+    calls = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal calls
+        calls += 1
+        return httpx.Response(200, content=_page("variants", 1), request=request)
+
+    adapter, http_client, _ = _adapter(tmp_path, handler, bulk=True)
+    try:
+        with pytest.raises(CommanderSpellbookClientError) as error:
+            adapter.client.fetch("variants", page=4)
+    finally:
+        http_client.close()
+
+    assert error.value.code == "SPELLBOOK_PAGE_INVALID"
+    assert calls == 0
+
+
+def test_downloader_persists_exact_raw_bulk_bytes_with_policy_lineage(
     tmp_path: Path,
 ) -> None:
     calls: list[str] = []
+    bulk_body = b'{"timestamp":"2026-08-12T09:36:18Z","version":"6.1.1","variants":[]}'
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls.append(str(request.url))
-        contract = request.url.path.rstrip("/").rsplit("/", 1)[-1]
-        body = _page(contract, int(request.url.params.get("page", "1")))
+        assert str(request.url) == "https://json.commanderspellbook.com/variants.json"
         return httpx.Response(
             200,
-            headers={"content-type": "application/json", "content-length": str(len(body))},
-            stream=httpx.ByteStream(body),
+            headers={"content-type": "application/json", "content-length": str(len(bulk_body))},
+            stream=httpx.ByteStream(bulk_body),
             request=request,
         )
 
@@ -254,40 +337,41 @@ def test_downloader_persists_exact_raw_pages_with_policy_lineage_and_no_live_net
 
     manifest = RawSnapshotStore(tmp_path).load_manifest("commander_spellbook", "spellbook-download")
     assert manifest.status == "COMPLETE"
-    assert result.raw_object_ids == ("cards-page-1.json", "variants-page-1.json")
-    assert len(calls) == 2
-    assert all("backend.commanderspellbook.com" in call for call in calls)
+    assert result.raw_object_ids == ("variants-bulk.json",)
+    assert calls == ["https://json.commanderspellbook.com/variants.json"]
     assert manifest.approval_status == "APPROVED_LOCAL"
     assert manifest.attribution_required is True
     assert manifest.terms_reference == "https://terms.fixture.invalid/commander-spellbook"
     assert manifest.redistribution_status == "not_approved"
-    assert all(item.format == "json" for item in manifest.requests)
-    assert all(
-        (tmp_path / "raw" / "commander_spellbook" / "spellbook-download" / item.path).read_bytes()
-        == _page(item.source_object_id or "", 1)
-        for item in manifest.objects
+    assert len(manifest.requests) == 1
+    assert manifest.requests[0].sanitized_endpoint == (
+        "https://json.commanderspellbook.com/variants.json"
     )
+    assert manifest.requests[0].sanitized_parameters == {}
+    raw_object = manifest.objects[0]
+    assert raw_object.raw_object_id == "variants-bulk.json"
+    assert (
+        tmp_path / "raw" / "commander_spellbook" / "spellbook-download" / raw_object.path
+    ).read_bytes() == bulk_body
     assert settings.adapter_version == "commander-spellbook-v1"
 
 
-def test_downloader_preserves_compressed_raw_entities_and_decodes_for_pagination(
+def test_downloader_preserves_compressed_raw_bulk_entity_without_decoding(
     tmp_path: Path,
 ) -> None:
-    raw_pages: dict[str, bytes] = {}
+    bulk_body = b'{"timestamp":"2026-08-12T09:36:18Z","version":"6.1.1","variants":[]}'
+    encoded_body = gzip.compress(bulk_body)
 
     def handler(request: httpx.Request) -> httpx.Response:
-        contract = request.url.path.rstrip("/").rsplit("/", 1)[-1]
-        raw_page = _page(contract, 1)
-        encoded_page = gzip.compress(raw_page)
-        raw_pages[contract] = encoded_page
+        assert str(request.url) == "https://json.commanderspellbook.com/variants.json"
         return httpx.Response(
             200,
             headers={
                 "content-type": "application/json",
                 "content-encoding": "gzip",
-                "content-length": str(len(encoded_page)),
+                "content-length": str(len(encoded_body)),
             },
-            stream=httpx.ByteStream(encoded_page),
+            stream=httpx.ByteStream(encoded_body),
             request=request,
         )
 
@@ -299,97 +383,42 @@ def test_downloader_preserves_compressed_raw_entities_and_decodes_for_pagination
 
     manifest = RawSnapshotStore(tmp_path).load_manifest("commander_spellbook", "spellbook-gzip")
     assert manifest.status == "COMPLETE"
-    assert result.raw_object_ids == ("cards-page-1.json", "variants-page-1.json")
-    assert all(item.content_encoding == "gzip" for item in manifest.objects)
-    for item in manifest.objects:
-        raw_path = tmp_path / "raw" / "commander_spellbook" / "spellbook-gzip" / item.path
-        assert raw_path.read_bytes() == raw_pages[item.source_object_id or ""]
+    assert result.raw_object_ids == ("variants-bulk.json",)
+    raw_object = manifest.objects[0]
+    assert raw_object.content_encoding == "gzip"
+    raw_path = tmp_path / "raw" / "commander_spellbook" / "spellbook-gzip" / raw_object.path
+    assert raw_path.read_bytes() == encoded_body
     assert settings.max_response_bytes == 1_000_000
 
 
-def test_downloader_fails_closed_at_configured_page_bound(tmp_path: Path) -> None:
-    calls = 0
-
-    def handler(request: httpx.Request) -> httpx.Response:
-        nonlocal calls
-        calls += 1
-        contract = request.url.path.rstrip("/").rsplit("/", 1)[-1]
-        return httpx.Response(
-            200,
-            stream=httpx.ByteStream(
-                _page(
-                    contract,
-                    1,
-                    next_page=(f"https://backend.commanderspellbook.com/api/{contract}/?page=2"),
-                )
-            ),
-            request=request,
-        )
-
-    adapter, http_client, _ = _adapter(tmp_path, handler, max_pages=1)
-    try:
-        with pytest.raises(CommanderSpellbookDownloadError) as error:
-            adapter.download(snapshot_id="spellbook-page-bound")
-    finally:
-        http_client.close()
-
-    assert error.value.code == "SPELLBOOK_PAGE_LIMIT_EXCEEDED"
-    assert calls == 1
-    manifest = RawSnapshotStore(tmp_path).load_manifest(
-        "commander_spellbook", "spellbook-page-bound"
-    )
-    assert manifest.status == "FAILED"
-
-
-@pytest.mark.parametrize(
-    ("body", "code"),
-    [
-        (b'{"results":[', "SPELLBOOK_PAGINATION_INVALID_JSON"),
-        (
-            b'{"count":1,"next":"https://backend.commanderspellbook.com/api/cards/?page=2",'
-            b'"next":null,"previous":null,"results":[]}',
-            "SPELLBOOK_PAGINATION_INVALID_JSON",
-        ),
-        (_fixture("malformed_pagination.json"), "SPELLBOOK_PAGINATION_INVALID_LINK"),
-        (
-            b'{"count":1,"next":null,"previous":null,"results":{}}',
-            "SPELLBOOK_PAGINATION_INVALID_SHAPE",
-        ),
-        (
-            b'{"count":1,"next":"https://evil.invalid/api/variants/?page=2","previous":null,"results":[]}',
-            "SPELLBOOK_PAGINATION_INVALID_LINK",
-        ),
-    ],
-)
-def test_downloader_fails_closed_on_malformed_pagination(
-    tmp_path: Path, body: bytes, code: str
+def test_downloader_does_not_parse_or_paginate_malformed_bulk_payload(
+    tmp_path: Path,
 ) -> None:
+    malformed_body = b'{"not":"a Spellbook bulk envelope"}'
+
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, stream=httpx.ByteStream(body), request=request)
+        assert str(request.url) == "https://json.commanderspellbook.com/variants.json"
+        return httpx.Response(200, stream=httpx.ByteStream(malformed_body), request=request)
 
     adapter, http_client, _ = _adapter(tmp_path, handler)
     try:
-        with pytest.raises(CommanderSpellbookDownloadError) as error:
-            adapter.download(snapshot_id=f"spellbook-malformed-{code.lower()}")
+        result = adapter.download(snapshot_id="spellbook-malformed-bulk")
     finally:
         http_client.close()
 
-    assert error.value.code == code
     manifest = RawSnapshotStore(tmp_path).load_manifest(
-        "commander_spellbook", f"spellbook-malformed-{code.lower()}"
+        "commander_spellbook", "spellbook-malformed-bulk"
     )
-    assert manifest.status == "FAILED"
-    assert len(manifest.objects) == 1
-    raw_object = manifest.objects[0]
-    assert raw_object.raw_object_id == "cards-page-1.json"
+    assert manifest.status == "COMPLETE"
+    assert result.raw_object_ids == ("variants-bulk.json",)
     assert (
-        tmp_path / "raw" / "commander_spellbook" / manifest.source_snapshot_id / raw_object.path
-    ).read_bytes() == body
-    with pytest.raises(SnapshotIntegrityError) as verification_error:
-        SnapshotVerifier(tmp_path).verify_complete_snapshot(
-            "commander_spellbook", manifest.source_snapshot_id
-        )
-    assert verification_error.value.code == "INTEGRITY_SNAPSHOT_NOT_COMPLETE"
+        tmp_path
+        / "raw"
+        / "commander_spellbook"
+        / "spellbook-malformed-bulk"
+        / "objects"
+        / "variants-bulk.json"
+    ).read_bytes() == malformed_body
 
 
 def test_downloader_stream_failure_leaves_no_consumable_object(tmp_path: Path) -> None:
@@ -426,46 +455,6 @@ def test_downloader_stream_failure_leaves_no_consumable_object(tmp_path: Path) -
     assert verification_error.value.code == "INTEGRITY_SNAPSHOT_NOT_COMPLETE"
 
 
-def test_pagination_read_failure_is_not_treated_as_end_of_pagination(tmp_path: Path) -> None:
-    adapter, http_client, _ = _adapter(
-        tmp_path,
-        lambda request: httpx.Response(200, content=_page("cards", 1), request=request),
-    )
-    try:
-        with pytest.raises(CommanderSpellbookDownloadError) as error:
-            adapter._has_next_page(tmp_path / "missing-page.json", "cards", page=1)
-    finally:
-        http_client.close()
-    assert error.value.code == "SPELLBOOK_PAGINATION_READ_FAILED"
-
-
-def test_downloader_rejects_non_sequential_next_page(tmp_path: Path) -> None:
-    body = _page(
-        "cards",
-        1,
-        next_page="https://backend.commanderspellbook.com/api/cards/?page=99",
-    )
-    adapter, http_client, _ = _adapter(
-        tmp_path,
-        lambda request: httpx.Response(
-            200,
-            headers={"content-type": "application/json", "content-length": str(len(body))},
-            stream=httpx.ByteStream(body),
-            request=request,
-        ),
-    )
-    try:
-        with pytest.raises(CommanderSpellbookDownloadError) as error:
-            adapter.download(snapshot_id="spellbook-pagination-sequence")
-    finally:
-        http_client.close()
-    assert error.value.code == "SPELLBOOK_PAGINATION_SEQUENCE_MISMATCH"
-    manifest = RawSnapshotStore(tmp_path).load_manifest(
-        "commander_spellbook", "spellbook-pagination-sequence"
-    )
-    assert manifest.status == "FAILED"
-
-
 def test_direct_client_calls_enforce_max_pages_before_transport(tmp_path: Path) -> None:
     calls = 0
 
@@ -474,11 +463,11 @@ def test_direct_client_calls_enforce_max_pages_before_transport(tmp_path: Path) 
         calls += 1
         return httpx.Response(200, content=_page("cards", 1), request=request)
 
-    adapter, http_client, _ = _adapter(tmp_path, handler, max_pages=1)
+    adapter, http_client, _ = _adapter(tmp_path, handler, max_pages=3)
     try:
         for operation in (
-            lambda: adapter.client.fetch("cards", page=2),
-            lambda: adapter.client.request_metadata("cards", page=2),
+            lambda: adapter.client.fetch("cards", page=4),
+            lambda: adapter.client.request_metadata("cards", page=4),
         ):
             with pytest.raises(CommanderSpellbookClientError) as error:
                 operation()

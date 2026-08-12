@@ -97,6 +97,7 @@ def _verified_snapshot(
     source_object_id: str | None = None,
     logical_record_count: int | None = None,
     content_encoding: str | None = None,
+    request_parameters: dict[str, object] | None = None,
 ):
     store = RawSnapshotStore(tmp_path)
     writer = store.start_snapshot(
@@ -114,7 +115,9 @@ def _verified_snapshot(
             "sanitized_method": "GET",
             "sanitized_endpoint": endpoint,
             "format": "json",
-            "sanitized_parameters": {"page": 1},
+            "sanitized_parameters": request_parameters
+            if request_parameters is not None
+            else {"page": 1},
         }
     )
     writer.write_object(
@@ -146,6 +149,36 @@ def _payload(*records: object, envelope: bool = True) -> bytes:
 
 def _fixture(name: str) -> bytes:
     return (FIXTURE_ROOT / name).read_bytes()
+
+
+def test_bulk_json_parser_and_mapper_preserve_variant_locators(tmp_path: Path) -> None:
+    payload = json.dumps(
+        {
+            "timestamp": "2026-08-12T09:36:18.203067+00:00",
+            "version": "6.1.1",
+            "variants": [VARIANT],
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    verified = _verified_snapshot(
+        tmp_path,
+        payload,
+        raw_object_id="variants-bulk.json",
+        endpoint="https://json.commanderspellbook.com/variants.json",
+        source_object_id="variants",
+        request_parameters={},
+    )
+
+    parsed = CommanderSpellbookParser().parse_object(
+        verified,
+        raw_object_id="variants-bulk.json",
+        contract="variants",
+    )
+    assert len(parsed.records) == 1
+    assert parsed.records[0].raw_locator.location.pointer == "/variants/0"
+    rows = CommanderSpellbookStagingMapper().map_records(parsed.records, verified_snapshot=verified)
+    assert rows[0].raw_locator.location.pointer == "/variants/0"
 
 
 def test_documented_variant_dto_preserves_combo_cards_requirements_results_and_unknown_fields(
