@@ -39,6 +39,7 @@ from commander_ai.domain.dataset_row_contracts import DatasetRow, row_contract_f
 from commander_ai.domain.serialization import canonical_json_bytes
 
 from .dataset_builder_types import DatasetProjectionRecord
+from .dataset_builder_validation import DatasetBuildError, validate_ruleset_binding
 from .dataset_filters import (
     filter_completion_records,
     validate_current_use_decisions,
@@ -91,14 +92,6 @@ class DatasetBuildResult:
     report_artifacts: tuple[DatasetOutputReference, ...] = ()
 
 
-class DatasetBuildError(ValueError):
-    """Stable data-pipeline failure that can be promoted to an application code."""
-
-    def __init__(self, code: str) -> None:
-        self.code = code
-        super().__init__(code)
-
-
 def build_dataset(
     request: DatasetBuildRequest,
     records: Sequence[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord],
@@ -107,7 +100,7 @@ def build_dataset(
 
     if request.producing_run is None:
         raise ValueError("dataset build requires a producing run")
-    _validate_ruleset_binding(request)
+    validate_ruleset_binding(request)
     kind = request.settings.dataset_kind
     historical_statuses = dict(request.historical_approval_statuses)
     current_use_decisions = validate_current_use_decisions(
@@ -211,6 +204,11 @@ def build_dataset(
         layer="curated",
         row_contract=row_contract_for_schema(row_schema),
     )
+    near_duplicate_policy = (
+        _near_duplicate_policy(request.settings)
+        if kind in {"deck_completion", "card_cooccurrence"}
+        else None
+    )
     report_artifact: JsonArtifact | None = None
     report_reference: DatasetOutputReference | None = None
     try:
@@ -229,11 +227,7 @@ def build_dataset(
             output=output_reference,
             exclusions=exclusions,
             counts=counts,
-            near_duplicate_policy=(
-                _near_duplicate_policy(request.settings)
-                if kind in {"deck_completion", "card_cooccurrence"}
-                else None
-            ),
+            near_duplicate_policy=near_duplicate_policy,
         )
         if request.settings.quality.emit_leakage_report:
             leakage_report = build_leakage_report(
@@ -261,11 +255,7 @@ def build_dataset(
                 output=output_reference,
                 exclusions=exclusions,
                 counts=counts,
-                near_duplicate_policy=(
-                    _near_duplicate_policy(request.settings)
-                    if kind in {"deck_completion", "card_cooccurrence"}
-                    else None
-                ),
+                near_duplicate_policy=near_duplicate_policy,
                 leakage_report=report_reference,
             )
         manifest_path = f"datasets/{request.settings.dataset_id}/manifest.json"
@@ -385,14 +375,6 @@ def _remove_unpublished_output(output_root: Path, relative_path: str) -> None:
     path = output_root.joinpath(*relative_path.split("/"))
     if path.is_file() and not path.is_symlink():
         path.unlink()
-
-
-def _validate_ruleset_binding(request: DatasetBuildRequest) -> None:
-    versions = tuple(request.ruleset_versions)
-    if any(not version.strip() or version.strip().casefold() == "unknown" for version in versions):
-        raise DatasetBuildError("LEGAL_RULESET_BINDING_INVALID")
-    if request.settings.inputs.legal_decks_only and not versions:
-        raise DatasetBuildError("LEGAL_RULESET_BINDING_REQUIRED")
 
 
 __all__ = [

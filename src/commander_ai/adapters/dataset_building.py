@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from pathlib import Path
 
 from commander_ai.adapters.storage.manifest_files import ManifestFileWriter
 from commander_ai.adapters.storage.parquet_tables import ParquetTableWriter
@@ -45,6 +43,7 @@ from commander_ai.domain.observations import EventDeckObservation
 from commander_ai.domain.provenance import ProvenanceReference
 from commander_ai.domain.serialization import canonical_json_bytes
 
+from .canonical_snapshot_selection import select_canonical_manifests
 from .operation_provenance import operation_context
 from .registry_context import SourceRegistryProvider
 from .report_provenance import sha256_path as _sha256
@@ -73,7 +72,7 @@ class ConfiguredDatasetBuild:
         input_created_at: list[datetime] = []
         ruleset_versions: set[str] = set()
         selected_sources = settings.source_ids
-        manifest_paths = _select_canonical_manifests(self._runtime.artifact_root, "all")
+        manifest_paths = select_canonical_manifests(self._runtime.artifact_root, "all")
         for manifest_path in manifest_paths:
             verified = read_canonical_snapshot_manifest(
                 self._runtime.artifact_root,
@@ -277,23 +276,6 @@ class ConfiguredDatasetBuild:
                 item.path for item in (*result.output_artifacts, *result.report_artifacts)
             ),
         )
-
-
-def _select_canonical_manifests(root: Path, selector: str) -> tuple[str, ...]:
-    canonical_root = root / "canonical"
-    paths: list[str] = []
-    if not canonical_root.is_dir() or canonical_root.is_symlink():
-        return ()
-    for path in canonical_root.rglob("manifest.json"):
-        if not path.is_file() or path.is_symlink():
-            continue
-        try:
-            payload = json.loads(path.read_text(encoding="utf-8"))
-        except (OSError, UnicodeError, json.JSONDecodeError):
-            continue
-        if selector == "all" or payload.get("source_id") == selector:
-            paths.append(path.relative_to(root).as_posix())
-    return tuple(sorted(paths))
 
 
 def _dataset_records(
