@@ -115,3 +115,9 @@ query, index, or cache infrastructure. They are never the only copy of an
 observation, finding, provenance binding, or result. Deleting DuckDB must not
 require reacquiring a source: raw manifests/raw objects plus normalized, canonical,
 and curated Parquet and their manifests are sufficient to rebuild it.
+
+The `DuckDBDerivedStore` adapter provides the executable rebuild boundary for local
+cache checks. It consumes explicit Parquet artifact references, rechecks portable
+paths, byte counts, and SHA-256 values, then materializes only derived row/index
+tables. Its database file is disposable and is not included in any authoritative
+manifest.
