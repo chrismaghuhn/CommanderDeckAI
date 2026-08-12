@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from typing import Literal
 
@@ -101,6 +101,10 @@ class SourceMetricsInput:
     card_resolution_unresolved: int = 0
     exact_duplicate_decks: int = 0
     cross_source_overlap_decks: int = 0
+    tournament_events: int = 0
+    complete_event_observations: int = 0
+    pods: int = 0
+    complete_pods: int = 0
     quarantined_records: int = 0
     finding_counts: Mapping[str, int] = field(default_factory=dict)
     input_manifests: tuple[ReportInputBinding, ...] = ()
@@ -123,12 +127,20 @@ class SourceMetricsInput:
             "card_resolution_unresolved",
             "exact_duplicate_decks",
             "cross_source_overlap_decks",
+            "tournament_events",
+            "complete_event_observations",
+            "pods",
+            "complete_pods",
             "quarantined_records",
         ):
             if getattr(self, field_name) < 0:
                 raise ValueError(f"{field_name} must be non-negative")
         if self.card_resolution_resolved > self.card_resolution_total:
             raise ValueError("resolved card entries cannot exceed total entries")
+        if self.complete_event_observations > self.source_record_count:
+            raise ValueError("complete event observations cannot exceed source records")
+        if self.complete_pods > self.pods:
+            raise ValueError("complete pods cannot exceed pods")
         if (
             self.card_resolution_resolved
             + self.card_resolution_ambiguous
@@ -175,7 +187,46 @@ def build_source_metrics_report(
     if not report_id.strip():
         raise ValueError("report_id must be non-empty")
     _require_aware(reported_at, "reported_at")
-    ordered = tuple(sorted(inputs, key=lambda item: (item.source_id, item.snapshot_id)))
+    ordered_inputs = tuple(sorted(inputs, key=lambda item: (item.source_id, item.snapshot_id)))
+    source_by_deck: dict[str, set[str]] = {}
+    for source in ordered_inputs:
+        for deck in source.decks:
+            if deck.canonical_deck_id is not None:
+                source_by_deck.setdefault(deck.canonical_deck_id, set()).add(source.source_id)
+    cross_source_ids = {
+        deck_id for deck_id, source_ids in source_by_deck.items() if len(source_ids) > 1
+    }
+    ordered = tuple(
+        replace(
+            source,
+            exact_duplicate_decks=max(
+                source.exact_duplicate_decks,
+                len(
+                    [
+                        deck.canonical_deck_id
+                        for deck in source.decks
+                        if deck.canonical_deck_id is not None
+                    ]
+                )
+                - len(
+                    {
+                        deck.canonical_deck_id
+                        for deck in source.decks
+                        if deck.canonical_deck_id is not None
+                    }
+                ),
+            ),
+            cross_source_overlap_decks=max(
+                source.cross_source_overlap_decks,
+                sum(
+                    deck.canonical_deck_id in cross_source_ids
+                    for deck in source.decks
+                    if deck.canonical_deck_id is not None
+                ),
+            ),
+        )
+        for source in ordered_inputs
+    )
     bindings = _unique_bindings(item for source in ordered for item in source.input_manifests)
     summaries: list[dict[str, object]] = []
     policy_rows: list[dict[str, object]] = []
@@ -243,6 +294,10 @@ def _source_summary(source: SourceMetricsInput) -> dict[str, object]:
             "exact_decks": source.exact_duplicate_decks,
             "cross_source_overlap_decks": source.cross_source_overlap_decks,
         },
+        "tournaments": source.tournament_events,
+        "event_observations": {
+            "complete": source.complete_event_observations,
+        },
         "resolution": {
             "total": source.card_resolution_total,
             "resolved": source.card_resolution_resolved,
@@ -262,7 +317,11 @@ def _source_summary(source: SourceMetricsInput) -> dict[str, object]:
             "unknown": mode_counts.get("unknown", 0),
         },
         "outcomes": {"usable": sum(deck.usable_outcome for deck in decks)},
-        "pods": {"full": sum(deck.full_pod for deck in decks)},
+        "pods": {
+            "total": source.pods,
+            "complete": source.complete_pods,
+            "full": sum(deck.full_pod for deck in decks),
+        },
         "quarantined_records": source.quarantined_records,
         "finding_counts": dict(sorted(source.finding_counts.items())),
         "recommended_use": _recommended_use(source, complete, resolution_rate),

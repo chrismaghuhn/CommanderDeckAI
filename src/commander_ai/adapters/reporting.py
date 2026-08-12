@@ -5,7 +5,6 @@ from __future__ import annotations
 import hashlib
 import json
 from collections import Counter
-from datetime import UTC
 from pathlib import Path
 
 from commander_ai.adapters.storage.manifest_files import ManifestFileWriter
@@ -16,6 +15,10 @@ from commander_ai.application.source_policy import SourcePolicy, SourcePolicyErr
 from commander_ai.config import RuntimeConfig
 from commander_ai.config.current_use_policy import PolicyOperation
 from commander_ai.config.source_settings import SourceApprovalStatus
+from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
+from commander_ai.data_pipeline.provenance.canonical_snapshot_verifier import (
+    read_canonical_snapshot_manifest,
+)
 from commander_ai.data_pipeline.provenance.normalized_snapshot_verifier import (
     read_normalized_snapshot_manifest,
 )
@@ -26,10 +29,14 @@ from commander_ai.data_pipeline.provenance.run_manifests import (
 )
 from commander_ai.data_pipeline.reports.report_writer import ReportWriter
 from commander_ai.data_pipeline.reports.source_metrics import (
+    DeckMetricRecord,
     ReportInputBinding,
     SourceMetricsInput,
     build_source_metrics_report,
 )
+from commander_ai.domain.cards import CardResolution
+from commander_ai.domain.decks import CanonicalDeck
+from commander_ai.domain.observations import EventDeckObservation, PodEntry
 from commander_ai.domain.serialization import canonical_json_bytes, sha256_hex
 
 from .operation_provenance import operation_context
@@ -53,47 +60,109 @@ class ConfiguredReport:
         run_inputs: list[RunInputReference] = []
         policy = SourcePolicy(registry)
         for manifest_path in manifests:
-            verified = read_normalized_snapshot_manifest(
-                runtime.artifact_root,
-                manifest_path,
-                raw_root=runtime.data_root,
-                run_root=runtime.artifact_root,
-            )
-            source_id = verified.manifest.source_id
+            if manifest_path.startswith("canonical/"):
+                verified_canonical = read_canonical_snapshot_manifest(
+                    runtime.artifact_root,
+                    manifest_path,
+                    raw_root=runtime.data_root,
+                    run_root=runtime.artifact_root,
+                )
+                source_id = verified_canonical.manifest.source_id
+                normalized = verified_canonical.normalized_snapshot
+                source_manifest = normalized.source_snapshot.manifest
+                canonical_rows = ParquetTableWriter(runtime.artifact_root).read_table(
+                    next(
+                        item.path
+                        for item in verified_canonical.manifest.artifacts
+                        if item.artifact_kind == "canonical"
+                    )
+                )
+                audit_rows = ParquetTableWriter(runtime.artifact_root).read_table(
+                    next(
+                        item.path
+                        for item in verified_canonical.manifest.artifacts
+                        if item.artifact_kind == "audit"
+                    )
+                )
+                resolution_rows = ParquetTableWriter(runtime.artifact_root).read_table(
+                    next(
+                        item.path
+                        for item in verified_canonical.manifest.artifacts
+                        if item.artifact_kind == "resolution"
+                    )
+                )
+                decks, resolution_counts, event_counts, pod_counts = _canonical_metrics(
+                    canonical_rows, resolution_rows, source_id=source_id
+                )
+                snapshot_id = source_manifest.source_snapshot_id
+                source_record_count = normalized.manifest.counts.get(
+                    "input_records", normalized.manifest.counts.get("normalized_records", 0)
+                )
+                input_kind = "canonical_snapshot_manifest"
+                input_id = verified_canonical.manifest.canonical_snapshot_id
+                input_path = manifest_path
+                quarantine_count = verified_canonical.manifest.counts.get("quarantine_records", 0)
+            else:
+                verified = read_normalized_snapshot_manifest(
+                    runtime.artifact_root,
+                    manifest_path,
+                    raw_root=runtime.data_root,
+                    run_root=runtime.artifact_root,
+                )
+                source_id = verified.manifest.source_id
+                source_manifest = verified.source_snapshot.manifest
+                audit_rows = ParquetTableWriter(runtime.artifact_root).read_table(
+                    verified.manifest.audit_artifact_path
+                )
+                decks = ()
+                resolution_counts = (0, 0, 0, 0)
+                event_counts = (0, 0)
+                pod_counts = (0, 0)
+                snapshot_id = source_manifest.source_snapshot_id
+                source_record_count = verified.manifest.counts.get(
+                    "input_records", verified.manifest.counts.get("normalized_records", 0)
+                )
+                input_kind = "normalized_snapshot_manifest"
+                input_id = verified.manifest.normalized_snapshot_id
+                input_path = manifest_path
+                quarantine_count = verified.manifest.counts.get("quarantine_records", 0)
             try:
                 decision = policy.require_operation(source_id, PolicyOperation.REPORT)
             except SourcePolicyError as error:
                 raise ApplicationError(error.code) from None
             entry = registry.lookup(source_id)
-            source_manifest = verified.source_snapshot.manifest
-            audit_rows = ParquetTableWriter(runtime.artifact_root).read_table(
-                verified.manifest.audit_artifact_path
-            )
             finding_counts = Counter(
                 str(row["finding_code"])
                 for row in audit_rows
                 if isinstance(row.get("finding_code"), str)
             )
             binding = ReportInputBinding(
-                kind="normalized_snapshot_manifest",
-                identifier=verified.manifest.normalized_snapshot_id,
-                sha256=_sha256(runtime.artifact_root / manifest_path),
+                kind=input_kind,
+                identifier=input_id,
+                sha256=_sha256(runtime.artifact_root / input_path),
             )
             source_inputs.append(
                 SourceMetricsInput(
                     source_id=source_id,
-                    snapshot_id=source_manifest.source_snapshot_id,
+                    snapshot_id=snapshot_id,
                     snapshot_date=source_manifest.completed_at or source_manifest.started_at,
                     raw_bytes=sum(item.bytes for item in source_manifest.objects),
-                    source_record_count=verified.manifest.counts.get(
-                        "input_records", verified.manifest.counts.get("normalized_records", 0)
-                    ),
+                    source_record_count=source_record_count,
+                    decks=decks,
+                    card_resolution_total=resolution_counts[0],
+                    card_resolution_resolved=resolution_counts[1],
+                    card_resolution_ambiguous=resolution_counts[2],
+                    card_resolution_unresolved=resolution_counts[3],
+                    tournament_events=event_counts[0],
+                    complete_event_observations=event_counts[1],
+                    pods=pod_counts[0],
+                    complete_pods=pod_counts[1],
                     input_manifests=(binding,),
                     historical_approval_status=SourceApprovalStatus(
                         source_manifest.approval_status
                     ),
                     current_use=entry.current_use,
-                    quarantined_records=verified.manifest.counts.get("quarantine_records", 0),
+                    quarantined_records=quarantine_count,
                     finding_counts=dict(sorted(finding_counts.items())),
                 )
             )
@@ -102,9 +171,9 @@ class ConfiguredReport:
             run_inputs.extend(
                 (
                     RunInputReference(
-                        kind="normalized_snapshot_manifest",
-                        id=verified.manifest.normalized_snapshot_id,
-                        path=manifest_path,
+                        kind=input_kind,
+                        id=input_id,
+                        path=input_path,
                         sha256=binding.sha256,
                     ),
                     RunInputReference(
@@ -118,7 +187,7 @@ class ConfiguredReport:
             item.snapshot_id for item in sorted(source_inputs, key=lambda x: x.snapshot_id)
         )
         report_id = f"source-quality-{_digest((selector, *ordered_ids))[:24]}"
-        reported_at = max(item.snapshot_date for item in source_inputs).astimezone(UTC)
+        reported_at = max(item.snapshot_date for item in source_inputs)
         report = build_source_metrics_report(
             source_inputs,
             report_id=report_id,
@@ -131,7 +200,13 @@ class ConfiguredReport:
             markdown_path=f"reports/{report_id}.md",
         )
         operation = operation_context(runtime.artifact_root, f"report-{report_id}")
-        config_snapshot = {"selector": selector, "normalized_snapshot_ids": list(ordered_ids)}
+        config_snapshot = {
+            "selector": selector,
+            "source_snapshot_ids": list(ordered_ids),
+            "input_manifest_ids": [
+                item.identifier for source in source_inputs for item in source.input_manifests
+            ],
+        }
         run = build_run_manifest(
             run_id=f"report-{report_id}",
             run_kind="report",
@@ -186,20 +261,105 @@ class ConfiguredReport:
 
 
 def _select_manifests(root: Path, selector: str) -> tuple[str, ...]:
-    normalized_root = root / "normalized"
-    paths: list[str] = []
-    if not normalized_root.is_dir() or normalized_root.is_symlink():
+    normalized = _manifest_index(root / "normalized", root, selector, "normalized_snapshot_id")
+    canonical = _manifest_index(root / "canonical", root, selector, "input_normalized_snapshot_id")
+    canonical_inputs = {item[1] for item in canonical}
+    selected = [path for path, _ in canonical]
+    selected.extend(path for path, snapshot_id in normalized if snapshot_id not in canonical_inputs)
+    return tuple(sorted(selected))
+
+
+def _manifest_index(
+    directory: Path,
+    root: Path,
+    selector: str,
+    identity_key: str,
+) -> tuple[tuple[str, str], ...]:
+    if not directory.is_dir() or directory.is_symlink():
         return ()
-    for path in normalized_root.rglob("manifest.json"):
+    values: list[tuple[str, str]] = []
+    for path in directory.rglob("manifest.json"):
         if not path.is_file() or path.is_symlink():
             continue
         try:
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, UnicodeError, json.JSONDecodeError):
             continue
-        if selector == "all" or payload.get("source_id") == selector:
-            paths.append(path.relative_to(root).as_posix())
-    return tuple(sorted(paths))
+        if not isinstance(payload, dict):
+            continue
+        source_id = payload.get("source_id")
+        identity = payload.get(identity_key)
+        if (
+            isinstance(source_id, str)
+            and isinstance(identity, str)
+            and (selector == "all" or source_id == selector)
+        ):
+            values.append((path.relative_to(root).as_posix(), identity))
+    return tuple(sorted(values))
+
+
+def _canonical_metrics(
+    canonical_rows: list[dict[str, object]],
+    resolution_rows: list[dict[str, object]],
+    *,
+    source_id: str,
+) -> tuple[
+    tuple[DeckMetricRecord, ...],
+    tuple[int, int, int, int],
+    tuple[int, int],
+    tuple[int, int],
+]:
+    records = tuple(CanonicalRecord.model_validate(row) for row in canonical_rows)
+    outcome_decks: set[str] = set()
+    event_ids: set[str] = set()
+    pod_ids: set[str] = set()
+    observation_count = 0
+    for record in records:
+        if record.record_type == "event_deck_observation":
+            observation = EventDeckObservation.model_validate(record.payload)
+            outcome_decks.add(observation.canonical_deck_id)
+            event_ids.add(observation.event_id)
+            observation_count += 1
+        elif record.record_type == "pod_entry":
+            pod_ids.add(PodEntry.model_validate(record.payload).pod_id)
+
+    decks: list[DeckMetricRecord] = []
+    for record in records:
+        if record.record_type != "canonical_deck":
+            continue
+        deck = CanonicalDeck.model_validate(record.payload)
+        card_ids = [entry.oracle_id for entry in deck.command_zone]
+        card_ids.extend(card.oracle_id for zone in deck.card_zones for card in zone.cards)
+        decks.append(
+            DeckMetricRecord(
+                deck_id=record.source_record_id,
+                source_id=source_id,
+                canonical_deck_id=deck.canonical_deck_id,
+                commander_ids=tuple(entry.oracle_id for entry in deck.command_zone),
+                card_ids=tuple(card_ids),
+                observed_at=record.observed_at,
+                complete_decklist=True,
+                resolution_complete=True,
+                legal_status="unknown",
+                usable_outcome=deck.canonical_deck_id in outcome_decks,
+            )
+        )
+
+    resolution_counts = Counter(
+        CardResolution.model_validate(row).status for row in resolution_rows
+    )
+    total = sum(resolution_counts.values())
+    return (
+        tuple(sorted(decks, key=lambda item: item.deck_id)),
+        (
+            total,
+            resolution_counts.get("resolved", 0),
+            resolution_counts.get("ambiguous", 0),
+            resolution_counts.get("unresolved", 0) + resolution_counts.get("rejected", 0),
+        ),
+        (len(event_ids), observation_count),
+        (len(pod_ids), 0),
+    )
 
 
 def _sha256(path: Path) -> str:

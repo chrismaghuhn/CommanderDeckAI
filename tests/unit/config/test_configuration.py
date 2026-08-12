@@ -123,6 +123,20 @@ def test_default_runtime_roots_are_repository_anchored_not_cwd(
     assert runtime.artifact_root == (repository_root / "portable-artifacts").resolve()
 
 
+def test_runtime_environment_can_select_external_data_and_artifact_roots(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    data_root = tmp_path / "external-data"
+    artifact_root = tmp_path / "external-artifacts"
+    monkeypatch.setenv("COMMANDER_AI_DATA_DIR", str(data_root))
+    monkeypatch.setenv("COMMANDER_AI_ARTIFACT_DIR", str(artifact_root))
+
+    runtime = RuntimeConfig.from_environment()
+
+    assert runtime.data_root == data_root.resolve()
+    assert runtime.artifact_root == artifact_root.resolve()
+
+
 def test_serialized_runtime_roots_are_repository_relative_or_opaque_external_markers(
     tmp_path: Path,
 ) -> None:

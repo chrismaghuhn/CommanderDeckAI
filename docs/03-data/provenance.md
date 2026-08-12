@@ -68,6 +68,14 @@ timestamps. The frozen v1 JSON shape stays unchanged; detailed byte/row descript
 are verified from the typed Parquet artifacts and persisted run bindings. Parquet and
 this manifest are authoritative; the SQL tables are derived and rebuildable.
 
+`canonical-snapshot-manifest.v1` is a separate semantic extension for the
+source-neutral canonicalization stage. It binds exactly one verified normalized
+manifest file hash, the canonical producing run, canonical/audit/resolution/
+resolution-attempt/provenance/quarantine artifacts, deterministic counts, findings,
+quarantine references, and source provenance. Canonical Parquet plus this manifest
+remain authoritative; a missing or deleted DuckDB database must not require a new
+source acquisition.
+
 Dataset builds fail closed before writing Curated Parquet unless they have a completed
 `run-manifest.v1`, a portable configuration snapshot/path, current-use decisions for
 their source inputs, and hash-verified file-backed input manifests. Current-use

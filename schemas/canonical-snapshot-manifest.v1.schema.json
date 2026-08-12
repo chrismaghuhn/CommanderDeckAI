@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/commander-deck-ai/schemas/canonical-snapshot-manifest.v1.schema.json",
+  "title": "Canonical Snapshot Manifest v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "canonical_snapshot_id",
+    "producing_run_id",
+    "input_normalized_snapshot_id",
+    "input_normalized_manifest_sha256",
+    "source_id",
+    "status",
+    "canonical_schema_version",
+    "mapper_version",
+    "transform_version",
+    "artifacts",
+    "counts",
+    "finding_codes",
+    "quarantine_references",
+    "provenance",
+    "created_at",
+    "started_at",
+    "completed_at",
+    "canonical_content_sha256"
+  ],
+  "x-reference-constraints": [
+    {
+      "from": "artifacts[].artifact_kind",
+      "unique_values": [
+        "canonical",
+        "audit",
+        "resolution",
+        "resolution_attempt",
+        "provenance",
+        "quarantine"
+      ]
+    },
+    {
+      "from": "quarantine_references[].path",
+      "equals": "artifacts[artifact_kind=quarantine].path"
+    },
+    {
+      "from": "provenance[].source_id",
+      "equals": "source_id"
+    }
+  ],
+  "x-detached-digest": {
+    "sidecar_filename": "manifest.sha256",
+    "algorithm": "SHA-256",
+    "canonical_payload": "manifest JSON serialized with repository canonical JSON and without a self-digest field"
+  },
+  "x-content-digest": {
+    "field": "canonical_content_sha256",
+    "algorithm": "SHA-256",
+    "canonical_payload": "ordered manifest content fields excluding canonical_content_sha256 and detached manifest digest"
+  },
+  "properties": {
+    "schema_version": {"const": "canonical-snapshot-manifest.v1"},
+    "canonical_snapshot_id": {"type": "string", "minLength": 1},
+    "producing_run_id": {"type": "string", "minLength": 1},
+    "input_normalized_snapshot_id": {"type": "string", "minLength": 1},
+    "input_normalized_manifest_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "source_id": {"type": "string", "minLength": 1},
+    "status": {"enum": ["COMPLETE", "INCOMPLETE", "FAILED"]},
+    "canonical_schema_version": {"type": "string", "minLength": 1},
+    "mapper_version": {"type": "string", "minLength": 1},
+    "transform_version": {"type": "string", "minLength": 1},
+    "artifacts": {
+      "type": "array",
+      "minItems": 6,
+      "maxItems": 6,
+      "items": {"$ref": "#/$defs/table_artifact"}
+    },
+    "counts": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0
+      }
+    },
+    "finding_codes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$"
+      },
+      "uniqueItems": true
+    },
+    "quarantine_references": {
+      "type": "array",
+      "items": {"$ref": "#/$defs/quarantine_reference"},
+      "uniqueItems": true
+    },
+    "provenance": {
+      "type": "array",
+      "minItems": 1,
+      "items": {"$ref": "#/$defs/provenance_reference"}
+    },
+    "created_at": {"type": "string", "format": "date-time"},
+    "started_at": {"type": "string", "format": "date-time"},
+    "completed_at": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "canonical_content_sha256": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    }
+  },
+  "$defs": {
+    "table_artifact": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "artifact_name",
+        "artifact_kind",
+        "layer",
+        "schema_version",
+        "path",
+        "sha256",
+        "rows",
+        "bytes"
+      ],
+      "properties": {
+        "artifact_name": {"type": "string", "minLength": 1},
+        "artifact_kind": {
+          "enum": [
+            "canonical",
+            "audit",
+            "resolution",
+            "resolution_attempt",
+            "provenance",
+            "quarantine"
+          ]
+        },
+        "layer": {"enum": ["normalized", "audit", "quarantine"]},
+        "schema_version": {"type": "string", "minLength": 1},
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
+        },
+        "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "rows": {"type": "integer", "minimum": 0},
+        "bytes": {"type": "integer", "minimum": 0}
+      }
+    },
+    "quarantine_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["quarantine_id", "reason_code"],
+      "properties": {
+        "quarantine_id": {"type": "string", "minLength": 1},
+        "reason_code": {
+          "type": "string",
+          "pattern": "^[a-z][a-z0-9_]*(\\.[a-z0-9_]+)+$"
+        },
+        "path": {
+          "type": ["string", "null"],
+          "minLength": 1,
+          "pattern": "^(?![A-Za-z]:)(?!.*(?:^|/)\\.{1,2}(?:/|$))[^/\\\\]+(?:/[^/\\\\]+)*$"
+        },
+        "record_locator": {"type": ["string", "null"], "minLength": 1}
+      }
+    },
+    "provenance_reference": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "source_id",
+        "source_snapshot_id",
+        "source_object_id",
+        "raw_sha256"
+      ],
+      "properties": {
+        "source_id": {"type": "string", "minLength": 1},
+        "source_snapshot_id": {"type": "string", "minLength": 1},
+        "source_object_id": {"type": "string", "minLength": 1},
+        "raw_sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"},
+        "retrieved_at": {"type": ["string", "null"], "format": "date-time"},
+        "adapter_version": {"type": ["string", "null"], "minLength": 1},
+        "mapper_version": {"type": ["string", "null"], "minLength": 1},
+        "approval_status": {
+          "type": ["string", "null"],
+          "enum": ["APPROVED_LOCAL", "APPROVED_REDISTRIBUTION", null]
+        }
+      }
+    }
+  }
+}

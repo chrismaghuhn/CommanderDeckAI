@@ -45,16 +45,13 @@ from commander_ai.data_pipeline.provenance.normalized_snapshot_manifests import 
     build_normalized_snapshot_manifest,
 )
 from commander_ai.data_pipeline.provenance.rows import AuditRecord
-from commander_ai.data_pipeline.provenance.run_manifests import (
-    RunArtifactReference,
-    RunInputReference,
-    build_run_manifest,
-)
 from commander_ai.data_pipeline.quality.finding_codes import FindingCode
 from commander_ai.data_pipeline.quality.quarantine import QuarantineRecord, quarantine_record
 from commander_ai.data_pipeline.staging.records import StagingRecord
 from commander_ai.domain.provenance import QuarantineReference
 
+from .canonical_snapshot_publisher import publish_canonical_snapshot
+from .normalization_run import build_normalization_run
 from .operation_provenance import operation_context
 from .snapshot_locator import find_source_for_snapshot
 
@@ -117,14 +114,14 @@ class SourceNormalizationPipeline:
         source_id = settings.source_id
         if source_id == "mtgjson":
             mtgjson_settings = MTGJSONSettings.from_source_settings(settings)
-            mtgjson_parser = MTGJSONParser()
+            parser = MTGJSONParser()
             parsed_records: list[Any] = []
             with tempfile.TemporaryDirectory(dir=self._temporary_root()) as directory:
                 for product in mtgjson_settings.products:
                     object_id = mtgjson_settings.archive_filename(product)
                     if object_id in verified.object_index:
                         parsed_records.extend(
-                            mtgjson_parser.parse_archive(
+                            parser.parse_archive(
                                 verified,
                                 raw_object_id=object_id,
                                 destination=Path(directory) / product.value,
@@ -139,41 +136,41 @@ class SourceNormalizationPipeline:
             spellbook_parser = CommanderSpellbookParser(
                 max_decoded_bytes=spellbook_settings.max_response_bytes
             )
-            parsed_records = []
+            spellbook_records: list[Any] = []
             for reference in verified.manifest.objects:
                 raw_id = reference.raw_object_id
-                if raw_id.split("-", maxsplit=1)[0] in spellbook_settings.contracts:
-                    contract = raw_id.split("-", maxsplit=1)[0]
-                    parsed_records.extend(
+                contract = raw_id.split("-", maxsplit=1)[0]
+                if contract in spellbook_settings.contracts:
+                    spellbook_records.extend(
                         spellbook_parser.parse_object(
                             verified,
                             raw_object_id=raw_id,
                             contract=contract,
                         ).records
                     )
-            return tuple(parsed_records), f"{spellbook_settings.adapter_version}-staging-v1"
+            return tuple(spellbook_records), f"{spellbook_settings.adapter_version}-staging-v1"
         if source_id == "topdeck":
             topdeck_settings = TopDeckSettings.from_source_settings(settings)
             topdeck_parser = TopDeckParser(topdeck_settings)
-            parsed_records = []
+            topdeck_records: list[Any] = []
             for reference in verified.manifest.objects:
                 if reference.source_object_id == "tournaments-v2":
-                    parsed_records.extend(
+                    topdeck_records.extend(
                         topdeck_parser.parse_object(verified, raw_object_id=reference.raw_object_id)
                     )
-            return tuple(parsed_records), f"{topdeck_settings.adapter_version}-staging-v1"
+            return tuple(topdeck_records), f"{topdeck_settings.adapter_version}-staging-v1"
         if source_id == "spicerack":
             spicerack_settings = SpicerackSettings.from_source_settings(settings)
             spicerack_parser = SpicerackParser(spicerack_settings)
-            parsed_records = []
+            spicerack_records: list[Any] = []
             for reference in verified.manifest.objects:
                 if reference.source_object_id == "spicerack-public-decklists":
-                    parsed_records.extend(
+                    spicerack_records.extend(
                         spicerack_parser.parse_object(
                             verified, raw_object_id=reference.raw_object_id
                         )
                     )
-            return tuple(parsed_records), f"{spicerack_settings.adapter_version}-staging-v1"
+            return tuple(spicerack_records), f"{spicerack_settings.adapter_version}-staging-v1"
         raise ValueError("source adapter is not implemented")
 
     def _map_staging(
@@ -242,57 +239,42 @@ class SourceNormalizationPipeline:
         )
         table_artifacts = tuple(_table_artifact(item) for item in artifacts)
         run_id = f"normalize-{source_id}-{snapshot_id}"
-        config_snapshot = {
+        config_snapshot: dict[str, object] = {
             "source": serialize_config(entry.settings),
             "historical_approval": serialize_config(entry.historical_approval),
-            "current_use": (
-                None if entry.current_use is None else serialize_config(entry.current_use)
-            ),
+            "current_use": None
+            if entry.current_use is None
+            else serialize_config(entry.current_use),
         }
         operation = operation_context(self._artifact_root, run_id)
+        started_at = prepared.manifest.started_at
+        completed_at = prepared.manifest.completed_at or datetime.now(UTC)
         current = prepared.policy_decision
         if current.decision_reference is None or current.decision_sha256 is None:
             raise ValueError("normalization policy decision is not bound")
         run_inputs = (
-            RunInputReference(
-                kind="source_snapshot_manifest",
-                id=snapshot_id,
-                path=f"raw/{source_id}/{snapshot_id}/manifest.json",
-                sha256=prepared.source_manifest_sha256,
-            ),
-            RunInputReference(
-                kind="current_use_decision",
-                id=current.decision_reference,
-                sha256=current.decision_sha256,
-            ),
+            {
+                "kind": "source_snapshot_manifest",
+                "id": snapshot_id,
+                "path": f"raw/{source_id}/{snapshot_id}/manifest.json",
+                "sha256": prepared.source_manifest_sha256,
+            },
+            {
+                "kind": "current_use_decision",
+                "id": current.decision_reference,
+                "sha256": current.decision_sha256,
+            },
         )
-        run = build_run_manifest(
+        run = build_normalization_run(
             run_id=run_id,
-            run_kind="normalize",
-            stage="data",
-            status="succeeded",
-            git_commit=operation.git_commit,
-            git_dirty=operation.git_dirty,
-            git_worktree_sha256=operation.git_worktree_sha256,
-            dependency_lock_hash=operation.dependency_lock_hash,
+            operation=operation,
             configuration_path=f"configs/normalize/{source_id}/{snapshot_id}.json",
             configuration_snapshot=config_snapshot,
             inputs=run_inputs,
-            schema_versions=("staging.v1",),
-            mapper_versions=(mapper_version,),
-            transform_versions=("normalize-v1",),
-            policy_versions=("current-use-v1",),
-            artifacts=(
-                *operation.artifacts,
-                *(
-                    RunArtifactReference(path=item.path, sha256=item.sha256, kind=item.layer)
-                    for item in table_artifacts
-                ),
-            ),
-            determinism=operation.determinism,
-            created_at=prepared.manifest.started_at,
-            started_at=prepared.manifest.started_at,
-            finished_at=prepared.manifest.completed_at or datetime.now(UTC),
+            artifacts=table_artifacts,
+            mapper_version=mapper_version,
+            started_at=started_at,
+            completed_at=completed_at,
         )
         manifest_writer = ManifestFileWriter(self._artifact_root)
         manifest_writer.write_run_manifest(
@@ -324,13 +306,24 @@ class SourceNormalizationPipeline:
                 )
                 for item in quarantine
             ),
-            started_at=prepared.manifest.started_at,
-            created_at=prepared.manifest.started_at,
-            completed_at=prepared.manifest.completed_at or datetime.now(UTC),
+            started_at=started_at,
+            created_at=started_at,
+            completed_at=completed_at,
         )
         manifest_artifact, _ = manifest_writer.write_normalized_manifest(
             normalized,
             manifest_path=f"{prefix}/manifest.json",
+        )
+        publish_canonical_snapshot(
+            self._artifact_root,
+            prepared,
+            staging=staging,
+            audits=audits,
+            quarantine=quarantine,
+            mapper_version=mapper_version,
+            normalized=normalized,
+            normalized_manifest_path=manifest_artifact.path,
+            normalized_manifest_sha256=manifest_artifact.sha256,
         )
         return NormalizeResult(
             source_id=source_id,

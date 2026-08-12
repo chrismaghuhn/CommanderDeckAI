@@ -1,0 +1,41 @@
+{
+  "schema_version": "canonical-record.v1",
+  "record_id": "canonical-participant_reference-00000000000000000000000000000001",
+  "record_type": "participant_reference",
+  "source_record_id": "event-001-player-001",
+  "source_id": "fixture",
+  "source_snapshot_id": "fixture-2026-08-10-v2",
+  "raw_locator": {
+    "source_id": "fixture",
+    "source_snapshot_id": "fixture-2026-08-10-v2",
+    "raw_object_id": "event-001",
+    "raw_object_path": "objects/event-001.json",
+    "location": {
+      "kind": "json_pointer",
+      "pointer": "/players/0"
+    },
+    "archive_member": null
+  },
+  "observed_at": "2026-08-10T18:00:30Z",
+  "payload": {
+    "schema_version": "participant-reference.v1",
+    "reference_id": "event-001-participant-001",
+    "scope": "event",
+    "source_id": null,
+    "event_id": "event-001",
+    "source_snapshot_id": null
+  },
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-2026-08-10-v2",
+      "source_object_id": "event-001",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "adapter_version": "fixture-v2",
+      "mapper_version": "canonicalizer-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ],
+  "layer": "normalized"
+}

@@ -9,6 +9,10 @@ import pytest
 from jsonschema import Draft202012Validator, FormatChecker
 from pydantic import ValidationError
 
+from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
+from commander_ai.data_pipeline.provenance.canonical_snapshot_contracts import (
+    CanonicalSnapshotManifestV1,
+)
 from commander_ai.domain.cards import CanonicalCard, CardFace, CardResolution, Printing
 from commander_ai.domain.combos import Combo, ComboCard
 from commander_ai.domain.decks import CanonicalDeck
@@ -40,6 +44,8 @@ NEW_CONTRACT_STEMS = (
     "combo.v1",
     "combo-card.v1",
     "dataset-manifest.v2",
+    "canonical-record.v1",
+    "canonical-snapshot-manifest.v1",
 )
 
 
@@ -141,6 +147,24 @@ def test_canonical_deck_example_ids_match_the_domain_fingerprint() -> None:
         assert reference["canonical_deck_id"] == deck.canonical_deck_id
 
 
+def test_canonical_record_schema_accepts_json_object_entry_locator() -> None:
+    schema, example = load_contract("canonical-record.v1")
+    candidate = copy.deepcopy(example)
+    candidate["raw_locator"]["location"] = {  # type: ignore[index]
+        "kind": "json_object_entry",
+        "parent_pointer": "/data",
+        "entry_index": 0,
+        "value_pointer": "",
+        "key_base64": "YQ==",
+        "key_byte_length": 1,
+        "key_sha256": "ca978112ca1bbdcafac231b39a23dc4da786eff8147c4e72b9807785afee48bb",
+    }
+
+    assert not validation_errors(schema, candidate)
+    record = CanonicalRecord.model_validate(candidate)
+    assert record.raw_locator.location.kind == "json_object_entry"
+
+
 def test_canonical_deck_duplicate_identity_rows_are_domain_rejected() -> None:
     schema, example = load_contract("canonical-deck.v1")
     candidate = copy.deepcopy(example)
@@ -213,6 +237,8 @@ def test_source_snapshot_v2_rejects_unknown_object_request_and_non_derived_summa
         ("participant-reference.v1", ParticipantReference),
         ("combo.v1", Combo),
         ("combo-card.v1", ComboCard),
+        ("canonical-record.v1", CanonicalRecord),
+        ("canonical-snapshot-manifest.v1", CanonicalSnapshotManifestV1),
     ),
 )
 def test_affected_domain_models_round_trip_through_their_contract(
@@ -275,6 +301,8 @@ def test_persisted_domain_models_dump_json_that_matches_their_schema() -> None:
         ("participant-reference.v1", ParticipantReference),
         ("combo.v1", Combo),
         ("combo-card.v1", ComboCard),
+        ("canonical-record.v1", CanonicalRecord),
+        ("canonical-snapshot-manifest.v1", CanonicalSnapshotManifestV1),
     )
 
     for stem, model_type in persisted_models:

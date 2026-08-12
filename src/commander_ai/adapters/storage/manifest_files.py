@@ -6,6 +6,12 @@ from contextlib import suppress
 from dataclasses import dataclass
 from pathlib import Path
 
+from commander_ai.data_pipeline.normalization.canonical_snapshot_manifests import (
+    CanonicalSnapshotBuild,
+    canonical_snapshot_manifest_bytes,
+    canonical_snapshot_manifest_sha256,
+    validate_canonical_snapshot_manifest,
+)
 from commander_ai.data_pipeline.provenance.normalized_snapshot_manifests import (
     NormalizedSnapshotBuild,
     normalized_snapshot_manifest_bytes,
@@ -88,6 +94,31 @@ class ManifestFileWriter:
             sidecar = self.write_json(
                 sidecar_path,
                 f"{normalized_snapshot_manifest_sha256(build)}\n".encode("ascii"),
+            )
+        except Exception:
+            if manifest_artifact is not None:
+                self._remove_published(manifest_artifact.path)
+            raise
+        return manifest_artifact, sidecar
+
+    def write_canonical_manifest(
+        self,
+        build: CanonicalSnapshotBuild,
+        *,
+        manifest_path: str,
+    ) -> tuple[JsonArtifact, JsonArtifact]:
+        """Publish a canonical snapshot manifest and detached digest atomically."""
+
+        validate_canonical_snapshot_manifest(build.manifest)
+        manifest_artifact: JsonArtifact | None = None
+        try:
+            manifest_artifact = self.write_json(
+                manifest_path,
+                canonical_snapshot_manifest_bytes(build),
+            )
+            sidecar = self.write_json(
+                _sidecar_path(manifest_path),
+                f"{canonical_snapshot_manifest_sha256(build)}\n".encode("ascii"),
             )
         except Exception:
             if manifest_artifact is not None:

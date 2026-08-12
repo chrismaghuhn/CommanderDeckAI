@@ -12,8 +12,10 @@ from typing import Any, Literal
 
 import pyarrow as pa  # type: ignore[import-untyped]
 import pyarrow.parquet as pq  # type: ignore[import-untyped]
+from pydantic import BaseModel
 
 from commander_ai.application.verified_source_snapshot import VerifiedSourceSnapshot
+from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
 from commander_ai.data_pipeline.provenance.rows import (
     AuditRecord,
     ProvenanceRow,
@@ -26,7 +28,7 @@ from commander_ai.data_pipeline.staging.raw_locators import (
     validate_raw_object_against_snapshot,
 )
 from commander_ai.data_pipeline.staging.records import StagingRecord
-from commander_ai.domain.cards import CanonicalCard, CardFace, Printing
+from commander_ai.domain.cards import CanonicalCard, CardFace, CardResolution, Printing
 from commander_ai.domain.provenance import DomainModel
 from commander_ai.domain.serialization import canonical_json_bytes
 
@@ -70,7 +72,7 @@ class ParquetTableWriter:
         relative_path: str | None = None,
         schema_version: str = "staging.v1",
         layer: Literal["staging", "normalized", "audit", "quarantine", "curated"] | None = None,
-        row_contract: type[DomainModel] | None = None,
+        row_contract: type[BaseModel] | None = None,
         verified_snapshot: VerifiedSourceSnapshot | None = None,
         archive_limits: ArchiveLimits | None = None,
         max_decoded_bytes: int | None = None,
@@ -162,9 +164,9 @@ class ParquetTableWriter:
         audit: Iterable[object],
         quarantine: Iterable[object],
         schema_version: str = "staging.v1",
-        staging_row_contract: type[DomainModel] = StagingRecord,
-        audit_row_contract: type[DomainModel] = AuditRecord,
-        quarantine_row_contract: type[DomainModel] = QuarantineRecord,
+        staging_row_contract: type[BaseModel] = StagingRecord,
+        audit_row_contract: type[BaseModel] = AuditRecord,
+        quarantine_row_contract: type[BaseModel] = QuarantineRecord,
         verified_snapshot: VerifiedSourceSnapshot | None = None,
         archive_limits: ArchiveLimits | None = None,
         max_decoded_bytes: int | None = None,
@@ -210,13 +212,13 @@ class ParquetTableWriter:
         return [json.loads(value) for value in table.column("row_json").to_pylist()]
 
 
-def _require_row_contract(layer: str, contract: type[DomainModel] | None) -> type[DomainModel]:
+def _require_row_contract(layer: str, contract: type[BaseModel] | None) -> type[BaseModel]:
     if contract is None:
         raise ValueError("Parquet persistence requires an explicit typed row contract")
-    allowed: dict[str, tuple[type[DomainModel], ...]] = {
+    allowed: dict[str, tuple[type[BaseModel], ...]] = {
         "staging": (StagingRecord,),
-        "normalized": (StagingRecord,),
-        "audit": (AuditRecord, ResolutionAttempt, ProvenanceRow),
+        "normalized": (StagingRecord, CanonicalRecord),
+        "audit": (AuditRecord, CardResolution, ResolutionAttempt, ProvenanceRow),
         "quarantine": (QuarantineRecord,),
         "curated": (CuratedRow, CanonicalCard, CardFace, Printing),
     }
@@ -227,7 +229,7 @@ def _require_row_contract(layer: str, contract: type[DomainModel] | None) -> typ
 
 def _row_payload(
     row: object,
-    contract: type[DomainModel],
+    contract: type[BaseModel],
     layer: str,
 ) -> dict[str, object]:
     if not isinstance(row, contract):
@@ -243,8 +245,10 @@ def _row_payload(
         if layer != "curated":
             raise ValueError("canonical card contracts may only be persisted in curated")
         return value
+    if contract is CardResolution:
+        return value
     declared_layer = value.get("layer")
-    expected_layers = {"staging"} if layer == "normalized" else {layer}
+    expected_layers = {"staging", "normalized"} if layer == "normalized" else {layer}
     if declared_layer not in expected_layers:
         raise ValueError(f"{layer} rows must carry the validated layer metadata")
     return value
@@ -263,9 +267,24 @@ def _validate_source_locators(
         if isinstance(row, StagingRecord):
             locators.append((row.raw_locator, row.source_id, None))
             identities.append(("staging", row.record_type, row.raw_locator.identity))
+        elif isinstance(row, CanonicalRecord):
+            locators.append((row.raw_locator, row.source_id, None))
+            identities.append(("canonical", row.record_type, row.raw_locator.identity))
         elif isinstance(row, ProvenanceRow):
             locators.append((row.raw_locator, row.source_id, row.raw_sha256))
             identities.append(("provenance", row.entity_id, row.raw_locator.identity))
+        elif isinstance(row, CardResolution):
+            identities.append(
+                ("resolution", row.resolution_id, row.source_object_id, row.raw_locator)
+            )
+            if verified_snapshot is None:
+                raise ValueError("card resolution rows require verified raw snapshot evidence")
+            validate_raw_object_against_snapshot(
+                row.source_object_id,
+                verified_snapshot=verified_snapshot,
+                source_id=row.source_id,
+                source_snapshot_id=row.source_snapshot_id,
+            )
         elif isinstance(row, (ResolutionAttempt, QuarantineRecord, AuditRecord)):
             locator = getattr(row, "raw_locator", None)
             if isinstance(locator, RawLocator):
@@ -312,23 +331,29 @@ def validate_parquet_table_rows(
     path: Path,
     *,
     layer: Literal["staging", "normalized", "audit", "quarantine", "curated"],
+    row_contract: type[BaseModel] | None = None,
     verified_snapshot: VerifiedSourceSnapshot | None = None,
     archive_limits: ArchiveLimits | None = None,
     max_decoded_bytes: int | None = None,
 ) -> None:
     """Deserialize persisted rows through the same nominal layer contract."""
 
-    contracts = {
+    contracts_by_layer: dict[str, type[BaseModel] | tuple[type[BaseModel], ...]] = {
         "staging": StagingRecord,
-        "normalized": StagingRecord,
-        "audit": (AuditRecord, ResolutionAttempt, ProvenanceRow),
+        "normalized": (StagingRecord, CanonicalRecord),
+        "audit": (AuditRecord, CardResolution, ResolutionAttempt, ProvenanceRow),
         "quarantine": QuarantineRecord,
         "curated": (CuratedRow, CanonicalCard, CardFace, Printing),
-    }[layer]
+    }
+    contracts = contracts_by_layer[layer]
+    if row_contract is not None:
+        if row_contract not in (contracts if isinstance(contracts, tuple) else (contracts,)):
+            raise ValueError("row contract is not valid for the requested Parquet layer")
+        contracts = row_contract
     try:
         table = pq.read_table(path)
         raw_rows = table.column("row_json").to_pylist()
-        rows: list[DomainModel] = []
+        rows: list[BaseModel] = []
         for value in raw_rows:
             payload = json.loads(value)
             matches = []

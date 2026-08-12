@@ -42,7 +42,7 @@ class CliServices:
 
 def build_default_services(repository_root: Path | str | None = None) -> CliServices:
     root = Path(repository_root or _repository_root()).expanduser().absolute()
-    runtime = RuntimeConfig(data_root=root / "data", artifact_root=root / "artifacts")
+    runtime = RuntimeConfig.from_environment(repository_root=root)
     registry_provider = SourceRegistryProvider(root)
     catalog: SourceCatalogPort = ConfiguredSourceCatalog(root)
     sync: SourceSyncPort = ConfiguredSourceSync(runtime)

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -12,7 +12,7 @@ from commander_ai.adapters.storage.manifest_files import JsonArtifact, ManifestF
 from commander_ai.adapters.storage.parquet_tables import CuratedRow, ParquetTableWriter
 from commander_ai.config.current_use_policy import CurrentUseDecision
 from commander_ai.config.dataset_settings import DatasetSettings
-from commander_ai.config.source_settings import SourceApprovalStatus, normalize_source_id
+from commander_ai.config.source_settings import SourceApprovalStatus
 from commander_ai.data_pipeline.deduplication.near_duplicates import NearDuplicatePolicy
 from commander_ai.data_pipeline.provenance.run_manifests import RunManifest
 from commander_ai.data_pipeline.splitting.deck_completion_policy import (
@@ -37,6 +37,7 @@ from commander_ai.domain.dataset_contracts import (
 )
 from commander_ai.domain.serialization import canonical_json_bytes
 
+from .dataset_builder_types import DatasetProjectionRecord
 from .dataset_filters import (
     filter_completion_records,
     validate_current_use_decisions,
@@ -49,32 +50,8 @@ from .dataset_manifest import (
     manifest_payload,
     verify_dataset_inputs,
 )
+from .dataset_provenance import require_completion_provenance, require_observation_provenance
 from .dataset_rows import completion_rows, cooccurrence_rows, projection_rows, tournament_rows
-
-
-@dataclass(frozen=True, slots=True)
-class DatasetProjectionRecord:
-    """Generic time-indexed record for combo projections."""
-
-    record_id: str
-    observed_at: datetime
-    payload: Mapping[str, object]
-    source_id: str | None = None
-    source_snapshot_id: str | None = None
-
-    def __post_init__(self) -> None:
-        if not self.record_id.strip():
-            raise ValueError("record_id must be non-empty")
-        if self.observed_at.tzinfo is None or self.observed_at.utcoffset() is None:
-            raise ValueError("observed_at must include a timezone")
-        if not isinstance(self.payload, Mapping):
-            raise TypeError("payload must be a mapping")
-        if (self.source_id is None) != (self.source_snapshot_id is None):
-            raise ValueError("source_id and source_snapshot_id must be supplied together")
-        if self.source_id is not None:
-            object.__setattr__(self, "source_id", normalize_source_id(self.source_id))
-            if not self.source_snapshot_id or not self.source_snapshot_id.strip():
-                raise ValueError("source_snapshot_id must be non-empty")
 
 
 @dataclass(frozen=True, slots=True)
@@ -96,6 +73,7 @@ class DatasetBuildRequest:
     configuration_path: str | None = None
     configuration_snapshot: object | None = None
     input_root: Path | str | None = None
+    raw_input_root: Path | str | None = None
     producing_run: RunManifest | None = None
     producing_run_path: str | None = None
     builder_version: str = "dataset-builder-v1"
@@ -136,6 +114,11 @@ def build_dataset(
         completion_records = tuple(
             record for record in records if isinstance(record, DeckCompletionRecord)
         )
+        require_completion_provenance(
+            completion_records,
+            current_use_decisions,
+            request.source_snapshot_bindings,
+        )
         filtered_records, filter_exclusions = filter_completion_records(
             request.settings, completion_records, current_use_decisions
         )
@@ -163,7 +146,7 @@ def build_dataset(
         tournament_records = tuple(
             record for record in records if isinstance(record, TournamentRecord)
         )
-        _require_observation_provenance(
+        require_observation_provenance(
             tournament_records,
             current_use_decisions,
             request.source_snapshot_bindings,
@@ -187,7 +170,7 @@ def build_dataset(
         projection_records = tuple(
             record for record in records if isinstance(record, DatasetProjectionRecord)
         )
-        _require_observation_provenance(
+        require_observation_provenance(
             projection_records,
             current_use_decisions,
             request.source_snapshot_bindings,
@@ -350,29 +333,6 @@ def _remove_unpublished_output(output_root: Path, relative_path: str) -> None:
     path = output_root.joinpath(*relative_path.split("/"))
     if path.is_file() and not path.is_symlink():
         path.unlink()
-
-
-def _require_observation_provenance(
-    records: Sequence[TournamentRecord | DatasetProjectionRecord],
-    current_use_decisions: Mapping[str, CurrentUseDecision],
-    source_snapshot_bindings: Sequence[tuple[str, str]],
-) -> None:
-    """Require source bindings before event/combo observations enter curated data."""
-
-    allowed_bindings = {
-        (normalize_source_id(source_id), source_snapshot_id)
-        for source_id, source_snapshot_id in source_snapshot_bindings
-    }
-    for record in records:
-        source_id = getattr(record, "source_id", None)
-        source_snapshot_id = getattr(record, "source_snapshot_id", None)
-        if source_id is None or source_snapshot_id is None:
-            raise ValueError("dataset observation requires source provenance")
-        normalized_source = normalize_source_id(source_id)
-        if normalized_source not in current_use_decisions:
-            raise ValueError("dataset observation source has no current-use decision")
-        if (normalized_source, source_snapshot_id) not in allowed_bindings:
-            raise ValueError("dataset observation source snapshot is not bound to dataset inputs")
 
 
 __all__ = [

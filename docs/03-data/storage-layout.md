@@ -8,6 +8,9 @@ data/
 ├── normalized/{source}/{snapshot_id}/
 │   ├── *.parquet
 │   └── manifest.json
+├── canonical/{source}/{snapshot_id}/
+│   ├── *.parquet
+│   └── manifest.json
 ├── curated/{dataset_id}/
 │   ├── train/
 │   ├── validation/
@@ -91,8 +94,16 @@ optional stricter extension, not a replacement for v1. The SQL
 migration `008_staging_audit_runs.sql` is only a local index and can be dropped and
 rebuilt from Raw manifests, Parquet, and the versioned normalized manifest.
 
+Canonicalization publishes a separate `canonical-snapshot-manifest.v1`. Its canonical
+Parquet table contains source-neutral card, deck, observation, participant, pod, and
+combo envelopes; separate resolution, provenance, audit, and quarantine tables retain
+all identity attempts and failures. The canonical manifest binds the normalized
+manifest hash, producing run, table hashes, row counts, and raw-source verification.
+It is the authoritative input for curated dataset projections; DuckDB remains only a
+rebuildable local index.
+
 All DuckDB/SQL tables introduced by the data-foundation migrations are derived
 query, index, or cache infrastructure. They are never the only copy of an
 observation, finding, provenance binding, or result. Deleting DuckDB must not
-require reacquiring a source: raw manifests/raw objects plus normalized and
-curated Parquet and their manifests are sufficient to rebuild it.
+require reacquiring a source: raw manifests/raw objects plus normalized, canonical,
+and curated Parquet and their manifests are sufficient to rebuild it.

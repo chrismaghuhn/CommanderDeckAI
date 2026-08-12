@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Literal
 
@@ -36,6 +37,17 @@ class RuntimeConfig(BaseModel):
     default_rate_limit_per_minute: int = Field(default=60, ge=1, le=10_000)
     default_max_pages: int = Field(default=100, ge=1, le=100_000)
     default_max_download_bytes: int = Field(default=2_000_000_000, ge=1, le=20_000_000_000)
+
+    @classmethod
+    def from_environment(cls, repository_root: Path | str | None = None) -> RuntimeConfig:
+        """Load only global runtime roots and safe defaults from the environment."""
+
+        root = Path(repository_root or cls._repository_root()).expanduser().resolve()
+        data_value = os.environ.get("COMMANDER_AI_DATA_DIR")
+        artifact_value = os.environ.get("COMMANDER_AI_ARTIFACT_DIR")
+        data_root = _environment_path(data_value, root / "data", root)
+        artifact_root = _environment_path(artifact_value, root / "artifacts", root)
+        return cls(data_root=data_root, artifact_root=artifact_root)
 
     @model_validator(mode="after")
     def normalize_roots(self) -> RuntimeConfig:
@@ -109,3 +121,10 @@ class RuntimeConfig(BaseModel):
         if relative == Path("."):
             return _REPOSITORY_ROOT_MARKER
         return validate_portable_relative_path(relative.as_posix())
+
+
+def _environment_path(value: str | None, fallback: Path, repository_root: Path) -> Path:
+    if not value or not value.strip():
+        return fallback
+    candidate = Path(value).expanduser()
+    return candidate if candidate.is_absolute() else repository_root / candidate

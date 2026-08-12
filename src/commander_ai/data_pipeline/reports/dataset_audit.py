@@ -101,6 +101,12 @@ def build_dataset_audit_report(
     missing_mode = sum(deck.mode is None for deck in decks)
     usable_outcomes = sum(deck.usable_outcome for deck in decks)
     full_pods = sum(deck.full_pod for deck in decks)
+    tournament_events = sum(source.tournament_events for source in ordered_sources)
+    complete_event_observations = sum(
+        source.complete_event_observations for source in ordered_sources
+    )
+    pod_count = sum(source.pods for source in ordered_sources)
+    complete_pod_count = sum(source.complete_pods for source in ordered_sources)
     return DatasetAuditReport(
         schema_version="dataset-audit-report.v1",
         report_id=report_id,
@@ -116,6 +122,9 @@ def build_dataset_audit_report(
             "unresolved_card_records": sum(not deck.resolution_complete for deck in decks),
             "usable_outcomes": usable_outcomes,
             "full_pod_records": full_pods,
+            "tournaments": tournament_events,
+            "event_observations": complete_event_observations,
+            "pods": pod_count,
         },
         classification={
             "casual": mode_counts.get("casual", 0),
@@ -123,7 +132,11 @@ def build_dataset_audit_report(
             "unknown": mode_counts.get("unknown", 0),
         },
         outcomes={"usable": usable_outcomes},
-        pods={"full": full_pods},
+        pods={
+            "total": pod_count,
+            "complete": complete_pod_count,
+            "full": full_pods,
+        },
         commander_distribution={
             "unique": len(commanders),
             "dominant": _top_commanders(commanders),

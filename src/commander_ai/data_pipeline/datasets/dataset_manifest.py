@@ -13,6 +13,9 @@ from commander_ai.adapters.storage.raw_snapshot_io import sha256_file
 from commander_ai.config.current_use_policy import (
     current_use_decision_binding,
 )
+from commander_ai.data_pipeline.provenance.canonical_snapshot_verifier import (
+    read_canonical_snapshot_manifest,
+)
 from commander_ai.data_pipeline.provenance.normalized_snapshot_manifests import (
     validate_normalized_snapshot_manifest_bytes,
 )
@@ -199,6 +202,16 @@ def verify_dataset_inputs(request: DatasetBuildRequest) -> None:
                 raise ValueError("dataset normalized input must be COMPLETE")
             if normalized_parsed.normalized_snapshot_id != reference.id:
                 raise ValueError("dataset normalized input id does not match manifest")
+        elif reference.kind == "canonical_snapshot_manifest":
+            raw_root = request.raw_input_root or root
+            verified = read_canonical_snapshot_manifest(
+                root,
+                reference.path,
+                raw_root=raw_root,
+                run_root=root,
+            )
+            if verified.manifest.canonical_snapshot_id != reference.id:
+                raise ValueError("dataset canonical input id does not match manifest")
 
 
 def _configuration_reference(request: DatasetBuildRequest) -> DatasetInputReference:

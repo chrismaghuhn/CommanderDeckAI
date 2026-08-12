@@ -68,6 +68,8 @@ def _input(
     decks: tuple[DeckMetricRecord, ...] = (),
     research_only: bool = False,
     current_use: CurrentUseDecision | None = None,
+    exact_duplicate_decks: int = 2,
+    cross_source_overlap_decks: int = 1,
 ) -> SourceMetricsInput:
     return SourceMetricsInput(
         source_id=source_id,
@@ -80,8 +82,8 @@ def _input(
         card_resolution_resolved=2,
         card_resolution_ambiguous=0,
         card_resolution_unresolved=1,
-        exact_duplicate_decks=2,
-        cross_source_overlap_decks=1,
+        exact_duplicate_decks=exact_duplicate_decks,
+        cross_source_overlap_decks=cross_source_overlap_decks,
         quarantined_records=1,
         input_manifests=(
             ReportInputBinding(
@@ -204,3 +206,66 @@ def test_source_metrics_reject_inconsistent_card_resolution_counts() -> None:
             historical_approval_status=SourceApprovalStatus.APPROVED_LOCAL,
             current_use=_decision("fixture"),
         )
+
+
+def test_source_report_exposes_event_and_pod_coverage() -> None:
+    source = SourceMetricsInput(
+        source_id="fixture",
+        snapshot_id="snapshot-1",
+        snapshot_date=datetime(2026, 8, 10, tzinfo=UTC),
+        raw_bytes=10,
+        source_record_count=4,
+        tournament_events=2,
+        complete_event_observations=3,
+        pods=1,
+        complete_pods=0,
+        input_manifests=(
+            ReportInputBinding(
+                kind="canonical_snapshot_manifest",
+                identifier="canonical-1",
+                sha256="c" * 64,
+            ),
+        ),
+        historical_approval_status=SourceApprovalStatus.APPROVED_LOCAL,
+        current_use=_decision("fixture"),
+    )
+
+    summary = build_source_metrics_report(
+        [source], report_id="coverage-report", reported_at=datetime(2026, 8, 11, tzinfo=UTC)
+    ).as_dict()["sources"][0]
+
+    assert summary["tournaments"] == 2
+    assert summary["event_observations"]["complete"] == 3
+    assert summary["pods"]["total"] == 1
+    assert summary["pods"]["complete"] == 0
+
+
+def test_source_report_derives_exact_and_cross_source_overlap_counts() -> None:
+    first = _input(
+        source_id="source-a",
+        snapshot_id="a-snapshot",
+        decks=(_deck("a-1", source_id="source-a", canonical_deck_id="same"),),
+        current_use=_decision("source-a"),
+        exact_duplicate_decks=0,
+        cross_source_overlap_decks=0,
+    )
+    second = _input(
+        source_id="source-b",
+        snapshot_id="b-snapshot",
+        decks=(_deck("b-1", source_id="source-b", canonical_deck_id="same"),),
+        current_use=_decision("source-b"),
+        exact_duplicate_decks=0,
+        cross_source_overlap_decks=0,
+    )
+
+    report = build_source_metrics_report(
+        [first, second],
+        report_id="overlap-report",
+        reported_at=datetime(2026, 8, 11, tzinfo=UTC),
+    )
+
+    summaries = {item["source_id"]: item for item in report.as_dict()["sources"]}
+    assert summaries["source_a"]["duplicates"] == {
+        "exact_decks": 0,
+        "cross_source_overlap_decks": 1,
+    }

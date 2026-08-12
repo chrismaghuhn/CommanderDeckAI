@@ -1,0 +1,101 @@
+{
+  "schema_version": "canonical-snapshot-manifest.v1",
+  "canonical_snapshot_id": "canonical-2923fb6f40278a9cda63190069be5d05",
+  "producing_run_id": "canonicalize-fixture-snapshot-001",
+  "input_normalized_snapshot_id": "normalized-fixture-snapshot-001",
+  "input_normalized_manifest_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+  "source_id": "fixture",
+  "status": "COMPLETE",
+  "canonical_schema_version": "canonical-record.v1",
+  "mapper_version": "canonicalizer-v1",
+  "transform_version": "canonicalize-v1",
+  "artifacts": [
+    {
+      "artifact_name": "audit",
+      "artifact_kind": "audit",
+      "layer": "audit",
+      "schema_version": "audit.v1",
+      "path": "canonical/fixture/snapshot-001/audit.parquet",
+      "sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "rows": 0,
+      "bytes": 100
+    },
+    {
+      "artifact_name": "canonical",
+      "artifact_kind": "canonical",
+      "layer": "normalized",
+      "schema_version": "canonical-record.v1",
+      "path": "canonical/fixture/snapshot-001/canonical.parquet",
+      "sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "rows": 1,
+      "bytes": 200
+    },
+    {
+      "artifact_name": "provenance",
+      "artifact_kind": "provenance",
+      "layer": "audit",
+      "schema_version": "provenance-row.v1",
+      "path": "canonical/fixture/snapshot-001/provenance.parquet",
+      "sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+      "rows": 1,
+      "bytes": 100
+    },
+    {
+      "artifact_name": "quarantine",
+      "artifact_kind": "quarantine",
+      "layer": "quarantine",
+      "schema_version": "quarantine.v1",
+      "path": "canonical/fixture/snapshot-001/quarantine.parquet",
+      "sha256": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "rows": 0,
+      "bytes": 100
+    },
+    {
+      "artifact_name": "resolution",
+      "artifact_kind": "resolution",
+      "layer": "audit",
+      "schema_version": "card-resolution.v1",
+      "path": "canonical/fixture/snapshot-001/resolution.parquet",
+      "sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "rows": 0,
+      "bytes": 100
+    },
+    {
+      "artifact_name": "resolution-attempt",
+      "artifact_kind": "resolution_attempt",
+      "layer": "audit",
+      "schema_version": "resolution-attempt.v1",
+      "path": "canonical/fixture/snapshot-001/resolution-attempt.parquet",
+      "sha256": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+      "rows": 0,
+      "bytes": 100
+    }
+  ],
+  "counts": {
+    "input_records": 1,
+    "canonical_records": 1,
+    "audit_records": 0,
+    "resolution_records": 0,
+    "resolution_attempt_records": 0,
+    "provenance_records": 1,
+    "quarantine_records": 0
+  },
+  "finding_codes": [],
+  "quarantine_references": [],
+  "provenance": [
+    {
+      "source_id": "fixture",
+      "source_snapshot_id": "fixture-source-snapshot-001",
+      "source_object_id": "object-001",
+      "raw_sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+      "retrieved_at": "2026-08-10T18:00:30Z",
+      "adapter_version": "fixture-v1",
+      "mapper_version": "canonicalizer-v1",
+      "approval_status": "APPROVED_REDISTRIBUTION"
+    }
+  ],
+  "created_at": "2026-08-10T18:02:00Z",
+  "started_at": "2026-08-10T18:01:30Z",
+  "completed_at": "2026-08-10T18:02:00Z",
+  "canonical_content_sha256": "2923fb6f40278a9cda63190069be5d0551ac0941b477740ac9f69e0ceb3ed0ce"
+}

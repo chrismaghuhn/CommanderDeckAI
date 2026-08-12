@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
+from pathlib import Path
 
 from commander_ai.adapters.storage.manifest_files import ManifestFileWriter
 from commander_ai.adapters.storage.parquet_tables import ParquetTableWriter
@@ -20,20 +22,27 @@ from commander_ai.data_pipeline.datasets.dataset_builder import (
     DatasetProjectionRecord,
     build_dataset,
 )
-from commander_ai.data_pipeline.provenance.normalized_snapshot_verifier import (
-    read_normalized_snapshot_manifest,
+from commander_ai.data_pipeline.decks.canonical_decks import DeckOccurrence, DeckSourceReference
+from commander_ai.data_pipeline.normalization.canonical_records import CanonicalRecord
+from commander_ai.data_pipeline.provenance.canonical_snapshot_verifier import (
+    read_canonical_snapshot_manifest,
 )
 from commander_ai.data_pipeline.provenance.run_manifests import (
     RunArtifactReference,
     RunInputReference,
     build_run_manifest,
 )
+from commander_ai.data_pipeline.splitting.deck_completion_policy import DeckCompletionRecord
+from commander_ai.data_pipeline.splitting.tournament_policy import TournamentRecord
 from commander_ai.domain.dataset_contracts import DatasetInputReference
+from commander_ai.domain.decks import CanonicalDeck
+from commander_ai.domain.observations import EventDeckObservation
+from commander_ai.domain.provenance import ProvenanceReference
 from commander_ai.domain.serialization import canonical_json_bytes
 
 from .operation_provenance import operation_context
 from .registry_context import SourceRegistryProvider
-from .reporting import _select_manifests, _sha256
+from .reporting import _sha256
 
 
 class ConfiguredDatasetBuild:
@@ -51,16 +60,16 @@ class ConfiguredDatasetBuild:
             raise ApplicationError("CONFIG_DATASET_CONFIG_INVALID") from None
         policy = SourcePolicy(registry)
         input_manifests: list[DatasetInputReference] = []
-        records: list[DatasetProjectionRecord] = []
+        records: list[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord] = []
         decisions = []
         source_snapshot_ids: list[str] = []
         source_snapshot_bindings: set[tuple[str, str]] = set()
         historical_statuses: dict[str, SourceApprovalStatus] = {}
         input_created_at: list[datetime] = []
         selected_sources = settings.source_ids
-        manifest_paths = _select_manifests(self._runtime.artifact_root, "all")
+        manifest_paths = _select_canonical_manifests(self._runtime.artifact_root, "all")
         for manifest_path in manifest_paths:
-            verified = read_normalized_snapshot_manifest(
+            verified = read_canonical_snapshot_manifest(
                 self._runtime.artifact_root,
                 manifest_path,
                 raw_root=self._runtime.data_root,
@@ -79,39 +88,36 @@ class ConfiguredDatasetBuild:
             decision = entry.current_use
             if decision not in decisions:
                 decisions.append(decision)
-            source_snapshot_id = verified.manifest.input_source_snapshot_manifest_id
+            source_snapshot_id = (
+                verified.normalized_snapshot.manifest.input_source_snapshot_manifest_id
+            )
             source_snapshot_ids.append(source_snapshot_id)
             source_snapshot_bindings.add((source_id, source_snapshot_id))
             historical_statuses[source_id] = entry.historical_approval.approval_status
             input_created_at.append(verified.manifest.created_at)
-            if verified.manifest.normalized_schema_version == "staging.v1":
-                raise ApplicationError("QUALITY_CANONICALIZATION_REQUIRED")
             normalized_hash = _sha256(self._runtime.artifact_root / manifest_path)
             input_manifests.append(
                 DatasetInputReference(
-                    kind="normalized_snapshot_manifest",
-                    id=verified.manifest.normalized_snapshot_id,
+                    kind="canonical_snapshot_manifest",
+                    id=verified.manifest.canonical_snapshot_id,
                     path=manifest_path,
                     sha256=normalized_hash,
                 )
             )
-            rows = ParquetTableWriter(self._runtime.artifact_root).read_table(
-                verified.manifest.normalized_artifact_path
+            canonical_artifact = next(
+                item for item in verified.manifest.artifacts if item.artifact_kind == "canonical"
             )
-            observed_at = verified.manifest.created_at
-            for index, row in enumerate(rows):
-                record_id = str(
-                    row.get("staging_record_id", f"{source_id}-{source_snapshot_id}-{index}")
+            rows = ParquetTableWriter(self._runtime.artifact_root).read_table(
+                canonical_artifact.path
+            )
+            records.extend(
+                _dataset_records(
+                    settings.dataset_kind,
+                    rows,
+                    source_id=source_id,
+                    source_snapshot_id=source_snapshot_id,
                 )
-                records.append(
-                    DatasetProjectionRecord(
-                        record_id=record_id,
-                        observed_at=observed_at,
-                        payload=row,
-                        source_id=source_id,
-                        source_snapshot_id=source_snapshot_id,
-                    )
-                )
+            )
         if not input_manifests:
             raise ApplicationError("INTEGRITY_NORMALIZED_SNAPSHOT_NOT_FOUND")
 
@@ -174,6 +180,7 @@ class ConfiguredDatasetBuild:
             input_manifests=tuple(input_manifests),
             output_root=self._runtime.artifact_root,
             input_root=self._runtime.artifact_root,
+            raw_input_root=self._runtime.data_root,
             code_commit=operation.git_commit,
             dependency_lock_hash=operation.dependency_lock_hash,
             source_snapshot_ids=tuple(sorted(set(source_snapshot_ids))),
@@ -248,6 +255,98 @@ class ConfiguredDatasetBuild:
             manifest_sha256=result.manifest_artifact.sha256,
             output_paths=tuple(item.path for item in result.output_artifacts),
         )
+
+
+def _select_canonical_manifests(root: Path, selector: str) -> tuple[str, ...]:
+    canonical_root = root / "canonical"
+    paths: list[str] = []
+    if not canonical_root.is_dir() or canonical_root.is_symlink():
+        return ()
+    for path in canonical_root.rglob("manifest.json"):
+        if not path.is_file() or path.is_symlink():
+            continue
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            continue
+        if selector == "all" or payload.get("source_id") == selector:
+            paths.append(path.relative_to(root).as_posix())
+    return tuple(sorted(paths))
+
+
+def _dataset_records(
+    dataset_kind: str,
+    rows: list[dict[str, object]],
+    *,
+    source_id: str,
+    source_snapshot_id: str,
+) -> tuple[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord, ...]:
+    records: list[DeckCompletionRecord | TournamentRecord | DatasetProjectionRecord] = []
+    for row in rows:
+        canonical = CanonicalRecord.model_validate(row)
+        if dataset_kind in {"deck_completion", "card_cooccurrence"}:
+            if canonical.record_type != "canonical_deck":
+                continue
+            deck = CanonicalDeck.model_validate(canonical.payload)
+            raw_reference = _raw_reference(canonical)
+            source = DeckSourceReference(
+                source_id=source_id,
+                source_deck_id=canonical.source_record_id,
+                source_snapshot_id=source_snapshot_id,
+                raw_object_id=canonical.raw_locator.raw_object_id,
+                raw_sha256=raw_reference.raw_sha256,
+                observed_at=canonical.observed_at,
+            )
+            records.append(
+                DeckCompletionRecord(
+                    record_id=canonical.record_id,
+                    occurrence=DeckOccurrence(deck=deck, source=source),
+                    observed_at=canonical.observed_at,
+                    payload=canonical.payload,
+                    complete_decklist=True,
+                    resolution_complete=True,
+                    legal_status="unknown",
+                    quality_status="accepted",
+                )
+            )
+        elif dataset_kind == "tournament_outcomes":
+            if canonical.record_type != "event_deck_observation":
+                continue
+            observation = EventDeckObservation.model_validate(canonical.payload)
+            records.append(
+                TournamentRecord(
+                    record_id=canonical.record_id,
+                    event_id=observation.event_id,
+                    observed_at=observation.observed_at,
+                    canonical_deck_id=observation.canonical_deck_id,
+                    payload=canonical.payload,
+                    complete_event=True,
+                    source_id=source_id,
+                    source_snapshot_id=source_snapshot_id,
+                )
+            )
+        elif dataset_kind == "combo":
+            if canonical.record_type not in {"combo", "combo_card"}:
+                continue
+            records.append(
+                DatasetProjectionRecord(
+                    record_id=canonical.record_id,
+                    observed_at=canonical.observed_at,
+                    payload=canonical.payload,
+                    source_id=source_id,
+                    source_snapshot_id=source_snapshot_id,
+                )
+            )
+        else:
+            raise ApplicationError("CONFIG_DATASET_KIND_INVALID")
+    return tuple(records)
+
+
+def _raw_reference(canonical: CanonicalRecord) -> ProvenanceReference:
+    for reference in canonical.provenance:
+        if reference.source_object_id == canonical.raw_locator.raw_object_id:
+            return reference
+    raise ValueError("canonical record has no matching raw provenance")
 
 
 def _dataset_schema_version(dataset_kind: str) -> str:

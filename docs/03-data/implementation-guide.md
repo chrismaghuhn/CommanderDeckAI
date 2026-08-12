@@ -104,19 +104,22 @@ parsing. Staging and audit records retain the source snapshot, raw object, and
 JSON-pointer/record-index/byte-range locator. Unresolved and malformed records
 are preserved; they are not silently discarded or guessed into canonical cards.
 
-The authoritative normalized output is the versioned
-`normalized-snapshot-manifest.v1` plus its normalized, audit, and quarantine
-Parquet artifacts. The authoritative task-specific output is its own
-`dataset-manifest` plus task-specific Parquet and a bound `run-manifest.v1`.
+The authoritative staging output is the versioned
+`normalized-snapshot-manifest.v1` plus its staging, audit, and quarantine
+Parquet artifacts. After a verified normalized snapshot, the source-neutral
+canonical output is the versioned `canonical-snapshot-manifest.v1` plus its
+canonical, resolution, provenance, audit, and quarantine Parquet artifacts.
+The authoritative task-specific output is its own `dataset-manifest` plus
+task-specific Parquet and a bound `run-manifest.v1`.
 `run-manifest.v1` is reused for source sync, normalize, validate, report, and
 dataset build; no competing data-run contract is used.
 
-The current source adapters intentionally publish staging records, not
-canonical deck/event/combo records. `dataset build` therefore refuses a
-`staging.v1` normalized input with `QUALITY_CANONICALIZATION_REQUIRED`; a
-staging row is never relabeled as a combo or outcome record. The typed dataset
-builders remain available for the later canonicalization output, which must
-bind its own versioned artifacts before a training-ready dataset is published.
+Source adapters publish source DTOs and staging records only. The normalize
+pipeline then performs deterministic identity resolution and source-neutral
+canonicalization into the separately verified canonical snapshot. A staging
+row is never relabeled as a combo or outcome record. `dataset build` consumes
+only the verified canonical manifest and binds that exact input before a
+training-ready dataset is published.
 
 ## Provenance and integrity
 

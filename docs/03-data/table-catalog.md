@@ -53,6 +53,16 @@ every resolution attempt. `quarantine.parquet` retains failed observations and t
 reason codes. None of these tables is a curated output; all are rebuildable from the
 verified raw snapshot and the immutable normalized manifest.
 
+## Canonical snapshot tables
+
+`canonical.parquet` stores source-neutral canonical-record envelopes. The matching
+`canonical-snapshot-manifest.v1` binds the normalized input, producing run, table
+hashes, row counts, and raw evidence. `resolution.parquet` and
+`resolution-attempt.parquet` retain every deterministic card-resolution result,
+including ambiguous and unresolved values; `provenance.parquet`, `audit.parquet`,
+and `quarantine.parquet` remain separate audit evidence. These Parquet artifacts are
+authoritative and can rebuild local DuckDB projections.
+
 ## Task-12 event and combo projections
 
 Event-level final standings are stored separately from round/pod `PodEntry` rows.
