@@ -123,7 +123,13 @@ class RawSnapshotStore:
 
     @staticmethod
     def _component(value: str, code: str) -> str:
-        if not isinstance(value, str) or not value or "/" in value or "\\" in value:
+        if (
+            not isinstance(value, str)
+            or not value
+            or value.startswith(".")
+            or "/" in value
+            or "\\" in value
+        ):
             raise RawSnapshotError(code)
         try:
             validate_portable_relative_path(f"component/{value}")
